@@ -15,7 +15,6 @@
     "dev:ws": "tsx --env-file=.env.local scripts/ws-server.ts",
     "dev:reconciler": "tsx --env-file=.env.local scripts/settlement-reconciler.ts",
     "dev:liquidator": "tsx --env-file=.env.local scripts/liquidation-keeper.ts",
-    "dev:ttl": "tsx --env-file=.env.local scripts/ttl-keeper.ts",
     "dev:monitor": "tsx --env-file=.env.local scripts/monitor.ts",
     "production:gate": "tsx scripts/production-gate.ts",
     "production:live-gate": "tsx scripts/live-production-gate.ts",

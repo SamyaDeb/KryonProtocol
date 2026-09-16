@@ -55,8 +55,8 @@ pub fn plan_liquidation(
     // size * shortfall / notional, freed notional equal to the shortfall
     // rather than margin, under-closing by 1 / (mm - fee): an on-chain
     // liquidator capped at the plan needed dozens of dust steps.
-    let margin_rate_bps = market.config.maintenance_margin_bps as i128
-        - market.config.liquidation_fee_bps as i128;
+    let margin_rate_bps =
+        market.config.maintenance_margin_bps as i128 - market.config.liquidation_fee_bps as i128;
     let min_size_to_cover = if margin_rate_bps <= 0 {
         position.size
     } else {
@@ -190,8 +190,7 @@ mod tests {
 
         let notional_total = 100 * mark;
         let freed = protocol_core::mul_div(notional_total, 450, 10_000).unwrap();
-        let expected =
-            protocol_core::mul_div(100 * PRECISION, shortfall, freed).unwrap() + 1;
+        let expected = protocol_core::mul_div(100 * PRECISION, shortfall, freed).unwrap() + 1;
         assert_eq!(plan.close_size, expected);
 
         // Closing exactly the plan restores maintenance: the new equity covers

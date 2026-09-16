@@ -71,12 +71,13 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Soroban / Stellar smart contracts: format, lint, test, and a wasm release build.
+  # Rust reference model (protocol-core, risk-engine) and the kryon-ref ffi
+  # binary the Solidity differential tests call.
   # ---------------------------------------------------------------------------
-  contracts:
-    name: contracts (fmt · clippy · test · wasm)
+  reference-model:
+    name: reference model (fmt · clippy · test)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: kryon-protocol
@@ -86,15 +87,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # Toolchain version is pinned and MUST match kryon-protocol/rust-toolchain.toml
-      # (1.89.0) and the wasm target Soroban 23 expects (wasm32v1-none).
+      # Pinned; MUST match kryon-protocol/rust-toolchain.toml.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.89.0
         with:
-          targets: wasm32v1-none
           components: rustfmt,clippy
 
-      # Caches registry + target dir keyed on Cargo.lock for fast, deterministic builds.
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -109,10 +107,71 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-      # --locked forbids any implicit Cargo.lock change, guaranteeing the audited
-      # dependency set is exactly what ships on-chain.
-      - name: Build release wasm
-        run: cargo build --workspace --release --locked
+  # ---------------------------------------------------------------------------
+  # Solidity suite on arc-foundry (pinned). Build sizes, unit/invariant tests,
+  # differential fuzz vs the Rust reference, storage-layout diff, Slither.
+  # The full job set (coverage, gas diff, fork tests) lands with Step 6.
+  # ---------------------------------------------------------------------------
+  evm:
+    name: evm (arc-foundry · test · differential · layout · slither)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ARC_FOUNDRY_VERSION: v0.8.0-1
+    defaults:
+      run:
+        working-directory: kryon-protocol/evm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install arc-foundry (checksum verified)
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          V="$ARC_FOUNDRY_VERSION"
+          T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
+          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T.sha256"
+          sha256sum -c "$T.sha256"
+          tar -xzf "$T"
+          mkdir -p "$HOME/.local/bin"
+          mv forge "$HOME/.local/bin/arc-forge"
+          mv cast "$HOME/.local/bin/arc-cast"
+          mv anvil "$HOME/.local/bin/arc-anvil"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kryon-protocol
+
+      - name: Build (sizes must stay under 24KB)
+        run: arc-forge build --sizes
+
+      - name: Unit, upgrade and invariant tests
+        run: arc-forge test
+
+      - name: Differential fuzz vs Rust reference (G1)
+        run: |
+          (cd .. && cargo build -p kryon-ref --release --locked)
+          FOUNDRY_PROFILE=differential arc-forge test
+
+      - name: Storage-layout diff
+        run: ./script/storage-layout.sh --check
+
+      - name: Slither (fail on High/Medium)
+        run: |
+          arc-forge build --build-info --skip "test/**" --skip "script/**" --force
+          pipx run --spec slither-analyzer==0.11.6 slither . --foundry-out-directory out \
+            --ignore-compile --filter-paths "lib/|test/|script/" \
+            --exclude-informational --exclude-low --fail-medium
 
   # ---------------------------------------------------------------------------
   # Database schema: validate + generate the Prisma client.
