@@ -57,6 +57,12 @@ runs = 1000000
 runs = 2048
 depth = 256
 
+# G4 Arc-semantics fork suite. Run with `--network arc` (arc-foundry) so the
+# USDC native-coin precompile and Arc transfer rules are active.
+[profile.fork]
+match_path = "test/fork/*"
+no_match_path = "test/differential/*"
+
 [profile.ci]
 verbosity = 2
 

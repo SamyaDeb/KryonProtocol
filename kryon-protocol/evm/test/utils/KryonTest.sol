@@ -84,8 +84,7 @@ abstract contract KryonTest is Test {
         keyOf[bob] = bobKey;
         keyOf[carol] = carolKey;
 
-        usdc = new MockUSDC();
-        permit2 = new MockPermit2();
+        _deployTokens();
 
         vm.startPrank(deployer);
         (d, impls) = KryonDeploy.deployAll(baseConfig(), deployer);
@@ -103,6 +102,12 @@ abstract contract KryonTest is Test {
 
         push(BTC_ID, 100 * P);
         push(ETH_ID, 2000 * P);
+    }
+
+    /// @dev Mock USDC and Permit2 locally; the fork suite uses Arc's real ones.
+    function _deployTokens() internal virtual {
+        usdc = new MockUSDC();
+        permit2 = new MockPermit2();
     }
 
     // ----------------------------------------------------------------- config
@@ -204,7 +209,7 @@ abstract contract KryonTest is Test {
         push(ETH_ID, 2000 * P);
     }
 
-    function fund(address user, uint256 amount6) internal {
+    function fund(address user, uint256 amount6) internal virtual {
         usdc.mint(user, amount6);
         vm.startPrank(user);
         usdc.approve(address(vault), amount6);
