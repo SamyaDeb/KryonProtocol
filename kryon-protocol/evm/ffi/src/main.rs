@@ -10,8 +10,8 @@ use protocol_core::{
     MarketConfig, MarketSnapshot, Position,
 };
 use risk_engine::{
-    account_health, plan_liquidation, premium_from_mark, update_from_premium,
-    validate_withdrawal, AccountHealth, FundingConfig, FundingState, LiquidationMode,
+    account_health, plan_liquidation, premium_from_mark, update_from_premium, validate_withdrawal,
+    AccountHealth, FundingConfig, FundingState, LiquidationMode,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env, Map, Symbol, Vec};
 
@@ -207,7 +207,12 @@ fn run(cmd: &str, a: &mut Args) -> Result<std::vec::Vec<i128>, CoreError> {
                 LiquidationMode::Partial => 1,
                 LiquidationMode::Full => 2,
             };
-            let mut out = vec![mode, plan.position_id as i128, plan.close_size, plan.penalty];
+            let mut out = vec![
+                mode,
+                plan.position_id as i128,
+                plan.close_size,
+                plan.penalty,
+            ];
             out.extend_from_slice(&health_values(&plan.expected_health));
             Ok(out)
         }
