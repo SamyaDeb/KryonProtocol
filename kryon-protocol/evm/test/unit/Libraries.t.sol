@@ -369,6 +369,49 @@ contract RiskLibTest is Test {
         assertEq(pl.closeSize, 10 * P);
     }
 
+    /// Decision 2026-09-17 (plan §4.4): with the per-step cap out of the way,
+    /// closing exactly the planned size at the mark restores maintenance.
+    function testFuzz_one_uncapped_step_restores_maintenance(
+        uint64 equitySeed,
+        uint64 sizeSeed,
+        uint32 moveSeed,
+        uint16 mmSeed,
+        uint16 feeSeed,
+        bool isLong
+    ) public view {
+        uint256 mm = bound(mmSeed, 25, 2500);
+        uint256 fee = bound(feeSeed, 0, mm - 1);
+        int256 entry = 100 * P;
+        int256 size = int256(bound(sizeSeed, 1, 1_000_000)) * P / 100;
+        int256 move = entry * int256(bound(moveSeed, 0, 5000)) / 10_000;
+        int256 mark = isLong ? entry - move : entry + move;
+
+        // Build a liquidatable account with positive equity: equity strictly
+        // between 0 and the maintenance requirement.
+        int256 mmReq = M.applyBps(M.mulPrecision(size, mark), mm);
+        if (mmReq < 2) return;
+        int256 upnl = M.mulPrecision(size, isLong ? mark - entry : entry - mark);
+        int256 equity = 1 + int256(bound(equitySeed, 0, uint256(mmReq - 2)));
+        int256 col = equity - upnl;
+
+        RiskPosition[] memory p = new RiskPosition[](1);
+        p[0] = RiskPosition(1, 1, size, entry, 0, isLong, 0, false);
+        RiskMarket[] memory m = new RiskMarket[](1);
+        m[0] = RiskMarket(1, mm * 2 > 10_000 ? 10_000 : mm * 2, mm, fee, true, mark, 0, 0);
+        AccountHealth memory hh = h.accountHealth(_col(col), p, m);
+        assertTrue(hh.liquidatable);
+
+        LiquidationPlan memory pl = h.plan(_col(col), p, m, 1, 10_000);
+        if (pl.closeSize >= size) return; // a full close leaves nothing to be healthy
+
+        // Realise the closed part's PnL and pay the penalty, keep the rest open.
+        int256 realized = M.mulPrecision(pl.closeSize, isLong ? mark - entry : entry - mark);
+        p[0].size = size - pl.closeSize;
+        AccountHealth memory afterH =
+            h.accountHealth(_col(col + realized - pl.penalty), p, m);
+        assertFalse(afterH.liquidatable, "one planned step restores maintenance margin");
+    }
+
     function test_plan_rejects_healthy_account_and_bad_bps() public {
         RiskPosition[] memory p = new RiskPosition[](1);
         p[0] = _pos(1, 1, P, 100 * P, 0, false);
