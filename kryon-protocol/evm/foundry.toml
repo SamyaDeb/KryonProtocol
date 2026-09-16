@@ -16,6 +16,8 @@ via_ir = true
 bytecode_hash = "none"
 extra_output = ["storageLayout"]
 ffi = false
+# ffi (differential) and live-RPC (fork) suites run in their own profiles.
+no_match_path = "test/{differential,fork}/*"
 fs_permissions = [
   { access = "read", path = "../infra/deploy/environments" },
   { access = "read", path = "./config" },
@@ -37,6 +39,7 @@ fail_on_revert = false
 # default test run never shells out.
 [profile.differential]
 ffi = true
+no_match_path = "test/fork/*"
 match_path = "test/differential/*"
 
 [profile.differential.fuzz]
@@ -45,6 +48,7 @@ runs = 5000
 # Nightly: long invariant + differential campaigns (G1/G2).
 [profile.nightly]
 ffi = true
+no_match_path = "test/fork/*"
 
 [profile.nightly.fuzz]
 runs = 1000000

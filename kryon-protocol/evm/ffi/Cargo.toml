@@ -1,0 +1,18 @@
+[package]
+name = "kryon-ref"
+description = "Reference-model oracle for the Solidity differential fuzz tests (forge ffi)."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "kryon-ref"
+path = "src/main.rs"
+
+[dependencies]
+protocol-core = { workspace = true }
+risk-engine = { workspace = true }
+soroban-sdk = { workspace = true, features = ["testutils"] }

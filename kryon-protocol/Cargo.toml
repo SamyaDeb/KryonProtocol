@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/protocol-core",
     "crates/risk-engine",
+    "evm/ffi",
     "contracts/perp-engine",
     "contracts/perp-insurance",
     "contracts/perp-liquidation",
