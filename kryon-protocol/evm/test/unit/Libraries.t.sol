@@ -337,19 +337,36 @@ contract RiskLibTest is Test {
 
     // liquidation
     function test_partial_liquidation_does_not_over_liquidate() public view {
+        int256 mark = 937 * P / 10;
         RiskPosition[] memory p = new RiskPosition[](1);
-        p[0] = _pos(42, 1, 10 * P, 100 * P, 0, false);
+        p[0] = _pos(42, 1, 100 * P, 100 * P, 0, false);
         RiskMarket[] memory m = new RiskMarket[](1);
-        m[0] = _market(1, 94 * P);
-        AccountHealth memory hh = h.accountHealth(_col(10 * P), p, m);
+        m[0] = _market(1, mark);
+        AccountHealth memory hh = h.accountHealth(_col(1000 * P), p, m);
         assertTrue(hh.liquidatable);
         int256 shortfall = hh.maintenanceMarginRequired - hh.equity;
         assertGt(shortfall, 0);
 
-        LiquidationPlan memory pl = h.plan(_col(10 * P), p, m, 42, 5000);
+        LiquidationPlan memory pl = h.plan(_col(1000 * P), p, m, 42, 5000);
         assertEq(uint8(pl.mode), uint8(LiquidationMode.Partial));
-        assertLt(pl.closeSize, 5 * P);
-        assertEq(pl.closeSize, M.mulDiv(10 * P, shortfall, 940 * P));
+        assertLt(pl.closeSize, 50 * P);
+        int256 freed = M.mulDiv(100 * mark, 450, 10_000);
+        assertEq(pl.closeSize, M.mulDiv(100 * P, shortfall, freed) + 1);
+
+        // Closing exactly the plan restores maintenance, net of the penalty.
+        int256 mmAfter = hh.maintenanceMarginRequired
+            - M.applyBps(M.mulPrecision(pl.closeSize, mark), 500);
+        assertGe(hh.equity - pl.penalty, mmAfter - 1);
+    }
+
+    function test_a_deep_breach_is_a_full_close() public view {
+        RiskPosition[] memory p = new RiskPosition[](1);
+        p[0] = _pos(7, 1, 10 * P, 100 * P, 0, false);
+        RiskMarket[] memory m = new RiskMarket[](1);
+        m[0] = _market(1, 94 * P);
+        LiquidationPlan memory pl = h.plan(_col(10 * P), p, m, 7, 5000);
+        assertEq(uint8(pl.mode), uint8(LiquidationMode.Full));
+        assertEq(pl.closeSize, 10 * P);
     }
 
     function test_plan_rejects_healthy_account_and_bad_bps() public {

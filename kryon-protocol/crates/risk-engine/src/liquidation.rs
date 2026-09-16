@@ -1,6 +1,7 @@
 use crate::margin::{account_health, AccountHealth};
 use protocol_core::{
-    apply_bps, checked_sub, notional, AccountSnapshot, CoreError, MarketSnapshot, Position,
+    apply_bps, checked_add, checked_sub, notional, AccountSnapshot, CoreError, MarketSnapshot,
+    Position,
 };
 use soroban_sdk::{contracttype, Env, Map};
 
@@ -46,7 +47,29 @@ pub fn plan_liquidation(
     let position_notional = notional(position.size, market.oracle_price)?;
     let max_partial_size =
         protocol_core::mul_div(position.size, partial_liquidation_bps as i128, 10_000)?;
-    let min_size_to_cover = protocol_core::mul_div(position.size, shortfall, position_notional)?;
+    // Closing q at the mark lowers the maintenance requirement by
+    // q * price * mm and lowers equity by the penalty q * price * fee, so the
+    // smallest close that restores maintenance is
+    //   q = size * shortfall / (notional * (mm - fee))
+    // (+1 so rounding never leaves a dust-sized shortfall). The earlier form,
+    // size * shortfall / notional, freed notional equal to the shortfall
+    // rather than margin, under-closing by 1 / (mm - fee): an on-chain
+    // liquidator capped at the plan needed dozens of dust steps.
+    let margin_rate_bps = market.config.maintenance_margin_bps as i128
+        - market.config.liquidation_fee_bps as i128;
+    let min_size_to_cover = if margin_rate_bps <= 0 {
+        position.size
+    } else {
+        let freed_per_size = protocol_core::mul_div(position_notional, margin_rate_bps, 10_000)?;
+        if freed_per_size <= 0 {
+            position.size
+        } else {
+            checked_add(
+                protocol_core::mul_div(position.size, shortfall, freed_per_size)?,
+                1,
+            )?
+        }
+    };
     let close_size = if min_size_to_cover >= position.size {
         // Position must be fully liquidated
         position.size
@@ -117,59 +140,10 @@ mod tests {
 
     #[test]
     fn partial_liquidation_does_not_over_liquidate() {
-        // Account: 1000 collateral, 10 BTC long at entry=100, price drops to 94.
-        // Notional = 10 * 94 = 940
-        // maintenance_margin_required = 940 * 500/10000 = 47
-        // unrealized_pnl = (94 - 100) * 10 = -60
-        // equity = 1000 - 60 = 940
-        // shortfall = 47 - 940 = negative (not liquidatable at 94)
-        //
-        // Try price = 93.5: notional = 935, maint = 46.75, pnl = -65, equity = 935
-        // equity (935) > maintenance (46.75) → still not liquidatable
-        //
-        // The account needs equity < maintenance to be liquidatable.
-        // With maint_bps=500 (5%), at price=94:
-        //   notional = 940, maintenance = 47, pnl = -60, equity = 940
-        //   equity(940) > maintenance(47) → NOT liquidatable
-        //
-        // We need equity < maintenance. With maint_bps = 5000 (50%):
-        //   At price=94: notional=940, maint=470, pnl=-60, equity=940
-        //   equity(940) > maint(470) → NOT liquidatable
-        //
-        // Let's use: 1000 collateral, 10 BTC at entry=100, price=94, maint_bps=9000
-        //   notional = 940, maintenance = 846, pnl = -60, equity = 940
-        //   equity(940) > maint(846) → slightly above maintenance
-        //
-        // price=93: notional=930, maintenance=837, pnl=-70, equity=930 vs 837 → not liquidatable
-        //
-        // For liquidation with 50% partial cap: we want shortfall small relative to position size.
-        // Use collateral=50, 1 BTC at entry=100, maint_bps=500:
-        //   At price=94: notional=94, maint=4.7, pnl=-6, equity=44
-        //   equity(44) > maint(4.7) → not liquidatable
-        //
-        // Need price where equity < maintenance. With initial_bps=1000, maint_bps=500:
-        //   equity = collateral + pnl = 1000 + (price-100)*10
-        //   maintenance = price * 10 * 500/10000 = price * 0.5
-        //   liquidatable when: 1000 + (price-100)*10 < price * 0.5
-        //   1000 + 10*price - 1000 < 0.5*price
-        //   9.5*price < 0 → never for positive price
-        //
-        // With collateral=10 (small), 10 BTC at entry=100, maint_bps=500:
-        //   equity = 10 + (price-100)*10
-        //   maintenance = price * 10 * 0.05 = 0.5 * price
-        //   10 + 10*price - 1000 < 0.5*price
-        //   9.5*price < 990
-        //   price < 104.2 → liquidatable below ~104 BTC
-        //
-        // At price=94: equity = 10 + (94-100)*10 = 10-60 = -50 → liquidatable
-        // maintenance = 94*10*0.05 = 47
-        // shortfall = 47 - (-50) = 97
-        // position_notional = 940
-        // min_size_to_cover = 10 * 97 / 940 ≈ 1.03 BTC
-        // max_partial_size (50%) = 5 BTC
-        // Before fix: close_size = max(1.03, 5) = 5 BTC (WRONG)
-        // After fix: min(1.03, 5) → close_size = 1.03 BTC (correct)
-
+        // 1_000 collateral, 100 BTC long at 100, mark 93.7:
+        //   upnl = -630, equity = 370, MM = 5% of 9_370 = 468.5, shortfall = 98.5
+        // Closing q frees q * 93.7 * (5% - 0.5%) of margin net of the penalty,
+        // so the minimum is 98.5 / 4.2165 = 23.36 BTC, under the 50% cap.
         let env = Env::default();
         let user = Address::generate(&env);
         let token = Address::generate(&env);
@@ -177,8 +151,8 @@ mod tests {
             &env,
             [CollateralBalance {
                 asset: token,
-                amount: 10 * PRECISION,
-                value: 10 * PRECISION,
+                amount: 1_000 * PRECISION,
+                value: 1_000 * PRECISION,
                 haircut_bps: 0,
             }],
         );
@@ -188,7 +162,7 @@ mod tests {
                 position_id: 42,
                 owner: user.clone(),
                 market_id: 1,
-                size: 10 * PRECISION,
+                size: 100 * PRECISION,
                 entry_price: 100 * PRECISION,
                 margin: 0,
                 is_long: true,
@@ -202,34 +176,68 @@ mod tests {
             positions,
         };
         let mut markets = Map::new(&env);
-        markets.set(1, make_market(&env, 1, 94 * PRECISION));
+        let mark = 937 * PRECISION / 10;
+        markets.set(1, make_market(&env, 1, mark));
 
-        // Verify account is actually liquidatable
         let health = account_health(&env, &account, &markets).unwrap();
-        assert!(
-            health.liquidatable,
-            "account should be liquidatable at price=94"
-        );
-
+        assert!(health.liquidatable);
         let shortfall = checked_sub(health.maintenance_margin_required, health.equity).unwrap();
-        assert!(shortfall > 0, "shortfall should be positive");
+        assert!(shortfall > 0);
 
-        // partial_liquidation_bps=5000 means max 50% per step
         let plan = plan_liquidation(&env, &account, &markets, 42, 5_000).unwrap();
-
         assert_eq!(plan.mode, LiquidationMode::Partial);
-        // close_size should be min_size_to_cover, NOT max_partial_size (50% = 5 BTC)
-        assert!(
-            plan.close_size < 5 * PRECISION,
-            "should not over-liquidate to 50%: close_size={} expected < {}",
-            plan.close_size,
-            5 * PRECISION
-        );
-        // close_size should be the minimum needed to cover shortfall
-        // min_size_to_cover = size * shortfall / notional
-        let position_notional = 94 * 10 * PRECISION; // 940 * PRECISION
-        let expected_min =
-            protocol_core::mul_div(10 * PRECISION, shortfall, position_notional).unwrap();
-        assert_eq!(plan.close_size, expected_min);
+        assert!(plan.close_size < 50 * PRECISION, "within the per-step cap");
+
+        let notional_total = 100 * mark;
+        let freed = protocol_core::mul_div(notional_total, 450, 10_000).unwrap();
+        let expected =
+            protocol_core::mul_div(100 * PRECISION, shortfall, freed).unwrap() + 1;
+        assert_eq!(plan.close_size, expected);
+
+        // Closing exactly the plan restores maintenance: the new equity covers
+        // the new requirement once the penalty is paid.
+        let closed_notional = notional(plan.close_size, mark).unwrap();
+        let equity_after = health.equity - plan.penalty;
+        let mm_after = health.maintenance_margin_required
+            - protocol_core::apply_bps(closed_notional, 500).unwrap();
+        assert!(equity_after >= mm_after - 1);
+    }
+
+    #[test]
+    fn a_deep_breach_is_a_full_close() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+        let token = Address::generate(&env);
+        let account = AccountSnapshot {
+            owner: user.clone(),
+            collateral: Vec::from_array(
+                &env,
+                [CollateralBalance {
+                    asset: token,
+                    amount: 10 * PRECISION,
+                    value: 10 * PRECISION,
+                    haircut_bps: 0,
+                }],
+            ),
+            positions: Vec::from_array(
+                &env,
+                [Position {
+                    position_id: 7,
+                    owner: user,
+                    market_id: 1,
+                    size: 10 * PRECISION,
+                    entry_price: 100 * PRECISION,
+                    margin: 0,
+                    is_long: true,
+                    last_funding_index: 0,
+                    mode: MarginMode::Cross,
+                }],
+            ),
+        };
+        let mut markets = Map::new(&env);
+        markets.set(1, make_market(&env, 1, 94 * PRECISION));
+        let plan = plan_liquidation(&env, &account, &markets, 7, 5_000).unwrap();
+        assert_eq!(plan.mode, LiquidationMode::Full);
+        assert_eq!(plan.close_size, 10 * PRECISION);
     }
 }

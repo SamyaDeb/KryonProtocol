@@ -15,8 +15,8 @@ import {
 
 /// @notice Partial-liquidation sizing. Port of `risk_engine::liquidation`.
 library LiquidationLib {
-    /// @notice Size the smallest close that covers the maintenance shortfall,
-    ///         capped at `partialLiquidationBps` of the position per step.
+    /// @notice Size the smallest close that restores maintenance margin (net of
+    ///         the penalty), capped at `partialLiquidationBps` per step.
     function planLiquidation(
         RiskCollateral[] memory collateral,
         RiskPosition[] memory positions,
@@ -36,7 +36,20 @@ library LiquidationLib {
         int256 shortfall = M.sub(health.maintenanceMarginRequired, health.equity);
         int256 positionNotional = RiskLib.notional(position.size, market.oraclePrice);
         int256 maxPartial = M.mulDiv(position.size, int256(partialLiquidationBps), 10_000);
-        int256 minToCover = M.mulDiv(position.size, shortfall, positionNotional);
+        // Closing q lowers maintenance by q*price*mm and equity by the penalty
+        // q*price*fee, so the smallest restoring close is
+        //   size * shortfall / (notional * (mm - fee))   (+1 against rounding).
+        int256 marginRateBps =
+            int256(market.maintenanceMarginBps) - int256(market.liquidationFeeBps);
+        int256 minToCover;
+        if (marginRateBps <= 0) {
+            minToCover = position.size;
+        } else {
+            int256 freed = M.mulDiv(positionNotional, marginRateBps, 10_000);
+            minToCover = freed <= 0
+                ? position.size
+                : M.add(M.mulDiv(position.size, shortfall, freed), 1);
+        }
 
         int256 closeSize;
         if (minToCover >= position.size) {
