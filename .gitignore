@@ -104,3 +104,8 @@ kryon-protocol/evm/.env
 kryon-protocol/evm/lcov.info
 kryon-protocol/evm/coverage/
 kryon-protocol/evm/ffi/target/
+# Local arc-anvil deployments and forge broadcast logs (testnet/mainnet records
+# are exported to infra/deploy/ by 99_VerifyDeployment instead).
+kryon-protocol/evm/broadcast/
+kryon-protocol/evm/deployments/arc-local*.json
+kryon-protocol/evm/out/invariant-coverage.log
