@@ -167,9 +167,10 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         if (f.maker.isLong == f.taker.isLong) revert Errors.DirectionMismatch();
     }
 
+    /// @param digest The order's EIP-712 digest (`hashOrder`).
     function _consume(
         Order calldata o,
-        bytes32 orderHash,
+        bytes32 digest,
         bytes calldata signature,
         uint256 fillSize,
         uint256 fillPrice
@@ -184,21 +185,19 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         }
         bytes32 bound = $.nonceOrder[o.owner][o.nonce];
         if (bound == bytes32(0)) {
-            $.nonceOrder[o.owner][o.nonce] = orderHash;
-        } else if (bound != orderHash) {
+            $.nonceOrder[o.owner][o.nonce] = digest;
+        } else if (bound != digest) {
             // One nonce, one order: a second order signed under a used nonce
             // must not open a second fill budget.
             revert Errors.NonceReused();
         }
-        uint256 next = $.filled[orderHash] + fillSize;
+        uint256 next = $.filled[digest] + fillSize;
         if (next > o.size) revert Errors.OrderOverfilled();
         if (o.isLong ? fillPrice > o.limitPrice : fillPrice < o.limitPrice) {
             revert Errors.PriceOutsideBand();
         }
-        if (!OrderLib.isValidSignature(o.owner, _hashTypedDataV4(orderHash), signature)) {
-            revert Errors.InvalidSignature();
-        }
-        $.filled[orderHash] = next;
+        if (!OrderLib.isValidSignature(o.owner, digest, signature)) revert Errors.InvalidSignature();
+        $.filled[digest] = next;
     }
 
     // ---------------------------------------------------------------- cancels

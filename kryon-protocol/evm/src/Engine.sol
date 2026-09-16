@@ -617,6 +617,9 @@ contract Engine is KryonUpgradeable {
         if (st.lastPrice == 0) {
             st.windowStart = now_;
             st.cumulative = 0;
+            // The funding clock starts with the market's first trade.
+            FundingState storage f = $.funding[marketId];
+            if (f.lastUpdate == 0) f.lastUpdate = now_;
         }
         st.lastPrice = price;
         $.marks[marketId] = st;

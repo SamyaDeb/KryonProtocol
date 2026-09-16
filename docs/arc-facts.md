@@ -132,13 +132,25 @@ Implications:
 - **No Arc testnet Chainlink feeds were found**, so a cross-check test on testnet needs Stork,
   Pyth, or a mock.
 
+### 4.4 USDC ERC-20 permit (EIP-2612)
+
+Read-only `eth_call`s against `0x3600…0000` on both networks returned `name()` = "USDC",
+`version()` = "2", `decimals()` = 6, `nonces(addr)`, and
+`PERMIT_TYPEHASH()` = `0x6e71edae…26c9`. That value is
+`keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")`.
+`DOMAIN_SEPARATOR()` equals the EIP-712 domain recomputed from
+`(name "USDC", version "2", chainId, verifyingContract 0x3600…0000)`:
+`0x9405…df84` on mainnet and `0x3611…c6b0` on testnet.
+**Status: Verified (on-chain).** `Vault.depositWithPermit` targets this domain. Permit2 is
+kept as a fallback.
+
 ## 5. Toolchain
 
 | Item | Finding | Status | Source |
 |---|---|---|---|
 | arc-foundry | Latest release **`v0.8.0-1`** (2026-09-08). Assets include `arc-foundry-v0.8.0-1-aarch64-apple-darwin.tar.gz` + `.sha256`. Binaries ship as `forge`/`cast`/`anvil` and are renamed to `arc-*` on install. Chisel is unsupported. Hardforks `arc:zero6/7/8`. Auto-selects Arc when forking | Verified | [arc-foundry][arcfoundry], [releases][arcfoundry-rel] |
-| Explorer verification via arc-forge | Not documented | **Open** | – |
-| Local install | **Not installed** on this machine (`arc-forge not found`). Upstream `forge` exists at `~/.foundry/bin/forge` and must not be used for Arc-semantics tests | Action for you | – |
+| Explorer verification via arc-forge | Testnet: `arc-forge verify-contract <addr> <path>:<Name> --chain-id 5042002 --verifier blockscout --verifier-url https://explorer.testnet.arc.io/api/`. Mainnet equivalent (`https://explorer.arc.io/api/`) not documented | Partial | [Deploy on Arc][deploy] |
+| Local install | Installed 2026-09-16 at `~/.local/bin/arc-{forge,cast,anvil}` from the checksum-verified `v0.8.0-1` macOS arm64 tarball (sha256 `9aa45d4d…3dc2a`). Needs Homebrew `libusb`. `arc-forge --version` reports forge `1.7.1-dev` at commit `f567f94` | Done | – |
 
 Pinned install for this machine (macOS Apple Silicon):
 
@@ -163,7 +175,7 @@ binaries are in a subdirectory. `~/.local/bin` must be on `PATH`.)
 2. RPC provider archive / trace / debug availability and plan limits.
 3. USDC blocklist controller and in-contract behaviour (covered by the G4 test).
 4. Safe{Wallet} UI / Transaction Service support on Arc (Allowance Module missing).
-5. Chainlink mainnet feeds: approve for the cross-check, or keep disabled. No ADA/XLM feeds. No testnet feeds.
+5. Chainlink mainnet feeds: **approved by the user on 2026-09-16** as the on-chain cross-check for BTC, ETH, SOL, XRP, BNB and TRX (see `infra/deploy/environments/arc-mainnet.toml`). No ADA or XLM feeds, and no testnet feeds.
 6. RedStone / Chronicle Arc deployments.
 7. Whether the 20 gwei floor is documented for mainnet as well as testnet (observed ≥20).
 
@@ -178,6 +190,7 @@ binaries are in a subdirectory. `~/.local/bin` must be on `PATH`.)
 [arcfoundry-rel]: https://github.com/circlefin/arc-foundry/releases/tag/v0.8.0-1
 [viem-arc]: https://github.com/wevm/viem/blob/main/src/chains/definitions/arc.ts
 [arcscan]: https://github.com/circlefin/arc-node/pull/396
+[deploy]: https://docs.arc.io/arc/tutorials/deploy-on-arc
 [safe]: https://github.com/safe-global/safe-deployments/blob/main/src/assets/v1.4.1/safe_l2.json
 [safe-2nd]: https://github.com/KeeperHub/keeperhub/pull/2228
 [cl-dir]: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json

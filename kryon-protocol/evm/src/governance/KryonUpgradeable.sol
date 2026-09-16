@@ -49,11 +49,9 @@ abstract contract KryonUpgradeable is
 
     function _authorizeUpgrade(address) internal override onlyRole(Roles.UPGRADER_ROLE) {}
 
-    receive() external payable {
-        revert Errors.NativeValueRejected();
-    }
-
-    fallback() external payable {
+    /// @dev No `receive`, and a non-payable fallback: every native-value
+    ///      transfer or unknown call reverts. Custody is ERC-20 only.
+    fallback() external {
         revert Errors.NativeValueRejected();
     }
 }

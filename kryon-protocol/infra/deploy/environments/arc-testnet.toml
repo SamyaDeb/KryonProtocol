@@ -1,0 +1,282 @@
+# Kryon on Arc testnet: deployment configuration.
+#
+# Read by kryon-protocol/evm/script/*.s.sol (DeployConfig.sol) and checked by
+# 99_VerifyDeployment and the mainnet-preflight workflow. Every value here is
+# public; keys and RPC credentials come from the environment, never this file.
+# Facts marked [docs/arc-facts.md] were verified on 2026-09-16.
+
+market_keys = ["xlm", "btc", "eth", "sol", "xrp", "ada", "bnb", "trx"]
+
+[network]
+name = "arc-testnet"
+chain_id = 5042002
+# Public RPC is the last-resort fallback; services use provider URLs from env.
+public_rpc = "https://rpc.testnet.arc.io"
+explorer = "https://explorer.testnet.arc.io"
+explorer_api = "https://explorer.testnet.arc.io/api/"
+# 20 gwei floor (docs state it for testnet; mainnet observed >= 20). TxSender floor.
+min_base_fee_gwei = 20
+
+[assets]
+# USDC ERC-20 interface, 6 decimals [docs/arc-facts.md §4.1]
+usdc = "0x3600000000000000000000000000000000000000"
+eurc = "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a"
+permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+multicall3 = "0xcA11bde05977b3631167028862bE2a173976CA11"
+cctp_token_messenger = "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA"
+cctp_domain = 26
+# No Chainlink feeds are published for Arc testnet [docs/arc-facts.md §4.3].
+chainlink_usdc_usd = ""
+
+[governance]
+# 48h minimum is enforced by KryonTimelock itself.
+timelock_min_delay_secs = 172800
+# PLACEHOLDER: governance Safe (N-of-M). Must be set before deploy.
+proposers = []
+executors = []
+# PLACEHOLDER: guardian Safe. Holds PAUSER_ROLE only.
+guardian = "0x0000000000000000000000000000000000000000"
+# PLACEHOLDER: treasury Safe. Receives treasury fee claims.
+treasury = "0x0000000000000000000000000000000000000000"
+
+[roles]
+# PLACEHOLDER service keys (one key per service; see runbooks/key-rotation.md).
+operators = []
+publishers = []
+funding_keepers = []
+fee_tier_bots = []
+
+[vault]
+# Guarded launch: $250k total, $10k per account (6-decimal USDC units).
+deposit_cap = 250000000000
+account_deposit_cap = 10000000000
+# Testnet convenience: caps are applied before handover.
+open_deposits_at_deploy = true
+
+[liquidation]
+max_reward_bps = 25
+partial_liquidation_bps = 5000
+
+[fees]
+# Millionths of notional: 350 = 3.5 bps taker, 50 = 0.5 bps maker.
+taker_rate = 350
+maker_rate = 50
+min_net_rate = 100
+rebates_enabled = false
+referrals_enabled = false
+split_treasury_bps = 7000
+split_insurance_bps = 2000
+split_referral_bps = 1000
+liquidation_insurance_bps = 5000
+
+[risk]
+# Aggregate OI-policy ceiling (bps of the insurance fund). 0 = no ceiling.
+max_total_oi_policy_bps = 0
+
+[oracle]
+# Push on >= 5 bps move or a 5s heartbeat (keeper); on-chain max age 15s.
+push_deviation_bps = 5
+heartbeat_secs = 5
+max_age_secs = 15
+max_confidence_bps = 100
+min_publishers = 1
+max_spread_bps = 50
+max_jump_bps = 2000
+
+[keepers]
+funding_interval_secs = 3600
+liquidation_interval_secs = 2
+tx_retry_limit = 5
+
+
+[markets.xlm]
+market_id = 1
+symbol = "XLM-PERP"
+oracle_id = "XLM"
+active = false
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_leverage_bps = 100000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "1450000"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.btc]
+market_id = 2
+symbol = "BTC-PERP"
+oracle_id = "BTC"
+active = true
+initial_margin_bps = 200
+maintenance_margin_bps = 100
+liquidation_fee_bps = 25
+max_leverage_bps = 500000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "25"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.eth]
+market_id = 3
+symbol = "ETH-PERP"
+oracle_id = "ETH"
+active = true
+initial_margin_bps = 500
+maintenance_margin_bps = 250
+liquidation_fee_bps = 35
+max_leverage_bps = 200000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "400"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.sol]
+market_id = 4
+symbol = "SOL-PERP"
+oracle_id = "SOL"
+active = false
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_leverage_bps = 100000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "5000"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.xrp]
+market_id = 5
+symbol = "XRP-PERP"
+oracle_id = "XRP"
+active = false
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_leverage_bps = 100000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "325000"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.ada]
+market_id = 6
+symbol = "ADA-PERP"
+oracle_id = "ADA"
+active = false
+initial_margin_bps = 2000
+maintenance_margin_bps = 1000
+liquidation_fee_bps = 50
+max_leverage_bps = 50000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "850000"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.bnb]
+market_id = 7
+symbol = "BNB-PERP"
+oracle_id = "BNB"
+active = false
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_leverage_bps = 100000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "425"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000
+
+[markets.trx]
+market_id = 8
+symbol = "TRX-PERP"
+oracle_id = "TRX"
+active = false
+initial_margin_bps = 2000
+maintenance_margin_bps = 1000
+liquidation_fee_bps = 50
+max_leverage_bps = 50000
+max_execution_deviation_bps = 75
+max_oracle_age_secs = 15
+max_oracle_confidence_bps = 100
+# Base units, 18 decimals applied by the loader.
+max_open_interest = "575000"
+min_fill_notional_usd = 20
+funding_premium_coeff = "1"
+# 0.05%/h clamp, as a 1e18 fraction.
+funding_max_rate_per_hour = "500000000000000"
+oi_policy_bps = 0
+# No independent reference feed confirmed for this market on this network.
+reference_aggregator = ""
+reference_max_divergence_bps = 150
+reference_max_age_secs = 90000

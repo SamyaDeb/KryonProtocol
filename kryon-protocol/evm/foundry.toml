@@ -17,6 +17,7 @@ bytecode_hash = "none"
 extra_output = ["storageLayout"]
 ffi = false
 fs_permissions = [
+  { access = "read", path = "../infra/deploy/environments" },
   { access = "read", path = "./config" },
   { access = "read", path = "./out" },
   { access = "read-write", path = "./deployments" },
