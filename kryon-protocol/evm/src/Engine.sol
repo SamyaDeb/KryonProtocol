@@ -96,7 +96,7 @@ contract Engine is KryonUpgradeable {
     }
 
     function _s() private pure returns (EngineStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

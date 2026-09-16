@@ -95,7 +95,7 @@ contract FeeRouter is KryonUpgradeable {
     );
 
     function _s() private pure returns (FeeRouterStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

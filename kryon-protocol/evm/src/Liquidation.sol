@@ -67,7 +67,7 @@ contract Liquidation is KryonUpgradeable {
     event ParamsSet(uint16 maxRewardBps, uint16 partialLiquidationBps);
 
     function _s() private pure returns (LiquidationStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

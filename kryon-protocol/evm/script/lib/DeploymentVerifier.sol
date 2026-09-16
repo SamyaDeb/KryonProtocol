@@ -53,31 +53,9 @@ library DeploymentVerifier {
         address[8] memory all = KryonDeploy.proxies(d);
         string[8] memory names =
             ["Vault", "Engine", "OrderGateway", "OracleAdapter", "Liquidation", "Insurance", "RiskParams", "FeeRouter"];
-        bytes32[4] memory adminRoles =
-            [Roles.DEFAULT_ADMIN_ROLE, Roles.UPGRADER_ROLE, Roles.RISK_ADMIN_ROLE, Roles.FEE_ADMIN_ROLE];
-        string[4] memory adminNames = ["DEFAULT_ADMIN_ROLE", "UPGRADER_ROLE", "RISK_ADMIN_ROLE", "FEE_ADMIN_ROLE"];
-
         for (uint256 i = 0; i < all.length; ++i) {
-            IAccessControlEnumerable c = IAccessControlEnumerable(all[i]);
-            for (uint256 k = 0; k < adminRoles.length; ++k) {
-                uint256 n = c.getRoleMemberCount(adminRoles[k]);
-                for (uint256 m = 0; m < n; ++m) {
-                    address holder = c.getRoleMember(adminRoles[k], m);
-                    if (holder.code.length == 0) {
-                        _fail(r, string.concat(names[i], ": an EOA holds ", adminNames[k]));
-                    } else if (holder != address(d.timelock)) {
-                        _fail(r, string.concat(names[i], ": a non-timelock contract holds ", adminNames[k]));
-                    }
-                }
-                _check(r, n == 1 && c.hasRole(adminRoles[k], address(d.timelock)),
-                    string.concat(names[i], ": timelock must be the sole ", adminNames[k]));
-            }
-            _check(r, !c.hasRole(Roles.PAUSER_ROLE, deployer), string.concat(names[i], ": deployer is a pauser"));
-            _check(
-                r,
-                c.getRoleMemberCount(Roles.PAUSER_ROLE) == 1 && c.hasRole(Roles.PAUSER_ROLE, cfg.guardian),
-                string.concat(names[i], ": guardian must be the sole PAUSER_ROLE")
-            );
+            _adminRoles(r, IAccessControlEnumerable(all[i]), names[i], address(d.timelock));
+            _pauser(r, IAccessControlEnumerable(all[i]), names[i], cfg.guardian, deployer);
         }
 
         _exactMembers(r, IAccessControlEnumerable(address(d.gateway)), Roles.OPERATOR_ROLE, cfg.operators, "OPERATOR_ROLE");
@@ -92,6 +70,43 @@ library DeploymentVerifier {
         address[] memory sources = new address[](2);
         (sources[0], sources[1]) = (address(d.gateway), address(d.liquidation));
         _exactMembers(r, IAccessControlEnumerable(address(d.feeRouter)), Roles.FEE_SOURCE_ROLE, sources, "FEE_SOURCE_ROLE");
+    }
+
+    function _adminRoles(Report memory r, IAccessControlEnumerable c, string memory name, address timelock)
+        private
+        view
+    {
+        bytes32[4] memory roles =
+            [Roles.DEFAULT_ADMIN_ROLE, Roles.UPGRADER_ROLE, Roles.RISK_ADMIN_ROLE, Roles.FEE_ADMIN_ROLE];
+        string[4] memory roleNames = ["DEFAULT_ADMIN_ROLE", "UPGRADER_ROLE", "RISK_ADMIN_ROLE", "FEE_ADMIN_ROLE"];
+        for (uint256 k = 0; k < roles.length; ++k) {
+            uint256 n = c.getRoleMemberCount(roles[k]);
+            for (uint256 m = 0; m < n; ++m) {
+                address holder = c.getRoleMember(roles[k], m);
+                if (holder.code.length == 0) {
+                    _fail(r, string.concat(name, ": an EOA holds ", roleNames[k]));
+                } else if (holder != timelock) {
+                    _fail(r, string.concat(name, ": a non-timelock contract holds ", roleNames[k]));
+                }
+            }
+            _check(r, n == 1 && c.hasRole(roles[k], timelock),
+                string.concat(name, ": timelock must be the sole ", roleNames[k]));
+        }
+    }
+
+    function _pauser(
+        Report memory r,
+        IAccessControlEnumerable c,
+        string memory name,
+        address guardian,
+        address deployer
+    ) private view {
+        _check(r, !c.hasRole(Roles.PAUSER_ROLE, deployer), string.concat(name, ": deployer is a pauser"));
+        _check(
+            r,
+            c.getRoleMemberCount(Roles.PAUSER_ROLE) == 1 && c.hasRole(Roles.PAUSER_ROLE, guardian),
+            string.concat(name, ": guardian must be the sole PAUSER_ROLE")
+        );
     }
 
     function _exactMembers(

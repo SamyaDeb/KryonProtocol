@@ -70,7 +70,7 @@ contract Insurance is KryonUpgradeable {
     event WiringSet(bytes32 indexed what, address indexed value);
 
     function _s() private pure returns (InsuranceStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

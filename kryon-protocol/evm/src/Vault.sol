@@ -74,7 +74,7 @@ contract Vault is KryonUpgradeable {
     event InsuranceSet(address indexed insurance);
 
     function _s() private pure returns (VaultStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

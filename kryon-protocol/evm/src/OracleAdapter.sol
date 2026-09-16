@@ -91,7 +91,7 @@ contract OracleAdapter is KryonUpgradeable {
     event PriceUpdateSkipped(bytes32 indexed id, SkipReason reason, int256 candidate);
 
     function _s() private pure returns (OracleStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }
@@ -144,6 +144,7 @@ contract OracleAdapter is KryonUpgradeable {
         if (!_s().feeds[id].listed) revert Errors.UnknownFeed(id);
         if (ref.enabled) {
             if (ref.aggregator == address(0)) revert Errors.ZeroAddress();
+            if (ref.aggregator.code.length == 0) revert Errors.InvalidConfig();
             if (ref.maxDivergenceBps < MIN_REF_DIVERGENCE_BPS || ref.maxDivergenceBps > MAX_BPS) {
                 revert Errors.InvalidConfig();
             }
@@ -256,6 +257,8 @@ contract OracleAdapter is KryonUpgradeable {
 
     /// @dev Never reverts: an unreadable, non-positive or stale answer is `ok = false`.
     function _readReference(ReferenceFeed memory ref) private view returns (bool ok, int256 price) {
+        // A call to an address without code reverts before `try` can catch it.
+        if (ref.aggregator.code.length == 0) return (false, 0);
         AggregatorV3Interface agg = AggregatorV3Interface(ref.aggregator);
         uint8 dec;
         try agg.decimals() returns (uint8 d) {

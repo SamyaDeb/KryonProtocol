@@ -48,7 +48,7 @@ contract RiskParams is KryonUpgradeable {
     event MaxTotalOiPolicySet(uint256 bps);
 
     function _s() private pure returns (RiskParamsStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := STORAGE_LOCATION
         }
     }

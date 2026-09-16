@@ -67,58 +67,59 @@ abstract contract ConfigLoader is Script {
 
     function _market(string memory t, string memory key) private pure returns (MarketConfig memory m) {
         string memory p = string.concat(".markets.", key, ".");
-        string memory o = ".oracle.";
-        m.id = uint32(vm.parseTomlUint(t, string.concat(p, "market_id")));
+        m.id = uint32(_uint(t, p, "market_id"));
         m.symbol = vm.parseTomlString(t, string.concat(p, "symbol"));
-        bytes32 oracleId = bytes32(bytes(vm.parseTomlString(t, string.concat(p, "oracle_id"))));
-        m.params = MarketParams({
-            oracleId: oracleId,
-            initialMarginBps: uint16(vm.parseTomlUint(t, string.concat(p, "initial_margin_bps"))),
-            maintenanceMarginBps: uint16(vm.parseTomlUint(t, string.concat(p, "maintenance_margin_bps"))),
-            liquidationFeeBps: uint16(vm.parseTomlUint(t, string.concat(p, "liquidation_fee_bps"))),
-            maxExecutionDeviationBps: uint16(
-                vm.parseTomlUint(t, string.concat(p, "max_execution_deviation_bps"))
-            ),
-            maxOracleConfidenceBps: uint16(
-                vm.parseTomlUint(t, string.concat(p, "max_oracle_confidence_bps"))
-            ),
-            maxOracleAge: uint32(vm.parseTomlUint(t, string.concat(p, "max_oracle_age_secs"))),
-            maxLeverageBps: uint32(vm.parseTomlUint(t, string.concat(p, "max_leverage_bps"))),
-            active: vm.parseTomlBool(t, string.concat(p, "active")),
-            listed: true,
-            maxOpenInterest: vm.parseInt(vm.parseTomlString(t, string.concat(p, "max_open_interest")))
-                * 1e18,
-            minFillNotional: int256(vm.parseTomlUint(t, string.concat(p, "min_fill_notional_usd"))) * 1e18
-        });
+        m.params = _params(t, p);
         m.funding = FundingConfig({
-            premiumCoeff: vm.parseInt(vm.parseTomlString(t, string.concat(p, "funding_premium_coeff")))
-                * 1e18,
-            maxRatePerHour: vm.parseInt(
-                vm.parseTomlString(t, string.concat(p, "funding_max_rate_per_hour"))
-            )
+            premiumCoeff: vm.parseInt(vm.parseTomlString(t, string.concat(p, "funding_premium_coeff"))) * 1e18,
+            maxRatePerHour: vm.parseInt(vm.parseTomlString(t, string.concat(p, "funding_max_rate_per_hour")))
         });
-        m.oiPolicyBps = vm.parseTomlUint(t, string.concat(p, "oi_policy_bps"));
-        m.feed = OracleAdapter.FeedConfig({
-            listed: true,
-            active: true,
-            minPublishers: uint8(vm.parseTomlUint(t, string.concat(o, "min_publishers"))),
-            maxSpreadBps: uint16(vm.parseTomlUint(t, string.concat(o, "max_spread_bps"))),
-            maxJumpBps: uint16(vm.parseTomlUint(t, string.concat(o, "max_jump_bps"))),
-            maxConfidenceBps: uint16(vm.parseTomlUint(t, string.concat(o, "max_confidence_bps"))),
-            maxAge: uint32(vm.parseTomlUint(t, string.concat(o, "max_age_secs")))
-        });
+        m.oiPolicyBps = _uint(t, p, "oi_policy_bps");
+        m.feed = _feed(t);
+        m.ref = _reference(t, p);
+    }
+
+    function _params(string memory t, string memory p) private pure returns (MarketParams memory m) {
+        m.oracleId = bytes32(bytes(vm.parseTomlString(t, string.concat(p, "oracle_id"))));
+        m.initialMarginBps = uint16(_uint(t, p, "initial_margin_bps"));
+        m.maintenanceMarginBps = uint16(_uint(t, p, "maintenance_margin_bps"));
+        m.liquidationFeeBps = uint16(_uint(t, p, "liquidation_fee_bps"));
+        m.maxExecutionDeviationBps = uint16(_uint(t, p, "max_execution_deviation_bps"));
+        m.maxOracleConfidenceBps = uint16(_uint(t, p, "max_oracle_confidence_bps"));
+        m.maxOracleAge = uint32(_uint(t, p, "max_oracle_age_secs"));
+        m.maxLeverageBps = uint32(_uint(t, p, "max_leverage_bps"));
+        m.active = vm.parseTomlBool(t, string.concat(p, "active"));
+        m.listed = true;
+        m.maxOpenInterest = vm.parseInt(vm.parseTomlString(t, string.concat(p, "max_open_interest"))) * 1e18;
+        m.minFillNotional = int256(_uint(t, p, "min_fill_notional_usd")) * 1e18;
+    }
+
+    function _feed(string memory t) private pure returns (OracleAdapter.FeedConfig memory f) {
+        string memory o = ".oracle.";
+        f.listed = true;
+        f.active = true;
+        f.minPublishers = uint8(_uint(t, o, "min_publishers"));
+        f.maxSpreadBps = uint16(_uint(t, o, "max_spread_bps"));
+        f.maxJumpBps = uint16(_uint(t, o, "max_jump_bps"));
+        f.maxConfidenceBps = uint16(_uint(t, o, "max_confidence_bps"));
+        f.maxAge = uint32(_uint(t, o, "max_age_secs"));
+    }
+
+    function _reference(string memory t, string memory p)
+        private
+        pure
+        returns (OracleAdapter.ReferenceFeed memory r)
+    {
         string memory agg = vm.parseTomlString(t, string.concat(p, "reference_aggregator"));
-        if (bytes(agg).length != 0) {
-            m.ref = OracleAdapter.ReferenceFeed({
-                aggregator: vm.parseAddress(agg),
-                enabled: true,
-                required: false,
-                maxDivergenceBps: uint16(
-                    vm.parseTomlUint(t, string.concat(p, "reference_max_divergence_bps"))
-                ),
-                maxRefAge: uint32(vm.parseTomlUint(t, string.concat(p, "reference_max_age_secs")))
-            });
-        }
+        if (bytes(agg).length == 0) return r;
+        r.aggregator = vm.parseAddress(agg);
+        r.enabled = true;
+        r.maxDivergenceBps = uint16(_uint(t, p, "reference_max_divergence_bps"));
+        r.maxRefAge = uint32(_uint(t, p, "reference_max_age_secs"));
+    }
+
+    function _uint(string memory t, string memory prefix, string memory key) private pure returns (uint256) {
+        return vm.parseTomlUint(t, string.concat(prefix, key));
     }
 
     function _addresses(string memory t, string memory key) private pure returns (address[] memory) {
