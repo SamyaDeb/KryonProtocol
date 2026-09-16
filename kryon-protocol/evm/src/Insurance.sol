@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
-import {IEngine, IVault} from "./interfaces/IKryon.sol";
+import {IEngine, IOrderHasher, IVault} from "./interfaces/IKryon.sol";
 import {Decimals} from "./libraries/Decimals.sol";
 import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
+import {Order} from "./libraries/OrderLib.sol";
 
 /// @title Insurance
 /// @notice The protocol's backstop fund and the account that takes over
@@ -22,11 +25,23 @@ import {KryonMath as M} from "./libraries/KryonMath.sol";
 ///          covers deficits.
 ///      Staked capital only absorbs losses through an explicit, timelocked
 ///      `sweepToOperating`.
-contract Insurance is KryonUpgradeable {
+///
+///      Backstop unwind (plan §4.4): the contract is an ERC-1271 signer, so
+///      positions it took over in liquidations can be closed through the
+///      normal order book. Orders must be reduce-only, short-lived and signed
+///      by a BACKSTOP_SIGNER_ROLE key; the gateway then calls
+///      `onBackstopFill`, which holds every fill to a price band around the
+///      oracle index and to per-fill and daily notional caps.
+contract Insurance is KryonUpgradeable, IERC1271 {
     using SafeERC20 for IERC20;
 
     uint64 public constant UNSTAKE_COOLDOWN = 7 days;
     bytes32 public constant REASON_COVER = "INSURANCE_COVER";
+    /// Longest lifetime of a signed unwind order.
+    uint64 public constant MAX_UNWIND_ORDER_TTL = 1 hours;
+    uint16 public constant MAX_UNWIND_DEVIATION_BPS = 500;
+    int256 public constant MAX_UNWIND_FILL_NOTIONAL = 1_000_000e18;
+    int256 public constant MAX_UNWIND_DAILY_NOTIONAL = 10_000_000e18;
 
     struct ShareBalance {
         uint32 epoch;
@@ -53,6 +68,13 @@ contract Insurance is KryonUpgradeable {
         /// Uncovered deficit per account, and their sum.
         mapping(address => int256) recordedDebt;
         int256 badDebt;
+        address gateway;
+        /// Backstop unwind limits. All zero = unwinding disabled.
+        uint16 maxUnwindDeviationBps;
+        int256 maxUnwindFillNotional;
+        int256 maxUnwindDailyNotional;
+        /// day (unix / 1 days) => notional unwound that day.
+        mapping(uint256 => int256) unwoundOnDay;
     }
 
     // keccak256(abi.encode(uint256(keccak256("kryon.storage.Insurance")) - 1)) & ~bytes32(uint256(0xff))
@@ -68,6 +90,8 @@ contract Insurance is KryonUpgradeable {
     event DeficitCovered(address indexed trader, int256 covered, int256 remainingDebt);
     event BadDebtRecorded(address indexed trader, int256 debt, int256 totalBadDebt);
     event WiringSet(bytes32 indexed what, address indexed value);
+    event UnwindLimitsSet(uint16 maxDeviationBps, int256 maxFillNotional, int256 maxDailyNotional);
+    event BackstopUnwound(uint32 indexed marketId, uint256 size, uint256 price, int256 notional, int256 dayTotal);
 
     function _s() private pure returns (InsuranceStorage storage $) {
         assembly ("memory-safe") {
@@ -93,6 +117,74 @@ contract Insurance is KryonUpgradeable {
         if (liquidation_ == address(0)) revert Errors.ZeroAddress();
         _s().liquidation = liquidation_;
         emit WiringSet("liquidation", liquidation_);
+    }
+
+    function setGateway(address gateway_) external onlyRole(Roles.DEFAULT_ADMIN_ROLE) {
+        if (gateway_ == address(0)) revert Errors.ZeroAddress();
+        _s().gateway = gateway_;
+        emit WiringSet("gateway", gateway_);
+    }
+
+    /// @notice Backstop unwind limits (plan §4.4). Zero deviation disables unwinds.
+    function setUnwindLimits(uint16 maxDeviationBps, int256 maxFillNotional, int256 maxDailyNotional)
+        external
+        onlyRole(Roles.RISK_ADMIN_ROLE)
+    {
+        if (maxDeviationBps > MAX_UNWIND_DEVIATION_BPS) revert Errors.InvalidConfig();
+        if (maxFillNotional < 0 || maxFillNotional > MAX_UNWIND_FILL_NOTIONAL) revert Errors.InvalidConfig();
+        if (maxDailyNotional < maxFillNotional || maxDailyNotional > MAX_UNWIND_DAILY_NOTIONAL) {
+            revert Errors.InvalidConfig();
+        }
+        InsuranceStorage storage $ = _s();
+        $.maxUnwindDeviationBps = maxDeviationBps;
+        $.maxUnwindFillNotional = maxFillNotional;
+        $.maxUnwindDailyNotional = maxDailyNotional;
+        emit UnwindLimitsSet(maxDeviationBps, maxFillNotional, maxDailyNotional);
+    }
+
+    // ---------------------------------------------------------------- backstop
+
+    /// @notice ERC-1271. `signature` is `abi.encode(bytes orderAbi, bytes signerSignature)`
+    ///         where `orderAbi = abi.encode(Order)`.
+    /// @dev Valid only for a reduce-only order owned by this contract, expiring
+    ///      within MAX_UNWIND_ORDER_TTL, whose EIP-712 digest is `hash`, signed
+    ///      by a BACKSTOP_SIGNER_ROLE key. Never reverts on malformed input.
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        InsuranceStorage storage $ = _s();
+        if ($.maxUnwindDeviationBps == 0 || $.gateway == address(0)) return bytes4(0xffffffff);
+        if (signature.length < 128) return bytes4(0xffffffff);
+        (bytes memory orderAbi, bytes memory signerSig) = abi.decode(signature, (bytes, bytes));
+        if (orderAbi.length != 9 * 32) return bytes4(0xffffffff);
+        Order memory o = abi.decode(orderAbi, (Order));
+        return _validUnwindOrder(hash, o, signerSig) ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+    }
+
+    function _validUnwindOrder(bytes32 hash, Order memory o, bytes memory signerSig) private view returns (bool) {
+        InsuranceStorage storage $ = _s();
+        if (o.owner != address(this) || !o.reduceOnly) return false;
+        if (o.expiry > block.timestamp + MAX_UNWIND_ORDER_TTL) return false;
+        if (IOrderHasher($.gateway).hashOrder(o) != hash) return false;
+        // slither-disable-next-line unused-return
+        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(hash, signerSig);
+        return err == ECDSA.RecoverError.NoError && hasRole(Roles.BACKSTOP_SIGNER_ROLE, signer);
+    }
+
+    /// @notice Called by the gateway for every fill of a backstop order.
+    ///         Reverts (rejecting the fill) outside the price band or caps.
+    function onBackstopFill(uint32 marketId, uint256 size, uint256 price) external {
+        InsuranceStorage storage $ = _s();
+        if (msg.sender != $.gateway) revert Errors.Unauthorized();
+        if ($.maxUnwindDeviationBps == 0) revert Errors.BackstopUnwindDisabled();
+        int256 p = M.toInt(price);
+        int256 index = $.engine.indexPrice(marketId);
+        if (M.abs(p - index) > M.applyBps(index, $.maxUnwindDeviationBps)) revert Errors.PriceOutsideBand();
+        int256 notional_ = M.mulPrecision(M.toInt(size), p);
+        if (notional_ > $.maxUnwindFillNotional) revert Errors.BackstopLimitExceeded();
+        uint256 day = block.timestamp / 1 days;
+        int256 total = $.unwoundOnDay[day] + notional_;
+        if (total > $.maxUnwindDailyNotional) revert Errors.BackstopLimitExceeded();
+        $.unwoundOnDay[day] = total;
+        emit BackstopUnwound(marketId, size, price, notional_, total);
     }
 
     // ---------------------------------------------------------------- funding
@@ -243,6 +335,24 @@ contract Insurance is KryonUpgradeable {
     /// @notice Capacity used by the OI policy: operating net of bad debt, >= 0.
     function effectiveBalance() external view returns (int256) {
         return M.max(0, operatingBalance() - _s().badDebt);
+    }
+
+    function unwindLimits()
+        external
+        view
+        returns (uint16 maxDeviationBps, int256 maxFillNotional, int256 maxDailyNotional, int256 usedToday)
+    {
+        InsuranceStorage storage $ = _s();
+        return (
+            $.maxUnwindDeviationBps,
+            $.maxUnwindFillNotional,
+            $.maxUnwindDailyNotional,
+            $.unwoundOnDay[block.timestamp / 1 days]
+        );
+    }
+
+    function gateway() external view returns (address) {
+        return _s().gateway;
     }
 
     function badDebt() external view returns (int256) {

@@ -6,7 +6,7 @@ import {EIP712Upgradeable} from
 
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
-import {IEngine, IFeeRouter, IRiskParams} from "./interfaces/IKryon.sol";
+import {IEngine, IFeeRouter, IInsurance, IRiskParams} from "./interfaces/IKryon.sol";
 import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 import {Cancel, Fill, Order, OrderLib} from "./libraries/OrderLib.sol";
@@ -41,6 +41,8 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         mapping(address => mapping(uint256 => bool)) cancelled;
         /// Orders with nonce < minNonce are void (`cancelUpTo`).
         mapping(address => uint256) minNonce;
+        /// Insurance backstop: its fills go through `onBackstopFill`.
+        address backstop;
     }
 
     // keccak256(abi.encode(uint256(keccak256("kryon.storage.OrderGateway")) - 1)) & ~bytes32(uint256(0xff))
@@ -108,54 +110,80 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         }
     }
 
+    /// @dev Results of one settled fill, gathered for the event.
+    struct Settlement {
+        bytes32 makerHash;
+        bytes32 takerHash;
+        int256 makerFee;
+        int256 takerFee;
+        uint8 makerTier;
+        uint8 takerTier;
+    }
+
     /// @notice Settle a single fill. Only callable by this contract, so a
     ///         failure stays isolated to the one fill.
     function settleOne(Fill calldata f) external {
         if (msg.sender != address(this)) revert Errors.OnlySelf();
-        GatewayStorage storage $ = _s();
-
-        bytes32 makerHash = hashOrder(f.maker);
-        bytes32 takerHash = hashOrder(f.taker);
+        Settlement memory st;
+        st.makerHash = hashOrder(f.maker);
+        st.takerHash = hashOrder(f.taker);
         _validateFill(f);
-        _consume(f.maker, makerHash, f.makerSignature, f.size, f.price);
-        _consume(f.taker, takerHash, f.takerSignature, f.size, f.price);
+        _consume(f.maker, st.makerHash, f.makerSignature, f.size, f.price);
+        _consume(f.taker, st.takerHash, f.takerSignature, f.size, f.price);
+        int256 notional_ = _checkNotional(f);
+        _backstopHook(f);
+        _apply(f, notional_, st);
+        _emitSettled(f, st);
+    }
 
+    function _checkNotional(Fill calldata f) private view returns (int256 notional_) {
+        notional_ = M.mulPrecision(M.toInt(f.size), M.toInt(f.price));
+        MarketParams memory m = _s().risk.market(f.maker.marketId);
+        if (notional_ < m.minFillNotional) revert Errors.FillBelowMinNotional();
+    }
+
+    /// @dev Positions, then fees, then margin: the margin check sees the fees.
+    function _apply(Fill calldata f, int256 notional_, Settlement memory st) private {
+        GatewayStorage storage $ = _s();
         int256 size = M.toInt(f.size);
         int256 price = M.toInt(f.price);
-        int256 notional_ = M.mulPrecision(size, price);
-        MarketParams memory m = $.risk.market(f.maker.marketId);
-        if (notional_ < m.minFillNotional) revert Errors.FillBelowMinNotional();
-
-        IEngine engine_ = $.engine;
-        bool makerIncreased = engine_.applyFill(
+        bool makerIncreased = $.engine.applyFill(
             f.maker.owner, f.maker.marketId, f.maker.isLong, size, price, notional_, f.maker.reduceOnly
         );
-        bool takerIncreased = engine_.applyFill(
+        bool takerIncreased = $.engine.applyFill(
             f.taker.owner, f.taker.marketId, f.taker.isLong, size, price, notional_, f.taker.reduceOnly
         );
-
-        (int256 makerFee, int256 takerFee, uint8 makerTier, uint8 takerTier) = $.feeRouter.chargeFill(
+        (st.makerFee, st.takerFee, st.makerTier, st.takerTier) = $.feeRouter.chargeFill(
             f.maker.marketId, f.maker.owner, f.taker.owner, notional_, f.maker.referrer, f.taker.referrer
         );
+        $.engine.requireMargin(f.maker.owner, makerIncreased);
+        $.engine.requireMargin(f.taker.owner, takerIncreased);
+    }
 
-        engine_.requireMargin(f.maker.owner, makerIncreased);
-        engine_.requireMargin(f.taker.owner, takerIncreased);
-
+    function _emitSettled(Fill calldata f, Settlement memory st) private {
         emit FillSettled(
             f.fillId,
-            makerHash,
-            takerHash,
+            st.makerHash,
+            st.takerHash,
             f.maker.marketId,
             f.maker.owner,
             f.taker.owner,
             f.taker.isLong,
             f.size,
             f.price,
-            makerFee,
-            takerFee,
-            makerTier,
-            takerTier
+            st.makerFee,
+            st.takerFee,
+            st.makerTier,
+            st.takerTier
         );
+    }
+
+    /// @dev Holds a backstop fill to Insurance's unwind limits (plan §4.4).
+    function _backstopHook(Fill calldata f) private {
+        address backstop_ = _s().backstop;
+        if (backstop_ != address(0) && (f.maker.owner == backstop_ || f.taker.owner == backstop_)) {
+            IInsurance(backstop_).onBackstopFill(f.maker.marketId, f.size, f.price);
+        }
     }
 
     function _validateFill(Fill calldata f) private pure {
@@ -198,6 +226,17 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         }
         if (!OrderLib.isValidSignature(o.owner, digest, signature)) revert Errors.InvalidSignature();
         $.filled[digest] = next;
+    }
+
+    /// @notice The Insurance backstop whose fills are held to its unwind limits.
+    function setBackstop(address backstop_) external onlyRole(Roles.DEFAULT_ADMIN_ROLE) {
+        if (backstop_ == address(0)) revert Errors.ZeroAddress();
+        _s().backstop = backstop_;
+        emit WiringSet("backstop", backstop_);
+    }
+
+    function backstop() external view returns (address) {
+        return _s().backstop;
     }
 
     // ---------------------------------------------------------------- cancels

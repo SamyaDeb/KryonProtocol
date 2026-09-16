@@ -170,6 +170,9 @@ contract Engine is KryonUpgradeable {
     ///      full close must not leave it with a negative balance; those
     ///      accounts go through liquidation instead.
     function requireMargin(address trader, bool increasedExposure) external view {
+        // The backstop only ever trades reduce-only (enforced by Insurance and
+        // the Engine), so its fills can only shrink exposure.
+        if (trader == address(_s().insurance) && !increasedExposure) return;
         AccountHealth memory h = _accountHealth(trader);
         if (increasedExposure) {
             if (h.equity < h.initialMarginRequired) revert Errors.InsufficientCollateral();

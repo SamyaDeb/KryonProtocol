@@ -165,6 +165,8 @@ library DeploymentVerifier {
         _check(r, v == address(d.vault) && o == address(d.oracle) && rk == address(d.risk), "Engine: core wiring");
         _check(r, ins == address(d.insurance) && gw == address(d.gateway) && liq == address(d.liquidation), "Engine: peers");
 
+        _check(r, d.gateway.backstop() == address(d.insurance), "OrderGateway: backstop");
+        _check(r, d.insurance.gateway() == address(d.gateway), "Insurance: gateway");
         (address ge, address gr, address gf) = d.gateway.wiring();
         _check(r, ge == address(d.engine) && gr == address(d.risk) && gf == address(d.feeRouter), "OrderGateway: wiring");
 

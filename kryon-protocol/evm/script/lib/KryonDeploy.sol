@@ -187,6 +187,8 @@ library KryonDeploy {
         d.engine.setInsurance(address(d.insurance));
         d.insurance.setEngine(address(d.engine));
         d.insurance.setLiquidation(address(d.liquidation));
+        d.insurance.setGateway(address(d.gateway));
+        d.gateway.setBackstop(address(d.insurance));
 
         d.vault.grantRole(Roles.LEDGER_ROLE, address(d.engine));
         d.vault.grantRole(Roles.LEDGER_ROLE, address(d.feeRouter));

@@ -23,6 +23,8 @@ library Roles {
     bytes32 internal constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     /// Tier bot: may assign accounts to already-defined fee tiers.
     bytes32 internal constant FEE_TIER_ROLE = keccak256("FEE_TIER_ROLE");
+    /// Signs reduce-only unwind orders for the Insurance backstop (ERC-1271).
+    bytes32 internal constant BACKSTOP_SIGNER_ROLE = keccak256("BACKSTOP_SIGNER_ROLE");
     /// Protocol contracts allowed to move internal vault balances.
     bytes32 internal constant LEDGER_ROLE = keccak256("LEDGER_ROLE");
     /// Protocol contracts allowed to charge fees through the FeeRouter.

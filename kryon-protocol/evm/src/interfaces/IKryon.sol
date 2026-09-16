@@ -9,6 +9,7 @@ import {
     OracleSnapshot,
     Position
 } from "../libraries/Types.sol";
+import {Order} from "../libraries/OrderLib.sol";
 
 interface IVault {
     function balanceOf(address account) external view returns (int256);
@@ -80,6 +81,11 @@ interface IInsurance {
     function unfundedShortfall() external view returns (int256);
     function settleBadDebt(address trader) external returns (int256 covered);
     function refreshDebt(address trader) external;
+    function onBackstopFill(uint32 marketId, uint256 size, uint256 price) external;
+}
+
+interface IOrderHasher {
+    function hashOrder(Order calldata o) external view returns (bytes32);
 }
 
 interface IFeeRouter {
