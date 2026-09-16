@@ -320,8 +320,15 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
     - drop the read-after-write used for the event.
   - When the target is met and verified with `arc-forge snapshot`, the timelock may lower the
     minimum to $20.
-- Batch cap: ≤ 40 fills per `settleFillsSigned` until simulation shows headroom (40 measured at
-  22.3M gas).
+- **After the gas pass (2026-09-17):**
+  - Opening fill between brand-new accounts: 378.5k gas (was 558k).
+  - Fill on existing positions, the common market-maker case: 279k.
+  - 40-fill batch: 15.1M (was 22.3M).
+  - Liquidation: 275k.
+  - At 20 gwei, break-even is ~$19 notional for opening fills and ~$14 for fills on existing
+    positions. The ≤ 350k target is met for fills on existing positions only, so $40 stays the
+    launch minimum; the timelock can lower it once testnet traffic confirms the mix.
+- Batch cap: ≤ 40 fills per `settleFillsSigned` (15.1M gas measured), sized from simulation.
 - The oracle is the largest fixed cost, so use deviation-triggered pushes plus a heartbeat (§7).
 - The monitor reports **fees earned vs gas spent** per day, per service.
 

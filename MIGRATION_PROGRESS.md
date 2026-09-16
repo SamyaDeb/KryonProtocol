@@ -5,14 +5,71 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 | Step | Status |
 |---|---|
 | 0. Setup (Appendix B, git init, arc-facts) | ✅ done |
-| 1. Contracts (Phase A + fee contracts) | ✅ done, ⏸ **awaiting go-ahead** |
+| 1. Contracts (Phase A + fee contracts) | ✅ done, plus the 2026-09-17 decisions (below) |
+| 7. Remove Stellar (safe first pass) | 🟡 partial: Soroban contracts and Stellar-only scripts removed; the rest follows Steps 2–6 |
 | 2. Chain layer + TxSender | not started |
 | 3. Services | not started |
 | 4. Database | not started |
 | 5. Frontend + API + agent docs | not started |
 | 6. Infra, CI, runbooks | not started |
-| 7. Remove Stellar | not started |
 | 8. Testnet readiness | not started |
+
+---
+
+## 2026-09-17: mainnet decisions and safe Stellar removal
+
+### Decisions adopted (written into `ARC_MIGRATION_PLAN.md` §4.4, §5.6, §11, §14, §15)
+
+1. **Liquidation-sizing fix kept.** It is flagged for the audit. New property test
+   `testFuzz_one_uncapped_step_restores_maintenance` (20,000 runs; every run builds a liquidatable
+   account with positive equity) proves one uncapped planned step restores maintenance margin.
+2. **Fees vs gas.** Launch `minFillNotional` is **$40** in all environment TOMLs. The gas pass is
+   done:
+
+   | Action | Before | After |
+   |---|---|---|
+   | Opening fill, brand-new accounts | 558k | **378.5k** |
+   | Fill on existing positions | – | **279k** |
+   | 40-fill batch | 22.3M | **15.1M** |
+   | Partial liquidation | 337k | **275k** |
+
+   Changes: int128-packed Engine storage, a per-account market bitmap (market ids capped at 255),
+   one read-modify-write per position, a no-op for the duplicate mark record, one slot per order
+   in the gateway (`filled(owner, nonce)` replaces `filled(digest)`), and a single insurance fee
+   transfer per fill. The ≤ 350k target is met for fills on existing positions, not for
+   brand-new accounts, so $40 stays until testnet traffic shows the real mix.
+3. **Backstop unwind built.** `Insurance` is an ERC-1271 signer for reduce-only, ≤ 1h orders it
+   owns, signed by a `BACKSTOP_SIGNER_ROLE` key. `OrderGateway` calls `Insurance.onBackstopFill`
+   on every backstop fill, which enforces a price band around the oracle index plus per-fill and
+   daily notional caps. Unwinds are disabled until the timelock sets limits. The Engine lets the
+   backstop's reduce-only fills settle even when its account is underwater. Ten new tests cover
+   the happy path, reduce-only, signer revocation, TTL, payload substitution, band, caps, daily
+   reset, the disabled state, and garbage input.
+
+After these changes: **224 tests pass**; fork suite 8/8; differential 9/9; coverage **97.73%
+lines / 95.89% branches**; **Slither 0 findings**; storage-layout snapshots refreshed; all
+contracts under 24KB (Engine 21,865 B, Insurance 13,704 B, OrderGateway 14,040 B).
+
+### Stellar removal, safe first pass (`e0a327f`)
+
+- Deleted `kryon-protocol/contracts/**` (8 Soroban contracts, 10,949 lines). The Cargo workspace
+  now holds `crates/protocol-core`, `crates/risk-engine` and `evm/ffi`.
+- Deleted the Appendix A Stellar-only scripts: `ttl-keeper`, `setup-usdc-*`, `*usdt0*`,
+  `redeploy-core`, `redeploy-oracle`, `redeploy-engine-xlm`, `rewire-liquidation`,
+  `transfer-admin-to-governance`, `cutover-testnet-v3`, `test-*settle*`, `test-xlm-*`,
+  `test-usdc-*`, `test-final-usdc`, `diag-usdc-settle` and `migrate-add-order-signature`, plus the
+  `dev:ttl` npm script. **16 of them were gitignored local files, so their deletion is permanent.**
+- CI: the Soroban/wasm job is replaced by `reference-model` (fmt, clippy, test) and `evm` (pinned
+  arc-foundry with checksum, sizes, tests, differential, storage-layout diff, Slither
+  `--fail-medium`). Rust fmt and clippy pass locally.
+- **Kept on purpose, as the template for the Arc equivalents (your instruction):**
+  `kryon-protocol/infra/**`, Dockerfiles, `render.yaml`, `wrangler.jsonc`, PM2 ecosystem configs
+  (including `_drill_ecosystem.config.cjs` and `ecosystem.testnet.config.cjs`),
+  `railway-testnet-entrypoint.sh` and runbooks. They are rewritten or removed in Step 6.
+- **Still to remove, as Steps 2–5 replace it:** `client/lib/stellar/**`, the `@stellar/*`
+  dependencies, the Stellar service scripts (matcher, keepers, indexer, monitor, …),
+  `SettlementModal`, `/api/settlements`, the wallet/Freighter UI, and Stellar docs. The CI grep
+  guard is added when the last of these goes.
 
 ---
 
