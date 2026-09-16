@@ -4,8 +4,8 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 
 | Step | Status |
 |---|---|
-| 0. Setup (Appendix B, git init, arc-facts) | ✅ done, ⏸ awaiting go-ahead |
-| 1. Contracts | not started, **blocked on `arc-forge` install** |
+| 0. Setup (Appendix B, git init, arc-facts) | ✅ done |
+| 1. Contracts (Phase A + fee contracts) | ✅ done, ⏸ **awaiting go-ahead** |
 | 2. Chain layer + TxSender | not started |
 | 3. Services | not started |
 | 4. Database | not started |
@@ -16,56 +16,185 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 
 ---
 
+## Step 1: Contracts (2026-09-16)
+
+### What was built (`kryon-protocol/evm/`)
+
+| Area | Contents |
+|---|---|
+| Toolchain | arc-foundry `v0.8.0-1` (forge 1.7.1-dev `f567f94`), solc 0.8.30, EVM target `prague`, via-IR. OpenZeppelin Contracts + Upgradeable `v5.7.0` and forge-std `v1.9.7` as pinned submodules (`foundry.lock`) |
+| Libraries | `KryonMath` (1e18, i128-bounded to match Rust), `Decimals` (the single 1e6↔1e18 boundary: credits round down, debits round up), `RiskLib`, `FundingLib`, `LiquidationLib`, `OrderLib` (EIP-712 + ECDSA-then-ERC-1271, so EIP-7702 EOAs work), `RiskCalc` (linked library that keeps the Engine under 24KB), `Types`, `Errors` (`KryonErrors`) |
+| Contracts | `Vault`, `Engine`, `OrderGateway`, `OracleAdapter`, `Liquidation`, `Insurance`, `RiskParams`, `FeeRouter`. All UUPS behind ERC1967 proxies, ERC-7201 storage, enumerable roles, guardian pause, timelock-only unpause and upgrade |
+| Governance | `KryonTimelock` (OZ TimelockController): delay can never go below 48h, guardian veto on execution, veto lifted only by a timelocked self-call. `Roles` library |
+| Deploy | `script/lib/KryonDeploy.sol` (shared by scripts **and tests**), `ConfigLoader` (reads `infra/deploy/environments/arc-*.toml`), `00_DeployImpls` … `05_Handover`, `99_VerifyDeployment`, `DeployAll`, `DeploymentVerifier` |
+| Config | `infra/deploy/environments/arc-mainnet.toml`, `arc-testnet.toml`, `arc-local.toml`. Market ids 1–8 match `client/config/index.ts`. BTC and ETH active; the other six configured but inactive. Launch fees, split, caps and oracle policy are set from the prompt's defaults. Mainnet Chainlink cross-check feeds are taken from Chainlink's directory and each has code on-chain |
+| Reference model | `evm/ffi` (`kryon-ref`): Rust binary over `protocol-core`/`risk-engine` for differential fuzzing |
+
+### Acceptance results
+
+| Check | Result |
+|---|---|
+| `arc-forge build --sizes` | ✅ all under 24KB. Engine 22,467 B (2,109 margin), OrderGateway 13,159, FeeRouter 13,003, OracleAdapter 13,100, Vault 11,223, Insurance 10,670, Liquidation 10,334, RiskParams 9,645, KryonTimelock 6,017, RiskCalc 4,115 |
+| `arc-forge test` (unit, upgrade, invariant) | ✅ **213 passed, 0 failed** (17 suites) |
+| Invariant suite (§3 invariants 1–6 + OI balance, fee buckets, bad-debt backing, staking) | ✅ 9 invariants × 256 runs × depth 64. The campaign executed **29,547 trades, 1,850 liquidations, 99 ADLs, and bad debt in 47 runs**, so it isn't vacuous |
+| Differential fuzz vs Rust (G1), `FOUNDRY_PROFILE=differential` | ✅ 9 properties × 5,000 runs = **45,000 comparisons, 0 mismatches** (values and error codes). The 1M-run campaign goes in the nightly profile |
+| Arc-semantics fork tests (G4), `FOUNDRY_PROFILE=fork arc-forge test --network arc` | ✅ **8 passed** against an Arc testnet fork with the real USDC and Permit2: dual 6/18-decimal balance, native value and 0x0 transfers rejected, real EIP-2612 permit (version "2"), real Permit2, equal-timestamp funding, 20 gwei base fee, full liquidation and claim flow with exact solvency |
+| Coverage (`arc-forge coverage --ir-minimum`, `src/` incl. libraries) | ✅ **97.60% lines** (1343/1376), **96.30% branches** (286/297). The 11 uncovered branches are defensive guards the code can't reach |
+| Slither 0.11.6 | ✅ **0 High, 0 Medium.** Low: 11 calls-loop, 11 timestamp, 1 reentrancy-events. Informational: 8 assembly (ERC-7201 slot getters), 6 missing-inheritance, 3 cyclomatic-complexity, 1 naming, 1 unindexed address. Justified inline (`slither-disable-next-line`): protocol-internal Engine→Vault / FeeRouter→Vault calls (all `nonReentrant`, no callbacks), pull-then-credit deposits, and return values ignored on purpose |
+| Storage-layout snapshots | ✅ `evm/storage-layout/*.txt` for all 8 contracts. `./script/storage-layout.sh --check` is the CI diff. Regular storage is empty everywhere; all state is namespaced |
+| Deploy scripts | ✅ `DeployAll` and the numbered `00`→`05` path both **broadcast cleanly to a local arc-anvil fork of Arc testnet**, and `99_VerifyDeployment: OK`. Preflight refuses placeholder governance addresses, a wrong chain id, and mainnet without `KRYON_ALLOW_MAINNET=true`. `DeploymentVerifier` unit tests prove it flags an EOA admin, fee drift, param drift, extra operators and a vetoed timelock |
+
+### Test ports from Soroban
+
+Every scenario from the eight Soroban contracts and the Rust crates was ported, except those that
+don't apply on Arc (listed under Deviations): Vault, Engine, OrderGateway (including KRY-Q1 and
+KRY-Q6 funding regressions and KRY-S2 cancels), Liquidation (C1 bad debt, KRY-Q4 ADL), Insurance
+(all 8 staking/epoch tests), OracleAdapter (quorum, replay, deviation, duplicate sources),
+Governance (48h, queue/execute, guardian veto), RiskParams (KRY-Q8, KRY-Q11), and the
+protocol-core/risk-engine unit tests. New tests cover §5.8 fees, EIP-712/ERC-1271/EIP-7702
+signatures, nonces and cancels, batch isolation, upgrades, handover, and deploy verification.
+
+### Gas (§5.6), measured with `FOUNDRY_PROFILE=gas arc-forge test -vv`
+
+| Action | Plan estimate | Measured |
+|---|---|---|
+| Settle 1 fill, both sides opening (cold) | ~350k | 850k single / **558k per fill** in a 40-fill batch |
+| 40-fill batch | ~14M | **22.3M** (under the 30M block limit) |
+| Oracle push, 8 markets | ~250k | 110k |
+| Funding update | ~300k for 8 | 37k per market |
+| Liquidation (partial) | ~400k | 337k |
+| Deposit (cold) / withdraw | – | 144k / 65k |
+
+**Consequence:** at the 20 gwei floor a fill costs ~0.011 USDC, so 4 bps breaks even at about
+$28 notional, and at the ~28 gwei observed on mainnet it's about $39. The $20 `minFillNotional`
+default doesn't cover gas for opening fills. See Open decisions.
+
+### Bugs found and fixed during Step 1
+
+1. **Double-hashed EIP-712 digest** in `OrderGateway._consume`. No signature could verify. Caught by the first smoke test.
+2. **Liquidation sizing (reference model and port).** `plan_liquidation` sized the close to free
+   *notional* equal to the shortfall, not *margin*, under-closing by `1/(mm − fee)`. With the close
+   capped at the plan on-chain, liquidations needed dozens of dust steps, each paying less than gas.
+   Fixed identically in `crates/risk-engine` and `LiquidationLib`
+   (`q = size·shortfall / (notional·(mm−fee)) + 1`), with updated tests on both sides. **This
+   changes the Rust reference model; please confirm.**
+3. **Stale recorded bad debt.** When a trader repaid their own deficit by depositing, Insurance
+   kept the debt recorded, overstating `unfundedShortfall`, so ADL could haircut winners for a
+   loss already paid. The vault now calls `Insurance.refreshDebt`. Found by the invariant suite.
+4. **Oracle brick on a codeless aggregator.** `try agg.decimals()` on an address without code
+   reverts before `try` can catch it, which would make `pushPrices` revert for that feed forever.
+   The address is now rejected at config time and treated as unreadable at runtime.
+5. **Slither couldn't analyse most functions**, because our `Errors` library shadowed OZ's
+   `Errors`. Renamed to `KryonErrors`.
+
+### Deviations from the plan (with reasons)
+
+1. **Liquidation transfers the position to the insurance backstop** at the oracle index instead of
+   closing it one-sidedly as Soroban did. A one-sided close leaves long and short OI unequal and
+   makes invariant #5 unprovable. With the transfer, `usdc × 1e12 == Σ balances − Σ cost basis`
+   holds exactly (fuzzed). The penalty pays a capped liquidator reward, and the remainder is split
+   by the FeeRouter (§4.2).
+2. **ADL closes the backstop's position against an in-profit counterparty and haircuts that
+   counterparty's realized gain** by the unfunded shortfall. Soroban's `adl` only cleared the
+   bad-debt record while crediting the winner in full, which doesn't reduce the shortfall.
+3. **Invariant #5 includes the open cost basis.** Realized PnL isn't zero-sum per fill; balance
+   plus cost basis is. The exact identity is `vault USDC×1e12 == totalLedger − netCostBasis`,
+   exposed as `Vault.solvency()`.
+4. **Positions store exact cost basis** (`openNotional`) rather than a rounded VWAP entry. Entry
+   is derived for display and health. RiskLib keeps the Rust reference shape for parity.
+5. **Funding is settled through a pool** (the Engine's vault account). Payers round up and
+   receivers round down, so the pool only holds dust.
+6. **Order sizes are 1e18 base units** (prices 1e18, USDC amounts 1e6 at the token boundary). The
+   plan's "1e6 amounts" is read as token amounts.
+7. **Fee rates are in millionths** (1 = 0.01 bps), so 3.5 / 0.5 bps are expressible (350 / 50).
+8. **OI caps count long + short**, as the Soroban engine did (every matched fill opens both sides).
+9. **Non-increasing fills** must not leave the account liquidatable (instead of requiring initial
+   margin as Soroban did), so traders between MM and IM can still reduce. Increasing fills
+   require IM after fees.
+10. **Not ported, because they don't apply on Arc:** isolated margin (disabled in Soroban too),
+    multi-collateral seizure and USDT0 flows (USDC-only launch; the `setCollateral` interface is
+    kept), Stellar→Arc migration import/seal (fresh baseline per §9), instance-TTL keepalives and
+    tombstone reclaim (EVM has no rent, so cancels are permanent), and the advisory `perp-risk`
+    contract. The SEP-53/ed25519 golden vector is replaced by an EIP-712 parity vector
+    (`test_eip712_parity_vector`, digest `0x3743…895e`) and computed typehashes.
+11. **`updateFunding` is `KEEPER_ROLE`**, per §4.3 (Soroban's was permissionless).
+12. **Deposits stay closed on mainnet** (`depositCap = 0`) until `99_VerifyDeployment` passes and
+    the timelock raises the caps. Testnet and local open them at deploy
+    (`open_deposits_at_deploy`).
+13. **The funding clock starts at a market's first trade** (Soroban started it at config time),
+    because funding config lives in RiskParams.
+
+### Open questions / decisions for you
+
+1. **Confirm the liquidation-sizing fix** to the Rust reference model (bug 2 above).
+2. **`minFillNotional` vs measured gas.** Opening fills cost ~558k gas, so $20 doesn't break even
+   (~$28 at 20 gwei, ~$39 at 28 gwei). Options: raise it to ~$40, optimize settlement gas (cold
+   storage writes dominate), or accept below-cost small fills. I haven't changed the $20 default.
+3. **Batch size.** 40 fills measured at 22.3M gas, versus the plan's ~14M estimate. The matcher
+   cap should be sized from simulation (the plan says the same). I suggest ≤ 40 for now.
+4. **Backstop unwinding.** Liquidated positions now sit with Insurance. ADL can reduce them when
+   there is bad debt, but there is no general unwind path when there isn't. Options: a
+   KEEPER-driven backstop order via ERC-1271 on Insurance, or governance-timelocked unwinds.
+   Needs a decision before mainnet. It isn't in the plan.
+5. **Blocklist semantics in-contract** (G4) stay open. Settlement moves no tokens, so a
+   blocklisted trader can't block a batch. Withdrawals to or from them revert (tested with a mock;
+   the Arc blocklist controller is unknown).
+6. Items still open from Step 0: explorer verification on mainnet, RPC archive/trace, Safe{Wallet}
+   support (affects ops-refill design), RedStone/Chronicle.
+
+### How to reproduce
+
+```bash
+cd kryon-protocol/evm
+arc-forge build --sizes
+arc-forge test                                              # unit + upgrade + invariant
+(cd .. && cargo build -p kryon-ref --release) && FOUNDRY_PROFILE=differential arc-forge test
+FOUNDRY_PROFILE=fork arc-forge test --network arc          # needs Arc testnet RPC (read-only)
+FOUNDRY_PROFILE=gas arc-forge test -vv
+arc-forge coverage --ir-minimum --report summary --no-match-coverage "(^script/|^test/|^lib/)"
+arc-forge build --build-info --skip "test/**" --skip "script/**" && \
+  uvx --from slither-analyzer==0.11.6 slither . --foundry-out-directory out --ignore-compile \
+  --filter-paths "lib/|test/|script/" --exclude-informational --exclude-low
+./script/storage-layout.sh --check
+```
+
+---
+
 ## Step 0: Setup (2026-09-16)
 
 ### Done
 
 - **Appendix B.** Appended explicit entries to the root `.gitignore` for the load-test and drill
   key/wallet/state JSONs, `client/kryon-web.tar.gz`, `client/logs/`, `.wrangler`, `.vercel`,
-  `.dev.vars*`, `*secrets*.env`, keystores/PEM/key files, and the arc-foundry `out/`, `cache/`,
-  and local/dry-run `broadcast/` outputs. Most of these were already covered by nested
-  `.gitignore` files. The root entries make coverage independent of those files.
+  `.dev.vars*`, `*secrets*.env`, keystores/PEM/key files, and arc-foundry outputs.
 - **Legacy secret env files moved out of the working tree** (not deleted):
   `kryon-protocol/infra/deploy/{mainnet,testnet,testnet-v3}-secrets.env` →
   `~/Kryon-legacy-secrets/` (dir mode 700, files 600). They hold Stellar-era keys. Decide
   whether to keep, rotate, or destroy them.
-- **`git init` + baseline commit** `f650754` (340 files).
-  - Staged-file secret scan (Stellar `S…` seeds, 32-byte hex keys, PEM keys, credentialed
-    Postgres URLs, AWS/GitHub/Stripe tokens) found only placeholders: `PASSWORD`, `<PW>`,
-    `${DB_PASSWORD}`, and the CI throwaway `postgresql://ci:ci@localhost`.
-  - `git check-ignore` confirmed that all of these are ignored: `_loadtest_*_keys.json`,
-    `client/.env.local`, `kryon-protocol/.env`, `client/logs/*`, the tarball,
-    `Audit Reports/`, and `client/.vercel/`. Tracked files matching key/wallet/secret/.env.local
-    patterns: **0**.
-  - Tracked files over 1 MB are images and video only (`client/public/images/dd.png` 2.0 MB and others).
-- **`docs/arc-facts.md`** created. All [U] items were checked against docs.arc.io,
-  developers.circle.com, provider docs, GitHub, and read-only calls to the public Arc RPCs.
+- **`git init` + baseline commit** `f650754` (340 files). The staged-file secret scan found only
+  placeholders. Tracked key/wallet/secret files: 0.
+- **`docs/arc-facts.md`** records every [U] item with sources, plus on-chain checks.
 
-### Deviations from the plan / new facts
+### Decisions made after Step 0
 
-1. **Chainlink Data Feeds are live on Arc mainnet.** The plan says none are published. There are
-   30 feeds, including BTC, ETH, SOL, XRP, BNB, TRX and USDC. Prices were confirmed on-chain.
-   The feeds have a 24h heartbeat and 0.5% deviation, so they suit a cross-check only. There are
-   no ADA/XLM feeds and none on testnet. The cross-check stays disabled in config pending your approval.
-2. **Mainnet WebSocket** is available from Alchemy, Blockdaemon and QuickNode (documented), but not from the public RPC.
-3. **Safe v1.4.1** contracts are deployed canonically on both networks. Safe{Wallet} UI support
-   is unconfirmed (Allowance Module reportedly missing), which affects the "ops refill Safe allowance" design.
-4. The docs describe underpriced txs as "may remain pending indefinitely or fail outright", not
-   "silently dropped". The docs state the 20 gwei floor for testnet. Mainnet gas price was about 28 gwei.
-5. Testnet EURC, CCTP and Gateway addresses differ from mainnet, so they need per-network config.
+- **arc-foundry `v0.8.0-1`** installed (checksum verified; needs Homebrew `libusb`).
+- **Chainlink Arc mainnet feeds approved** as the on-chain cross-check (BTC, ETH, SOL, XRP, BNB,
+  TRX). Mainnet WSS comes from providers. The ops refill must not depend on Safe's Allowance
+  Module. The 20 gwei floor is config. Testnet and mainnet addresses stay in per-network config.
 
-### Blockers / actions for you
+### New facts (details in `docs/arc-facts.md`)
 
-- **Install arc-foundry `v0.8.0-1`.** It isn't on this machine (only upstream `forge` is).
-  The exact commands are in `docs/arc-facts.md` §5. Step 1 can't build or test without it.
-
-### Open [U] items
-
-See `docs/arc-facts.md` §6: the explorer API and verification, RPC archive/trace, blocklist
-in-contract semantics, Safe{Wallet} support, Chainlink approval, RedStone/Chronicle, and the
-mainnet gas floor wording.
+1. Chainlink Data Feeds are live on Arc mainnet (30 feeds, 24h heartbeat, 0.5% deviation;
+   no ADA/XLM; none on testnet).
+2. Mainnet WebSocket only via Alchemy, Blockdaemon and QuickNode.
+3. Safe v1.4.1 contracts deployed on both networks. Safe{Wallet} UI support unconfirmed.
+4. Underpriced txs "may remain pending indefinitely or fail outright". The 20 gwei floor is
+   documented for testnet; ~28 gwei was observed on mainnet.
+5. Testnet EURC, CCTP and Gateway addresses differ from mainnet.
+6. Arc USDC supports EIP-2612 permit (domain "USDC", version "2"). Verified on-chain.
+7. Testnet source verification: `arc-forge verify-contract … --verifier blockscout --verifier-url https://explorer.testnet.arc.io/api/`.
 
 ### Open decisions (§15)
 
-The prompt's defaults apply. These stay as placeholders: Safe signers and thresholds, RPC provider,
-auditor(s), bug bounty, and compliance vendor and jurisdictions.
+The prompt's defaults apply. These stay as placeholders: Safe signers and thresholds, RPC
+provider, auditor(s), bug bounty, and compliance vendor and jurisdictions.
