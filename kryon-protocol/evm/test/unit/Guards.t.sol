@@ -13,7 +13,7 @@ import {OrderGateway} from "../../src/OrderGateway.sol";
 import {RiskParams} from "../../src/RiskParams.sol";
 import {Vault} from "../../src/Vault.sol";
 import {Decimals} from "../../src/libraries/Decimals.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {KryonMath as M} from "../../src/libraries/KryonMath.sol";
 import {LiquidationLib} from "../../src/libraries/LiquidationLib.sol";
 import {Fill, Order} from "../../src/libraries/OrderLib.sol";

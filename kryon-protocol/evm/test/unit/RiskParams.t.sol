@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {FundingConfig, MarketParams} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 

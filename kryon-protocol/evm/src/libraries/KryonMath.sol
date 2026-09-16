@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Errors} from "./Errors.sol";
+import {KryonErrors as Errors} from "./Errors.sol";
 
 /// @notice 1e18 fixed-point math, a line-for-line port of `protocol_core::fixed`.
 /// @dev Values are carried as int256 but bounded to the i128 range the Rust

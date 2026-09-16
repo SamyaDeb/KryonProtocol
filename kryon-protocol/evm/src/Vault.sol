@@ -9,7 +9,7 @@ import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IEngine, IInsurance, ISignatureTransfer} from "./interfaces/IKryon.sol";
 import {Decimals} from "./libraries/Decimals.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 
 /// @title Vault
@@ -137,21 +137,24 @@ contract Vault is KryonUpgradeable {
 
     // -------------------------------------------------------------- deposits
 
-    function deposit(uint256 amount) external {
+    function deposit(uint256 amount) external nonReentrant whenNotPaused {
         _pullAndCredit(msg.sender, msg.sender, amount);
     }
 
     /// @notice Deposit on behalf of `account`. Used by protocol contracts
     ///         (insurance) and by integrators funding a user.
-    function depositFor(address account, uint256 amount) external {
+    function depositFor(address account, uint256 amount) external nonReentrant whenNotPaused {
         _pullAndCredit(msg.sender, account, amount);
     }
 
     /// @notice EIP-2612 permit + deposit in one transaction.
     /// @dev A front-run permit consumes the nonce and makes `permit` revert;
     ///      the deposit still goes through if the allowance is already there.
+    // slither-disable-next-line reentrancy-no-eth
     function depositWithPermit(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         external
+        nonReentrant
+        whenNotPaused
     {
         try IERC20Permit(address(_s().usdc)).permit(
             msg.sender, address(this), amount, deadline, v, r, s
@@ -160,6 +163,9 @@ contract Vault is KryonUpgradeable {
     }
 
     /// @notice Permit2 signature-transfer deposit, for wallets without 2612.
+    /// @dev Tokens must arrive before the credit, so the pull precedes the
+    ///      state write; the function is nonReentrant and USDC has no hooks.
+    // slither-disable-next-line reentrancy-no-eth
     function depositWithPermit2(
         ISignatureTransfer.PermitTransferFrom calldata permit,
         bytes calldata signature
@@ -179,11 +185,7 @@ contract Vault is KryonUpgradeable {
         _credit(msg.sender, msg.sender, amount);
     }
 
-    function _pullAndCredit(address payer, address account, uint256 amount)
-        private
-        nonReentrant
-        whenNotPaused
-    {
+    function _pullAndCredit(address payer, address account, uint256 amount) private {
         _checkDeposit(account, amount);
         _s().usdc.safeTransferFrom(payer, address(this), amount);
         _credit(payer, account, amount);
@@ -233,6 +235,7 @@ contract Vault is KryonUpgradeable {
         int256 internalAmount = Decimals.toInternal(amount);
         if ($.balances[account] < internalAmount) revert Errors.InsufficientCollateral();
         // Reverts unless equity after the withdrawal still covers initial margin.
+        // slither-disable-next-line unused-return
         $.engine.validateWithdrawal(account, internalAmount);
 
         _move(account, -internalAmount);

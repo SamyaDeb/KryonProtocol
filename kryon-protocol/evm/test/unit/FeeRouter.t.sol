@@ -5,7 +5,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {Order} from "../../src/libraries/OrderLib.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 

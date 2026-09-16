@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
 /// @notice Ports of the perp-insurance staking tests. Token amounts are USDC

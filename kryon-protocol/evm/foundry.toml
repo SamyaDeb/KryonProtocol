@@ -17,7 +17,7 @@ bytecode_hash = "none"
 extra_output = ["storageLayout"]
 ffi = false
 # ffi (differential) and live-RPC (fork) suites run in their own profiles.
-no_match_path = "test/{differential,fork}/*"
+no_match_path = "test/{differential,fork,gas}/*"
 fs_permissions = [
   { access = "read", path = "../infra/deploy/environments" },
   { access = "read", path = "./config" },
@@ -62,6 +62,11 @@ depth = 256
 [profile.fork]
 match_path = "test/fork/*"
 no_match_path = "test/differential/*"
+
+# §5.6 gas figures: FOUNDRY_PROFILE=gas arc-forge test -vv
+[profile.gas]
+match_path = "test/gas/*"
+no_match_path = "test/{differential,fork}/*"
 
 [profile.ci]
 verbosity = 2

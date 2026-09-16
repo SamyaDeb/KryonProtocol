@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {AggregatorV3Interface} from "./interfaces/IKryon.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 import {ORACLE_SOURCE_QUORUM, OracleSnapshot} from "./libraries/Types.sol";
 
@@ -174,14 +174,14 @@ contract OracleAdapter is KryonUpgradeable {
             FeedConfig memory cfg = $.feeds[id];
             if (!cfg.listed) revert Errors.UnknownFeed(id);
             if (!cfg.active) revert Errors.InvalidConfig();
-            if (prices[i] <= 0 || confidences[i] < 0) revert Errors.InvalidPrice();
-            M.bound128(prices[i]);
-            M.bound128(confidences[i]);
+            int256 price = M.bound128(prices[i]);
+            int256 confidence = M.bound128(confidences[i]);
+            if (price <= 0 || confidence < 0) revert Errors.InvalidPrice();
             if (block.timestamp - publishTime > cfg.maxAge) revert Errors.StaleOracle();
             Observation storage prev = $.observations[id][msg.sender];
             if (publishTime <= prev.publishTime) revert Errors.StaleOracle();
-            $.observations[id][msg.sender] = Observation(prices[i], confidences[i], publishTime);
-            emit ObservationPushed(id, msg.sender, prices[i], confidences[i], publishTime);
+            $.observations[id][msg.sender] = Observation(price, confidence, publishTime);
+            emit ObservationPushed(id, msg.sender, price, confidence, publishTime);
             _aggregate(id, cfg);
         }
     }
@@ -260,13 +260,15 @@ contract OracleAdapter is KryonUpgradeable {
         // A call to an address without code reverts before `try` can catch it.
         if (ref.aggregator.code.length == 0) return (false, 0);
         AggregatorV3Interface agg = AggregatorV3Interface(ref.aggregator);
-        uint8 dec;
+        uint8 dec = 0;
         try agg.decimals() returns (uint8 d) {
             dec = d;
         } catch {
             return (false, 0);
         }
         if (dec > 18) return (false, 0);
+        // Only the answer and its timestamp matter for a divergence bound.
+        // slither-disable-next-line unused-return
         try agg.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
             if (answer <= 0 || updatedAt > block.timestamp) return (false, 0);
             if (block.timestamp - updatedAt > ref.maxRefAge) return (false, 0);

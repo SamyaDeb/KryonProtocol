@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Errors} from "./Errors.sol";
+import {KryonErrors as Errors} from "./Errors.sol";
 
 /// @notice The single boundary between USDC token units (ERC-20 interface,
 ///         6 decimals) and the protocol's 1e18 internal ledger.

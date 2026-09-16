@@ -5,7 +5,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {Order} from "../../src/libraries/OrderLib.sol";
 import {AccountHealth, FundingState, MarketParams, Position} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";

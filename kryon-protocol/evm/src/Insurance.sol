@@ -8,7 +8,7 @@ import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IEngine, IVault} from "./interfaces/IKryon.sol";
 import {Decimals} from "./libraries/Decimals.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 
 /// @title Insurance

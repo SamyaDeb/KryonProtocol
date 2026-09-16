@@ -6,7 +6,7 @@ import {Vm} from "forge-std/Test.sol";
 
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {OracleSnapshot} from "../../src/libraries/Types.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {KryonTest} from "../utils/KryonTest.sol";

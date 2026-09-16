@@ -12,7 +12,7 @@ import {KryonDeploy} from "../../script/lib/KryonDeploy.sol";
 import {Vault} from "../../src/Vault.sol";
 import {KryonTimelock} from "../../src/governance/KryonTimelock.sol";
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {VaultV2, EngineV2} from "../mocks/UpgradeMocks.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 

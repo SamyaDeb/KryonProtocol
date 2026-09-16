@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 
 import {Decimals} from "../../src/libraries/Decimals.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {FundingLib} from "../../src/libraries/FundingLib.sol";
 import {KryonMath as M} from "../../src/libraries/KryonMath.sol";
 import {LiquidationLib} from "../../src/libraries/LiquidationLib.sol";

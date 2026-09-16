@@ -75,6 +75,7 @@ library OrderLib {
         view
         returns (bool)
     {
+        // slither-disable-next-line unused-return
         (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, signature);
         if (err == ECDSA.RecoverError.NoError && recovered == signer) return true;
         if (signer.code.length == 0) return false;

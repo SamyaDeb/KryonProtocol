@@ -5,7 +5,7 @@ import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IVault} from "./interfaces/IKryon.sol";
 import {Decimals} from "./libraries/Decimals.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 
 /// @title FeeRouter
@@ -233,6 +233,8 @@ contract FeeRouter is KryonUpgradeable {
     }
 
     /// @notice Charge both sides of a fill and split the net fee. Gateway only.
+    // Calls reach only the Vault (no callbacks); the function is nonReentrant.
+    // slither-disable-next-line reentrancy-no-eth
     function chargeFill(
         uint32 marketId,
         address maker,
@@ -243,6 +245,7 @@ contract FeeRouter is KryonUpgradeable {
     )
         external
         onlyRole(Roles.FEE_SOURCE_ROLE)
+        nonReentrant
         returns (int256 makerFee, int256 takerFee, uint8 makerTier, uint8 takerTier)
     {
         (makerFee, takerFee, makerTier, takerTier) = quote(marketId, maker, taker, fillNotional);
@@ -265,6 +268,7 @@ contract FeeRouter is KryonUpgradeable {
     function accrueLiquidationFee(uint32 marketId, address payer, int256 amount)
         external
         onlyRole(Roles.FEE_SOURCE_ROLE)
+        nonReentrant
     {
         if (amount < 0) revert Errors.InvalidAmount();
         if (amount == 0) return;

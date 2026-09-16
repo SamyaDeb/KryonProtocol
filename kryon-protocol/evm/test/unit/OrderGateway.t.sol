@@ -6,7 +6,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {Vm} from "forge-std/Test.sol";
 
 import {Roles} from "../../src/governance/Roles.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {Cancel, Fill, Order, OrderLib} from "../../src/libraries/OrderLib.sol";
 import {FundingConfig, FundingState, MarketParams} from "../../src/libraries/Types.sol";
 import {MockERC1271Wallet} from "../mocks/MockERC1271Wallet.sol";

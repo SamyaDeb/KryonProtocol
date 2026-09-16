@@ -1,0 +1,19 @@
+# FeeRouter
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.FeeRouter
+## fields (append-only)
+IVault vault;
+address insurance;
+address treasury;
+mapping(uint32 => Rates) marketRates;
+mapping(uint8 => Rates) tiers;
+mapping(address => uint8) accountTier;
+int256 minNetRate;
+bool rebatesEnabled;
+bool referralsEnabled;
+Split split;
+uint16 liquidationInsuranceBps;
+int256 treasuryAccrued;
+mapping(address => int256) referralAccrued;
+int256 totalReferralAccrued;

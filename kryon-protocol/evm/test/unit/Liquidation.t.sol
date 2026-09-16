@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {AccountHealth, Position} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 

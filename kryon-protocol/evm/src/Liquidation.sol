@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IEngine, IFeeRouter, IInsurance, IRiskParams, IVault} from "./interfaces/IKryon.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 import {RiskLib} from "./libraries/RiskLib.sol";
 import {AccountHealth, MarketParams, Position} from "./libraries/Types.sol";
@@ -162,6 +162,8 @@ contract Liquidation is KryonUpgradeable {
 
         // Insurance is the last resort, and only once nothing is left to close.
         if (engine_.positionCount(trader) == 0 && vault_.balanceOf(trader) < 0) {
+            // The covered amount is emitted by Insurance; nothing here depends on it.
+            // slither-disable-next-line unused-return
             $.insurance.settleBadDebt(trader);
         }
 

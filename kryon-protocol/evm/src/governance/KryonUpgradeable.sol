@@ -8,7 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-import {Errors} from "../libraries/Errors.sol";
+import {KryonErrors as Errors} from "../libraries/Errors.sol";
 import {Roles} from "./Roles.sol";
 
 /// @notice Shared base for every UUPS protocol contract: enumerable roles (so

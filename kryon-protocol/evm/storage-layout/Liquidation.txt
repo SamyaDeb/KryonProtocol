@@ -1,0 +1,12 @@
+# Liquidation
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.Liquidation
+## fields (append-only)
+IEngine engine;
+IVault vault;
+IRiskParams risk;
+IFeeRouter feeRouter;
+IInsurance insurance;
+uint16 maxRewardBps;
+uint16 partialLiquidationBps;

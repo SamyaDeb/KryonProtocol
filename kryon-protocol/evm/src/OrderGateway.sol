@@ -7,7 +7,7 @@ import {EIP712Upgradeable} from
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IEngine, IFeeRouter, IRiskParams} from "./interfaces/IKryon.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 import {Cancel, Fill, Order, OrderLib} from "./libraries/OrderLib.sol";
 import {MarketParams} from "./libraries/Types.sol";

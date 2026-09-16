@@ -1,0 +1,11 @@
+# OracleAdapter
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.OracleAdapter
+## fields (append-only)
+address[] publishers;
+mapping(bytes32 => FeedConfig) feeds;
+bytes32[] feedIds;
+mapping(bytes32 => ReferenceFeed) refs;
+mapping(bytes32 => mapping(address => Observation)) observations;
+mapping(bytes32 => OracleSnapshot) snapshots;

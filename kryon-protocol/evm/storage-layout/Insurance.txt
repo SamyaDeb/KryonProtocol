@@ -1,0 +1,16 @@
+# Insurance
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.Insurance
+## fields (append-only)
+IVault vault;
+IERC20 usdc;
+IEngine engine;
+address liquidation;
+int256 stakedBalance;
+int256 totalShares;
+uint32 epoch;
+mapping(address => ShareBalance) shares;
+mapping(address => PendingUnstake) pending;
+mapping(address => int256) recordedDebt;
+int256 badDebt;

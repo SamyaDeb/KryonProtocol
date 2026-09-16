@@ -7,7 +7,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {Vault} from "../../src/Vault.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {ISignatureTransfer} from "../../src/interfaces/IKryon.sol";
-import {Errors} from "../../src/libraries/Errors.sol";
+import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
 contract VaultTest is KryonTest {

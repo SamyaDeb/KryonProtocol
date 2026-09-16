@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {RiskLib} from "./libraries/RiskLib.sol";
 import {FundingConfig, MarketParams} from "./libraries/Types.sol";
 

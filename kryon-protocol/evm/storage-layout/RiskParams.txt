@@ -1,0 +1,11 @@
+# RiskParams
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.RiskParams
+## fields (append-only)
+mapping(uint32 => MarketParams) markets;
+uint32[] ids;
+mapping(uint32 => FundingConfig) funding;
+mapping(uint32 => uint256) oiPolicyBps;
+uint256 totalOiPolicyBps;
+uint256 maxTotalOiPolicyBps;

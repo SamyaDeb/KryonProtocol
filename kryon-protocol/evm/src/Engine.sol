@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IInsurance, IOracleAdapter, IRiskParams, IVault} from "./interfaces/IKryon.sol";
-import {Errors} from "./libraries/Errors.sol";
+import {KryonErrors as Errors} from "./libraries/Errors.sol";
 import {FundingLib} from "./libraries/FundingLib.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
 import {RiskCalc} from "./libraries/RiskCalc.sol";
@@ -150,7 +150,7 @@ contract Engine is KryonUpgradeable {
         int256 price,
         int256 fillNotional,
         bool reduceOnly
-    ) external onlyGateway whenNotPaused returns (bool increasedExposure) {
+    ) external onlyGateway whenNotPaused nonReentrant returns (bool increasedExposure) {
         if (size <= 0 || price <= 0 || fillNotional <= 0) revert Errors.InvalidAmount();
         MarketParams memory m = _s().risk.market(marketId);
         int256 index = _indexPrice(m);
@@ -186,13 +186,15 @@ contract Engine is KryonUpgradeable {
     ///         backstop) at `price`. Liquidation only.
     /// @dev Keeps long and short open interest equal and value conserved, which
     ///      a one-sided close cannot. Does not move the mark.
+    // Calls reach only the Vault (no callbacks); the function is nonReentrant.
+    // slither-disable-next-line reentrancy-no-eth
     function liquidationTransfer(
         address trader,
         address receiver,
         uint32 marketId,
         int256 size,
         int256 price
-    ) external onlyLiquidation whenNotPaused returns (int256 traderRealizedPnl) {
+    ) external onlyLiquidation whenNotPaused nonReentrant returns (int256 traderRealizedPnl) {
         EngineStorage storage $ = _s();
         int256 s = $.positions[trader][marketId].size;
         if (s == 0) revert Errors.PositionNotFound();
@@ -207,13 +209,15 @@ contract Engine is KryonUpgradeable {
 
     /// @notice Auto-deleverage: close `size` of the backstop's position
     ///         against an opposite `counterparty` position. Liquidation only.
+    // Calls reach only the Vault (no callbacks); the function is nonReentrant.
+    // slither-disable-next-line reentrancy-no-eth
     function adlTransfer(
         address backstop,
         address counterparty,
         uint32 marketId,
         int256 size,
         int256 price
-    ) external onlyLiquidation whenNotPaused returns (int256 counterpartyRealizedPnl) {
+    ) external onlyLiquidation whenNotPaused nonReentrant returns (int256 counterpartyRealizedPnl) {
         EngineStorage storage $ = _s();
         int256 b = $.positions[backstop][marketId].size;
         int256 c = $.positions[counterparty][marketId].size;
@@ -240,6 +244,7 @@ contract Engine is KryonUpgradeable {
         external
         onlyRole(Roles.KEEPER_ROLE)
         whenNotPaused
+        nonReentrant
         returns (FundingState memory next)
     {
         EngineStorage storage $ = _s();
@@ -384,8 +389,11 @@ contract Engine is KryonUpgradeable {
 
     // --------------------------------------------------------------- internal
 
+    /// @dev External calls reach only the Vault, which never calls back into
+    ///      the Engine; every entry point is also nonReentrant.
     /// @return increased Whether exposure grew.
     /// @return realized  Realized PnL booked to the trader (excl. funding).
+    // slither-disable-next-line reentrancy-no-eth
     function _trade(
         address trader,
         uint32 marketId,
@@ -614,7 +622,7 @@ contract Engine is KryonUpgradeable {
             st.windowStart = now_;
         }
         _accrueMark(st, now_);
-        if (st.lastPrice == 0) {
+        if (st.lastPrice <= 0) {
             st.windowStart = now_;
             st.cumulative = 0;
             // The funding clock starts with the market's first trade.

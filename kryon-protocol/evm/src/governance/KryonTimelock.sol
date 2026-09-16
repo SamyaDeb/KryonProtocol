@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
-import {Errors} from "../libraries/Errors.sol";
+import {KryonErrors as Errors} from "../libraries/Errors.sol";
 import {Roles} from "./Roles.sol";
 
 /// @notice Governance timelock. Owns every proxy and every admin role.

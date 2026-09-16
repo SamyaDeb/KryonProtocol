@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 /// @notice Protocol-wide custom errors.
 /// @dev The first block mirrors `protocol_core::CoreError` one-to-one so the
 ///      differential harness can compare failure modes, not just values.
-library Errors {
+library KryonErrors {
     error MathOverflow();
     error DivisionByZero();
     error InvalidAmount();
