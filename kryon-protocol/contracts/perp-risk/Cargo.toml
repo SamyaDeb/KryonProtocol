@@ -1,0 +1,20 @@
+[package]
+name = "perp-risk"
+description = "Soroban risk contract wrapper for the redesigned perp protocol."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+protocol-core = { workspace = true }
+risk-engine = { workspace = true }
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

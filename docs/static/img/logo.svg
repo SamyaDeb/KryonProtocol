@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 32" width="132" height="32" fill="none">
+  <path d="M16 2 L29 9 L29 23 L16 30 L3 23 L3 9 Z" stroke="#f7931a" stroke-width="1.8"/>
+  <path d="M16 9 L23 13 L23 19 L16 23 L9 19 L9 13 Z" fill="#f7931a"/>
+  <path d="M16 2 L16 30 M3 9 L29 23 M29 9 L3 23" stroke="#f7931a" stroke-width="0.6" opacity="0.35"/>
+  <text x="40" y="22" font-family="Poppins, system-ui, sans-serif" font-size="16" font-weight="700" letter-spacing="3" fill="#e6e6e6">KRYON</text>
+</svg>

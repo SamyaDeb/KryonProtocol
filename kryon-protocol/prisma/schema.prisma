@@ -1,0 +1,487 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TxStatus {
+  QUEUED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
+enum KeeperActionStatus {
+  PLANNED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  SKIPPED
+}
+
+enum AuditSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum StatsPeriod {
+  DAY
+  WEEK
+  MONTH
+  ALL
+}
+
+enum PnlEventKind {
+  REALIZED_TRADE
+  FUNDING
+  LIQUIDATION
+  FEE
+}
+
+enum BalanceChangeKind {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+model LedgerCursor {
+  id          String   @id
+  network    String
+  contractId String?
+  ledger     Int
+  cursor     String
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@unique([network, contractId])
+  @@index([network, ledger])
+}
+
+model ProtocolEvent {
+  id        BigInt   @id @default(autoincrement())
+  network   String
+  ledger    Int
+  txHash    String
+  topic     String
+  payload   Json
+  replayKey String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([network, ledger])
+  @@index([txHash])
+  @@index([topic])
+}
+
+model Market {
+  id                     Int      @id
+  symbol                 String   @unique
+  settlementAsset        String
+  active                 Boolean  @default(false)
+  lastPrice              String   @default("0")
+  volume                 String   @default("0")
+  longOpenInterest       String   @default("0")
+  shortOpenInterest      String   @default("0")
+  fundingLongIndex       String   @default("0")
+  fundingShortIndex      String   @default("0")
+  lastOraclePrice        String   @default("0")
+  lastOracleLedger       Int      @default(0)
+  updatedAt              DateTime @updatedAt
+  createdAt              DateTime @default(now())
+
+  positions              Position[]
+  fills                  Fill[]
+  orders                 Order[]
+  oracleSnapshots        OracleSnapshot[]
+  fundingUpdates         FundingUpdate[]
+  keeperActions          KeeperAction[]
+}
+
+model Account {
+  address          String    @id
+  collateral       Json      @default("{}")
+  cancelledNonces  BigInt[]  @default([])
+  filledByNonce    Json      @default("{}")
+  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+
+  orders            Order[]
+  positions         Position[]
+  makerFills        Fill[]    @relation("MakerFills")
+  takerFills        Fill[]    @relation("TakerFills")
+}
+
+model Order {
+  id          String   @id
+  owner       String
+  marketId    Int
+  isLong      Boolean
+  size        String
+  limitPrice  String
+  reduceOnly  Boolean
+  nonce       BigInt
+  expiryTs    BigInt
+  cancelled   Boolean  @default(false)
+  filledSize  String   @default("0")
+  /// Client settlement signature (hex/base64) for settle_fill_signed.
+  signature   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account     Account  @relation(fields: [owner], references: [address])
+  // RESTRICT, not CASCADE: de-listing a market must never delete the order
+  // history that settled against it.
+  market      Market   @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  // Global per account, NOT per market — see lib/market/order-intent.ts.
+  @@unique([owner, nonce])
+  @@index([marketId, isLong, limitPrice])
+  @@index([expiryTs])
+}
+
+model Fill {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  marketId    Int
+  maker        String
+  makerNonce   BigInt
+  taker        String
+  takerNonce   BigInt
+  fillSize     String
+  fillPrice    String
+  feeMaker     String   @default("0")
+  feeTaker     String   @default("0")
+  txHash       String
+  ledger       Int
+  createdAt    DateTime @default(now())
+
+  market       Market   @relation(fields: [marketId], references: [id])
+  makerAccount Account  @relation("MakerFills", fields: [maker], references: [address])
+  takerAccount Account  @relation("TakerFills", fields: [taker], references: [address])
+
+  @@unique([network, txHash, maker, makerNonce, taker, takerNonce])
+  @@index([marketId, ledger])
+  @@index([maker])
+  @@index([taker])
+}
+
+model Position {
+  id               String   @id
+  owner            String
+  marketId         Int
+  positionId       BigInt
+  size             String
+  entryPrice       String
+  margin           String   @default("0")
+  isLong           Boolean
+  lastFundingIndex String
+  mode             String
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  account          Account  @relation(fields: [owner], references: [address])
+  market           Market   @relation(fields: [marketId], references: [id])
+
+  @@unique([owner, positionId])
+  @@index([marketId, isLong])
+}
+
+model OracleSnapshot {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  marketId    Int
+  asset       String
+  source      String
+  price       String
+  confidence  String
+  publishTime BigInt
+  writeTime   BigInt
+  ledger      Int
+  txHash      String
+  createdAt   DateTime @default(now())
+
+  market      Market   @relation(fields: [marketId], references: [id])
+
+  @@unique([network, asset, publishTime, source])
+  @@index([marketId, ledger])
+  @@index([asset, publishTime])
+}
+
+model FundingUpdate {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  marketId    Int
+  longIndex   String
+  shortIndex  String
+  ledger      Int
+  txHash      String
+  createdAt   DateTime @default(now())
+
+  market      Market   @relation(fields: [marketId], references: [id])
+
+  @@unique([network, marketId, ledger, txHash])
+  @@index([marketId, ledger])
+}
+
+model TxJob {
+  id             BigInt   @id @default(autoincrement())
+  network        String
+  kind           String
+  payloadHash    String
+  unsignedXdr    String?
+  signedXdr      String?
+  attempts       Int      @default(0)
+  status         TxStatus @default(QUEUED)
+  lastError      String?
+  submittedHash  String?
+  nextAttemptAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([network, kind, payloadHash])
+  @@index([status, nextAttemptAt])
+  @@index([submittedHash])
+}
+
+model KeeperAction {
+  id          BigInt             @id @default(autoincrement())
+  network     String
+  kind        String
+  marketId    Int?
+  account     String?
+  payload     Json
+  status      KeeperActionStatus @default(PLANNED)
+  txJobId     BigInt?
+  ledger      Int?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  market      Market?            @relation(fields: [marketId], references: [id])
+
+  @@index([network, kind, status])
+  @@index([marketId])
+}
+
+model DeploymentArtifact {
+  id           String   @id
+  network      String
+  contractName String
+  contractId   String
+  wasmHash     String
+  gitCommit    String
+  manifest     Json
+  createdAt    DateTime @default(now())
+
+  @@unique([network, contractName])
+  @@index([wasmHash])
+}
+
+model GovernanceProposal {
+  id          BigInt   @id
+  network     String
+  target      String
+  action      String
+  wasmHash    String
+  eta         BigInt
+  executed    Boolean  @default(false)
+  cancelled   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([network, eta])
+}
+
+model AuditFinding {
+  id          String        @id
+  severity    AuditSeverity
+  title       String
+  component   String
+  status      String
+  description String
+  evidence    Json
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([severity, status])
+  @@index([component])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LEADERBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Rolling aggregated trading stats per trader per period. One row per
+/// (network, address, period); the indexer upserts these as fills/funding/
+/// liquidations are processed. All monetary values are USDC at 1e7 precision
+/// stored as decimal strings to preserve precision.
+model TraderStat {
+  id                 String      @id @default(cuid())
+  network            String
+  address            String
+  period             StatsPeriod
+  /// Inclusive start of the rolling window (UTC). For ALL this is the epoch.
+  periodStart        DateTime
+  realizedPnl        String      @default("0") // 1e7
+  volume             String      @default("0") // notional traded, 1e7
+  tradeCount         Int         @default(0)
+  winningTrades      Int         @default(0)
+  losingTrades       Int         @default(0)
+  /// winRate = winningTrades / max(1, winningTrades+losingTrades), 0..1 (4dp string)
+  winRate            String      @default("0")
+  /// roi = realizedPnl / max(1, peakCollateral), signed ratio (4dp string)
+  roi                String      @default("0")
+  feesPaid           String      @default("0") // 1e7
+  fundingPaid        String      @default("0") // 1e7 (signed)
+  liquidationCount   Int         @default(0)
+  liquidatedVolume   String      @default("0") // 1e7
+  peakCollateral     String      @default("0") // 1e7 — denominator for ROI
+  referralCount      Int         @default(0)
+  referralVolume     String      @default("0") // 1e7
+  lastTradeAt        DateTime?
+  updatedAt          DateTime    @default(now()) @updatedAt
+  createdAt          DateTime    @default(now())
+
+  @@unique([network, address, period])
+  // Composite indexes power the ranked leaderboard queries (ORDER BY metric DESC)
+  @@index([network, period, realizedPnl])
+  @@index([network, period, volume])
+  @@index([network, period, roi])
+  @@index([address])
+}
+
+/// Point-in-time ranked leaderboard, produced by periodic snapshot jobs so the
+/// FE can render historical boards and rank deltas without recomputing.
+model LeaderboardSnapshot {
+  id          BigInt      @id @default(autoincrement())
+  network     String
+  period      StatsPeriod
+  /// Metric this snapshot was ranked by (e.g. "pnl", "volume", "roi").
+  metric      String
+  capturedAt  DateTime    @default(now())
+  /// Ordered array of { rank, address, value, pnl, volume, roi, winRate }.
+  rankings    Json
+  traderCount Int         @default(0)
+
+  @@index([network, period, metric, capturedAt], map: "LeaderboardSnapshot_lookup_idx")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PORTFOLIO
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Collateral deposits / withdrawals / transfers, sourced from vault events.
+/// Drives the portfolio "Deposits & Withdrawals" tab and ROI denominators.
+model BalanceChange {
+  id         BigInt            @id @default(autoincrement())
+  network    String
+  address    String
+  asset      String
+  kind       BalanceChangeKind
+  amount     String            // 1e7, always positive
+  /// Resulting vault balance after this change (1e7), if known.
+  balanceAfter String?
+  ledger     Int
+  txHash     String
+  createdAt  DateTime          @default(now())
+
+  @@unique([network, txHash, address, kind], map: "BalanceChange_unique_idx")
+  @@index([network, address, createdAt], map: "BalanceChange_acct_time_idx")
+  @@index([address])
+}
+
+/// Discrete realized-pnl events: trade close, funding settlement, liquidation,
+/// fee. Summing these reconstructs an account's realized-pnl curve over time.
+model PnlEvent {
+  id          BigInt       @id @default(autoincrement())
+  network     String
+  address     String
+  marketId    Int
+  kind        PnlEventKind
+  /// Signed value, 1e7. Positive = credit to the account.
+  amount      String
+  /// Size involved (1e7) for trade/liquidation events; 0 for funding/fee.
+  size        String       @default("0")
+  price       String       @default("0") // 1e18, execution/mark price if relevant
+  ledger      Int
+  txHash      String
+  /// Free-form linkage (e.g. fill id or funding index) to avoid double counting.
+  refKey      String
+  createdAt   DateTime     @default(now())
+
+  @@unique([network, address, kind, refKey], map: "PnlEvent_unique_idx")
+  @@index([network, address, createdAt], map: "PnlEvent_acct_time_idx")
+  @@index([marketId, kind], map: "PnlEvent_market_kind_idx")
+}
+
+/// Per-account funding payments (debits/credits) split out from the
+/// market-level FundingUpdate so the portfolio can show a funding ledger.
+model FundingPayment {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  address     String
+  marketId    Int
+  /// Signed payment 1e7. Positive = received funding.
+  amount      String
+  fundingIndex String  // 1e18 index applied
+  ledger      Int
+  txHash      String
+  createdAt   DateTime @default(now())
+
+  @@unique([network, address, marketId, fundingIndex], map: "FundingPayment_unique_idx")
+  @@index([network, address, createdAt], map: "FundingPayment_acct_time_idx")
+}
+
+/// Periodic snapshot of an account's full portfolio state for historical
+/// charts (equity curve, exposure, margin usage). Written by the indexer on a
+/// fixed cadence and on material state changes.
+model PortfolioSnapshot {
+  id                 BigInt   @id @default(autoincrement())
+  network            String
+  address            String
+  collateralValue    String   @default("0") // 1e7
+  equity             String   @default("0") // 1e7 (collateral + unrealized)
+  unrealizedPnl      String   @default("0") // 1e7 (signed)
+  realizedPnlCum     String   @default("0") // 1e7 cumulative realized to date
+  freeCollateral     String   @default("0") // 1e7
+  usedMargin         String   @default("0") // 1e7
+  maintenanceMargin  String   @default("0") // 1e7
+  marginRatio        String   @default("0") // 1e18 (equity/maintenance)
+  openPositionCount  Int      @default(0)
+  longExposure       String   @default("0") // notional 1e7
+  shortExposure      String   @default("0") // notional 1e7
+  liquidatable       Boolean  @default(false)
+  capturedAt         DateTime @default(now())
+
+  @@index([network, address, capturedAt], map: "PortfolioSnapshot_acct_time_idx")
+}
+
+/// Cached, denormalized per-account analytics for instant portfolio header
+/// rendering (avoids recomputing aggregates on every page load). Upserted by
+/// the indexer alongside snapshots.
+model AccountAnalytics {
+  network           String
+  address           String
+  realizedPnlAll    String   @default("0") // 1e7
+  volumeAll         String   @default("0") // 1e7
+  tradeCountAll     Int      @default(0)
+  winRateAll        String   @default("0") // 0..1 (4dp)
+  totalDeposited    String   @default("0") // 1e7
+  totalWithdrawn    String   @default("0") // 1e7
+  totalFundingPaid  String   @default("0") // 1e7 signed
+  totalFeesPaid     String   @default("0") // 1e7
+  liquidationCount  Int      @default(0)
+  maxDrawdown       String   @default("0") // 1e7 (worst equity dip)
+  firstTradeAt      DateTime?
+  lastTradeAt       DateTime?
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  @@id([network, address])
+  @@index([network])
+}

@@ -1,0 +1,25 @@
+// Cloudflare Workers config for the Kryon trading client (Next.js 16 via
+// @opennextjs/cloudflare). Build with `npm run cf:build`, deploy with
+// `npm run cf:deploy`.
+//
+// Secrets (DATABASE_URL, MATCHER_OPERATOR_SECRET, UPSTASH_*) are NOT set here —
+// use `wrangler secret put <NAME>` (or the dashboard) so they never land in git.
+// NEXT_PUBLIC_* build-time vars are baked in at `next build` time from the CI
+// environment, not from this file.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kryon-client",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-05-05",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  // Fail the upload if the Worker bundle would exceed plan limits instead of
+  // discovering it at request time.
+  "keep_vars": false
+}

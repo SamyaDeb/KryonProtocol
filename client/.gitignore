@@ -1,0 +1,94 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# docs site — generated from ../docs (Docusaurus) into public/docs at build time
+/public/docs
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+# .env.mainnet holds only public NEXT_PUBLIC_* values (network/contract addresses) — safe to commit
+!.env.mainnet
+# *.example files are templates with empty secret slots — safe, and needed by
+# anyone standing up the testnet keeper fleet.
+!.env*.example
+
+# vercel
+.vercel
+
+# cloudflare (OpenNext build output + wrangler state; secrets live in .dev.vars)
+/.open-next/
+/.wrangler/
+.dev.vars*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# bun is optional locally; npm's package-lock.json is authoritative
+bun.lock
+bun.lockb
+
+# ad-hoc one-off test/drill/debug scripts (e.g. manual E2E trade drills) —
+# never meant to be committed; scratch work only
+_drill_*
+_loadtest_*
+_scratch_*
+_tmp_*.mjs
+_tmp_*.ts
+
+# Test, load-test and one-off repair scripts. These drive the LIVE testnet and
+# mainnet deployments with real keys and real orders; they are operator scratch
+# work, not part of the product, and must not ship in the public repo.
+scripts/load-test.ts
+scripts/soak-test.ts
+scripts/stress-test.ts
+scripts/failure-recovery-test.ts
+scripts/e2e-testnet.ts
+scripts/test-*.ts
+scripts/diag-*.ts
+scripts/faucet-*.ts
+scripts/cutover-*.ts
+scripts/redeploy-engine-xlm.ts
+scripts/check-vault-balance.ts
+scripts/migrate-add-order-signature.ts
+scripts/setup-usdc-trustline.ts
+scripts/setup-usdc-settlement.ts
+
+# Unit tests ARE shipped. They were previously ignored as "kept local", which
+# made the CI test step incapable of running anything: a fresh checkout had no
+# test files, the runner matched nothing, and the step passed having verified
+# nothing. One of these suites opens by stating that a regression "fails CI
+# instead of needing to be spotted on screen" — which can only be true if the
+# file is in the repository.
+#
+# The ad-hoc drill and debug scripts stay ignored (see above); those are the
+# things that genuinely should not ship.

@@ -1,0 +1,24 @@
+[package]
+name = "perp-liquidation"
+description = "Soroban liquidation executor for the redesigned perp protocol."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+protocol-core = { workspace = true }
+risk-engine = { workspace = true }
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+perp-engine = { workspace = true }
+perp-insurance = { workspace = true }
+perp-oracle-adapter = { workspace = true }
+perp-vault = { workspace = true }
+soroban-sdk = { workspace = true, features = ["testutils"] }

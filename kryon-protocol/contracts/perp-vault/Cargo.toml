@@ -1,0 +1,21 @@
+[package]
+name = "perp-vault"
+description = "Soroban collateral custody and risk-gated withdrawal contract."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+protocol-core = { workspace = true }
+risk-engine = { workspace = true }
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+perp-oracle-adapter = { workspace = true }
+soroban-sdk = { workspace = true, features = ["testutils"] }

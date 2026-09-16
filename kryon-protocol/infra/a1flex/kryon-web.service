@@ -1,0 +1,32 @@
+[Unit]
+Description=Kryon web tier (Next.js standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+LimitCORE=0
+Type=simple
+User=opc
+WorkingDirectory=/opt/kryon-web
+# Bind loopback ONLY. cloudflared is the sole thing that should reach this; the
+# box has a public IP, so 0.0.0.0 would serve the whole site unencrypted on
+# port 3000, straight past the tunnel TLS. The standalone server.js honours
+# HOSTNAME (unlike `next start`, which ignores it and needs -H).
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+# Server-side secrets: DATABASE_URL_*, UPSTASH_*, ALERT_WEBHOOK_URL.
+# The leading - means the unit still starts if it is absent, so the box can be
+# brought up and diagnosed rather than silently refusing.
+EnvironmentFile=-/opt/kryon-web/.env.local
+# 945MB total. Cap the heap so a leak degrades this one service instead of
+# wedging the kernel — which this box has already done twice.
+Environment=NODE_OPTIONS=--max-old-space-size=400
+ExecStart=/usr/local/bin/node server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

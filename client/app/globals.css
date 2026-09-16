@@ -1,0 +1,181 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-poppins), "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Ghost-inspired trading theme */
+:root,
+.dark {
+  color-scheme: dark;
+  --background: #19191A;
+  --foreground: #f5f5f5;
+  --card: #212128;
+  --card-foreground: #f5f5f5;
+  --popover: #212128;
+  --popover-foreground: #f5f5f5;
+  --primary: #f5f5f5;
+  --primary-foreground: #19191A;
+  --secondary: #212128;
+  --secondary-foreground: #f5f5f5;
+  --muted: #212128;
+  --muted-foreground: #a3a3a3;
+  --accent: #212128;
+  --accent-foreground: #f5f5f5;
+  --destructive: #ff3858;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #f5f5f5;
+  --radius: 0.375rem;
+  --sidebar: #19191A;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #f5f5f5;
+  --sidebar-primary-foreground: #19191A;
+  --sidebar-accent: #212128;
+  --sidebar-accent-foreground: #f5f5f5;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #f5f5f5;
+
+  /* Phoenix semantic tokens */
+  --ph-long: #00d48a;
+  --ph-long-dim: rgba(0, 212, 138, 0.12);
+  --ph-short: #ff3858;
+  --ph-short-dim: rgba(255, 56, 88, 0.12);
+  --ph-panel: #212128;
+  --ph-panel-alt: #19191A;
+  --ph-border: rgba(255, 255, 255, 0.1);
+  --ph-border-subtle: rgba(255, 255, 255, 0.05);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    /* Belt-and-suspenders against accidental horizontal scroll on mobile.
+       `clip` (unlike `hidden`) does NOT create a scroll container, so it never
+       breaks `position: sticky` inside the page. */
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    /* Avoid rubber-band scroll chaining into parent surfaces on touch. */
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Smoother momentum scrolling for inner panels on iOS. */
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Responsive utilities
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* iOS Safari zooms the page when a focused input has font-size < 16px. Force a
+   16px minimum on small / touch screens so focusing the order ticket, deposit
+   amount, search, etc. never triggers an unwanted zoom. Range sliders excluded
+   so the leverage control keeps its slim track. */
+@media (max-width: 1023px) {
+  input:not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Safe-area aware padding helpers (iOS notch / home indicator). Each adds the
+   inset to whatever padding the element already has. */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }
+.px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+/* Reserve space below a fixed bottom bar so it never overlaps the home bar. */
+.mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+
+/* Hide scrollbars while keeping scroll (used by horizontally-scrolling rails). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Comfortable minimum hit target on touch devices without changing visual size
+   on desktop. Opt-in via `.touch-target`. */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+/* Slim dark scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2A2A31; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #525252; }
+
+/* Tabular number utility */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

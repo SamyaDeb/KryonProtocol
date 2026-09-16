@@ -1,0 +1,15 @@
+# Docusaurus
+/node_modules
+/build
+/.docusaurus
+/.cache-loader
+
+# Misc
+.DS_Store
+.env.local
+npm-debug.log*
+
+# npm is authoritative here; a second lockfile makes builds pick different
+# resolutions depending on which package manager happens to be installed.
+bun.lock
+bun.lockb

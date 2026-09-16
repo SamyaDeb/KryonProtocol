@@ -1,0 +1,8 @@
+/target/
+/node_modules/
+/.env
+/.env.local
+/infra/audit/package/
+/infra/budget/reports/
+npm-debug.log*
+yarn-error.log*

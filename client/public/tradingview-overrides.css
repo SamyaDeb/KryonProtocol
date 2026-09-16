@@ -1,0 +1,84 @@
+html,
+body {
+  background: #19191a !important;
+}
+
+.layout__area--left,
+[class*="drawingToolbar"],
+[class*="drawing-toolbar"],
+[class*="sideToolbar"],
+[class*="side-toolbar"],
+[class*="toolbar-"][class*="isHidden"] {
+  background: #19191a !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.layout__area--left {
+  border-right: 0 !important;
+}
+
+.layout__area--left *,
+[class*="drawingToolbar"] *,
+[class*="drawing-toolbar"] *,
+[class*="sideToolbar"] *,
+[class*="side-toolbar"] * {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.layout__area--left div,
+.layout__area--left nav,
+.layout__area--left section,
+.layout__area--left aside,
+[class*="drawingToolbar"] div,
+[class*="drawingToolbar"] nav,
+[class*="drawingToolbar"] section,
+[class*="drawing-toolbar"] div,
+[class*="drawing-toolbar"] nav,
+[class*="drawing-toolbar"] section,
+[class*="sideToolbar"] div,
+[class*="sideToolbar"] nav,
+[class*="sideToolbar"] section,
+[class*="side-toolbar"] div,
+[class*="side-toolbar"] nav,
+[class*="side-toolbar"] section {
+  background-color: #19191a !important;
+}
+
+[class*="drawingToolbar"] [class*="group"],
+[class*="drawing-toolbar"] [class*="group"],
+[class*="sideToolbar"] [class*="group"],
+[class*="side-toolbar"] [class*="group"] {
+  background: #19191a !important;
+}
+
+[class*="drawingToolbar"] [class*="separator"],
+[class*="drawing-toolbar"] [class*="separator"],
+[class*="sideToolbar"] [class*="separator"],
+[class*="side-toolbar"] [class*="separator"] {
+  background: #2a2a31 !important;
+}
+
+[class*="drawingToolbar"] button,
+[class*="drawingToolbar"] [role="button"],
+[class*="drawing-toolbar"] button,
+[class*="drawing-toolbar"] [role="button"],
+[class*="sideToolbar"] button,
+[class*="sideToolbar"] [role="button"],
+[class*="side-toolbar"] button,
+[class*="side-toolbar"] [role="button"] {
+  background-color: transparent !important;
+  color: #f5f5f5 !important;
+}
+
+[class*="drawingToolbar"] button:hover,
+[class*="drawingToolbar"] [role="button"]:hover,
+[class*="drawing-toolbar"] button:hover,
+[class*="drawing-toolbar"] [role="button"]:hover,
+[class*="sideToolbar"] button:hover,
+[class*="sideToolbar"] [role="button"]:hover,
+[class*="side-toolbar"] button:hover,
+[class*="side-toolbar"] [role="button"]:hover {
+  background-color: #2a2a31 !important;
+}

@@ -1,0 +1,45 @@
+version: "3.9"
+
+# Runs all Kryon background services locally in production mode.
+# Secrets are read from .env.local — never commit that file.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose down
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile.services
+  env_file: .env.local
+  restart: unless-stopped
+
+services:
+  oracle-keeper:
+    <<: *common
+    environment:
+      SERVICE: oracle-keeper
+
+  matcher:
+    <<: *common
+    environment:
+      SERVICE: matcher-service
+
+  state-indexer:
+    <<: *common
+    environment:
+      SERVICE: state-indexer
+
+  ws-server:
+    <<: *common
+    environment:
+      SERVICE: ws-server
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+
+  reconciler:
+    <<: *common
+    environment:
+      SERVICE: settlement-reconciler
+      SETTLEMENT_JOB_MAX_AGE_MINUTES: "15"

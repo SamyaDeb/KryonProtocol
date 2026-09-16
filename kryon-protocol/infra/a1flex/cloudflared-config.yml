@@ -1,0 +1,47 @@
+# Cloudflare Tunnel ingress for the Kryon VM.
+#
+# Install to /etc/cloudflared/config.yml on the services VM. Replace
+# <TUNNEL-ID> with the id printed by `cloudflared tunnel create kryon`.
+#
+# WHY A TUNNEL AND NOT AN OPEN PORT
+# ---------------------------------
+# cloudflared dials OUT to Cloudflare and holds the connection open. Nothing
+# needs an inbound hole, which means:
+#   - no OCI VCN Security List ingress rule (the layer that was forgotten in
+#     July and left the ws-server unreachable for months),
+#   - no public 3000, no public 5432, no host firewall changes at all,
+#   - TLS terminated at Cloudflare's edge with an automatic certificate, so
+#     `wss://` works without provisioning or renewing anything on the box.
+
+tunnel: <TUNNEL-ID>
+credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
+
+# Survive brief Postgres/Next restarts without 502-ing the browser.
+originRequest:
+  connectTimeout: 30s
+  noTLSVerify: false
+
+ingress:
+  # ── WebSocket feeds ────────────────────────────────────────────────────────
+  # Split by hostname, not path: one ws-server process tails exactly one
+  # database, so each network needs its own address. These map to
+  # NEXT_PUBLIC_WS_URL_MAINNET / _TESTNET in the client env.
+  #
+  # NOTE THE HOST. The ws-server runs on the KEEPER box, not the web box —
+  # localhost here is nothing at all and every feed would 502. Reaching it
+  # needs a security-list rule for 8080/8081 from 10.0.0.0/24 (subnet only,
+  # never 0.0.0.0/0 — the tunnel is the public path).
+  - hostname: ws.kryonprotocol.live
+    service: ws://10.0.0.222:8080
+  - hostname: ws-testnet.kryonprotocol.live
+    service: ws://10.0.0.222:8081
+
+  # ── The app ────────────────────────────────────────────────────────────────
+  - hostname: kryonprotocol.live
+    service: http://localhost:3000
+  - hostname: www.kryonprotocol.live
+    service: http://localhost:3000
+
+  # Required terminal rule: anything unmatched gets a 404 rather than being
+  # forwarded somewhere unintended.
+  - service: http_status:404

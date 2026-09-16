@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol-core",
+    "crates/risk-engine",
+    "contracts/perp-engine",
+    "contracts/perp-insurance",
+    "contracts/perp-liquidation",
+    "contracts/perp-order-gateway",
+    "contracts/perp-oracle-adapter",
+    "contracts/perp-risk",
+    "contracts/perp-vault",
+    "contracts/perp-governance",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Kryon Protocol"]
+license = "MIT OR Apache-2.0"
+rust-version = "1.84.0"
+
+[workspace.dependencies]
+soroban-sdk = "23.0.0"
+protocol-core = { path = "crates/protocol-core" }
+risk-engine = { path = "crates/risk-engine" }
+perp-oracle-adapter = { path = "contracts/perp-oracle-adapter" }
+perp-vault = { path = "contracts/perp-vault" }
+perp-engine = { path = "contracts/perp-engine" }
+perp-insurance = { path = "contracts/perp-insurance" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

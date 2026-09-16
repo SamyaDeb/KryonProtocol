@@ -1,0 +1,43 @@
+[wasm_hashes]
+perp_governance = "fe25818fc9430cf001d8573cc49dc86dd7d061791a4a74b3eff82c26c9d85931"
+perp_oracle_adapter = "853fd4c9f31e223cf0a6e03f727a4812b71d3f648bf30915ef343e2cc5099e6e"
+perp_vault = "06c578a0f08aacfe5a1ee56614acbbb78da2ebd88d39030613f9b926b72e2783"
+perp_engine = "f6549f1931345be1bbeda9ba9de1cc1e57827676cdabad0040423e7541a8c785"
+perp_order_gateway = "a959b13019f15d2e0ae7b0e1126920e1b895c64e1de8647865ad1963eb42a5a5"
+perp_insurance = "b230e85624cfbc46a1532abaa3919a7c6660529032398557e561307e63f48bd1"
+perp_liquidation = "6b4d1fcaf812027441e1d0953c79958b82674e828166132c0f832a2d7afbd145"
+perp_risk = "c0dc9f73b67588b55aa3aca4735775dc2fbfb29d7a3681f2634b8221522ef251"
+
+[deployment_order]
+steps = [
+  "upload_wasm",
+  "deploy_governance",
+  "deploy_oracle_adapter",
+  "deploy_vault",
+  "deploy_engine",
+  "deploy_insurance",
+  "deploy_liquidation",
+  "deploy_order_gateway",
+  "deploy_risk",
+  "wire_contract_addresses",
+  "set_initial_markets",
+  "set_quorum_oracles",
+  "transfer_admin_to_governance",
+  "run_post_deploy_invariants",
+]
+
+[operator_requirements]
+admin = "multisig only"
+guardian = "separate emergency signer"
+secret_storage = "hardware-backed or managed signer"
+dry_run_required = true
+external_audit_required = true
+
+[launch_market]
+market_id = 1
+symbol = "XLM-PERP"
+pair = "XLM/USDC"
+base_asset = "XLM"
+settlement_asset = "USDC"
+oracle = "quorum"
+notes = "This is a perpetual market settled in USDC, not a spot AMM pair."

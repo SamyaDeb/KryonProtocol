@@ -1,0 +1,10 @@
+[limits]
+max_contract_call_depth = 8
+max_position_vector_len_per_account = 64
+max_oracle_sources_per_quorum = 5
+max_liquidation_positions_scanned = 8
+max_order_fill_batch = 1
+
+[notes]
+reason = "Budgets must be replaced with measured Soroban simulation values before mainnet."
+required_command = "soroban contract invoke --simulate for each hot path"

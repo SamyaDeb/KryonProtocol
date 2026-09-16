@@ -1,0 +1,1382 @@
+/* ═══ KRYON LANDING — full animations ═══ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+/* ── KEYFRAMES ── */
+@keyframes s5FadeUp   { from { opacity:0; transform:translateY(28px) } to { opacity:1; transform:translateY(0) } }
+@keyframes s5ChrIn    { from { opacity:0; transform:translateY(60%) } to { opacity:1; transform:translateY(0) } }
+@keyframes s5BinaryFx { 0%,100%{opacity:.25} 60%{opacity:.65} }
+@keyframes s5DotPulse { 0%,100%{opacity:.4;transform:scale(1)} 50%{opacity:1;transform:scale(1.5)} }
+@keyframes s5LivePing { 0%{transform:scale(1);opacity:1} 70%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
+
+/* ── PAGE LOADER ── */
+@keyframes s5Seq {
+  0%   { opacity: 1; }
+  25%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+#s5-loader {
+  position: fixed;
+  inset: 0;
+  background-color: rgb(32, 32, 32);
+  pointer-events: all;
+  z-index: 99999;
+  clip-path: inset(0% 0% 0% 0%);
+  transition: clip-path 1.4s cubic-bezier(0.76, 0, 0.24, 1);
+  will-change: clip-path;
+}
+#s5-loader.s5-loader--exit {
+  clip-path: inset(100% 0% 0% 0%);
+  pointer-events: none;
+}
+
+
+#s5-loader-content {
+  position: absolute;
+  inset: 0;
+}
+
+#s5-loader-seq {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 240px;
+  height: 240px;
+}
+#s5-loader-seq svg {
+  fill: rgb(139, 139, 139);
+  stroke: rgb(139, 139, 139);
+  stroke-width: 1;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  animation: s5Seq 1s steps(1) infinite;
+}
+#s5-loader-seq svg:nth-child(1) { animation-delay: 0s; }
+#s5-loader-seq svg:nth-child(2) { animation-delay: -0.75s; }
+#s5-loader-seq svg:nth-child(3) { animation-delay: -0.5s; }
+#s5-loader-seq svg:nth-child(4) { animation-delay: -0.25s; }
+
+#s5-loader-text {
+  position: absolute;
+  top: calc(50% + 96px);
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  color: rgb(139, 139, 139);
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ── BASE UTILS ── */
+.s5-fade-up { animation: s5FadeUp .9s cubic-bezier(.22,1,.36,1) both }
+
+/* Char-split animation */
+.s5-chr {
+  display: inline-block;
+  animation: s5ChrIn 0.75s cubic-bezier(.22,1,.36,1) both;
+}
+
+/* Scroll-reveal: slides up + fades in */
+.s5-reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.85s cubic-bezier(.22,1,.36,1), transform 0.85s cubic-bezier(.22,1,.36,1);
+}
+.s5-reveal.s5-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+/* Stagger child cards when parent becomes visible */
+.s5-reveal.s5-visible .s5-headline-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+.s5-headline-card {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(.22,1,.36,1), transform 0.7s cubic-bezier(.22,1,.36,1), background .25s;
+}
+
+/* ── CUSTOM SCROLL PROGRESS BAR ── */
+.s5-scrollbar-track {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100vh;
+  background: rgba(181,153,229,0.12);
+  z-index: 500;
+}
+.s5-scrollbar-thumb {
+  width: 100%;
+  background: #b599e5;
+  transition: height 0.05s linear;
+  min-height: 0;
+}
+
+/* ── PAGE ── */
+.s5-page {
+  background: #d4d4d4;
+  font-family: 'Inter', -apple-system, sans-serif;
+  color: #b599e5;
+  /* overflow-x: clip instead of hidden — clip does not create a scroll container,
+     so position:sticky on descendants keeps working. hidden would silently break it. */
+  overflow-x: clip;
+}
+
+/* ══════════════════════════════════════════
+   FIXED NAV
+   ══════════════════════════════════════════ */
+.s5-fixed-nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.6rem 2.5rem;
+  pointer-events: none;
+}
+.s5-fixed-nav > * { pointer-events: auto }
+
+.s5-nav-logo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-decoration: none;
+  color: #f5f5f5;
+  transition: opacity .2s;
+}
+.s5-nav-logo-link:hover { opacity: .7 }
+.s5-nav-logo-img  { width:44px; height:44px; object-fit:contain; }
+.s5-nav-logo-text { font-size:1.375rem; font-weight:700; letter-spacing:normal; color:#f5f5f5 }
+
+.s5-menu-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(22,22,22,.88);
+  color: #b599e5;
+  border: none;
+  border-radius: 50px;
+  padding: .48rem 1rem .48rem .85rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background .2s;
+  line-height: 1;
+}
+.s5-menu-pill:hover { background: rgba(22,22,22,1) }
+
+.s5-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 300;
+  display: flex;
+  justify-content: flex-end;
+}
+.s5-menu-panel {
+  background: #111;
+  width: min(420px, 90vw);
+  height: 100%;
+  padding: 4rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  overflow-y: auto;
+}
+.s5-menu-close {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: rgba(181,153,229,0.55);
+  font-size: 1.25rem;
+  cursor: pointer;
+  margin-bottom: 2rem;
+  transition: color .2s;
+}
+.s5-menu-close:hover { color: #b599e5 }
+.s5-menu-nav-link {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #b599e5;
+  text-decoration: none;
+  padding: .65rem 0;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  letter-spacing: .02em;
+  transition: color .2s;
+}
+.s5-menu-nav-link:hover { color: #b599e5 }
+.s5-menu-divider { height:1px; background:rgba(255,255,255,.08); margin:1rem 0 }
+.s5-menu-connect-btn {
+  padding: .7rem 1.75rem;
+  background: #1d0d2b;
+  color: #b599e5;
+  border: none;
+  border-radius: 50px;
+  font-family: 'Inter', sans-serif;
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  align-self: flex-start;
+  margin-top: .5rem;
+  transition: background .2s;
+}
+.s5-menu-connect-btn:hover { background: #2d1a4a }
+.s5-menu-connect-btn:disabled { opacity:.5; cursor:not-allowed }
+
+/* ══════════════════════════════════════════
+   MAIN LAYOUT GRID — one continuous 2-col grid
+   Left col scrolls; right col sticks as one unit
+   ══════════════════════════════════════════ */
+.s5-main-grid {
+  display: grid;
+  grid-template-columns: 1fr calc(30% - 80px);
+  align-items: start;
+  /* Dark fill shows through the empty right track below the Explore card
+     (the sticky right col is shorter than the left), matching the dark
+     left side. Border only on the bottom edge marks where the grid ends
+     and both columns scroll together past it. */
+  background: #111;
+  border-bottom: 1px solid rgba(181,153,229,0.35);
+}
+.s5-left-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+/* sticky top = -(rightColHeight - 100vh) = -(166vh - 100vh) = -66vh
+   Sticks exactly when the right col's bottom (the Explore card edge) reaches
+   the viewport bottom, then releases naturally when the grid ends — zero JS,
+   zero coordinate math, zero horizontal shift.
+   Right col heights: 50vh + 70vh + 46vh = 166vh. Keep this offset in sync
+   with any change to those three flex-basis values. */
+.s5-right-col {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  position: sticky;
+  top: -66vh;
+}
+
+/* Hero left — first block inside .s5-left-col */
+
+.s5-hero-left {
+  background: #1d0d2b;
+  /* Desktop hero composition (was inline in JSX — moved here so breakpoints can
+     override it). The extra top padding clears the fixed nav; the fixed height +
+     internal translateY offsets create the staggered "Perps / Reimagined." look. */
+  padding: calc(6.5rem + 60px) 3rem 4.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: calc(100vh - 140px);
+  min-height: unset;
+  overflow: hidden;
+}
+
+.s5-hero-title-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  transform: translateY(-47px);
+}
+.s5-hero-title-wrap > .s5-hero-intel:last-child {
+  margin-top: auto;
+}
+.s5-op-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-bottom: -.25rem;
+  padding-top: 60px;
+  transform: translateY(-20px);
+}
+.s5-hero-intel--btm { transform: translateY(30px); }
+.s5-op-slash-group {
+  display: inline-flex;
+  align-items: baseline;
+  flex-shrink: 0;
+}
+
+/* The large "Op" text — chars animated individually */
+.s5-hero-op {
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(6.5rem, 15vw, 13rem);
+  font-weight: 600;
+  color: #b599e5;
+  letter-spacing: -.04em;
+  line-height: .87;
+}
+.s5-hero-slash-img {
+  height: clamp(6rem, 13.5vw, 11.5rem);
+  width: auto;
+  display: block;
+  margin-left: .18em;
+  object-fit: contain;
+}
+
+.s5-hero-slash {
+  font-family: 'ABC Favorit', 'Inter', sans-serif;
+  font-size: clamp(6rem, 13.5vw, 11.5rem);
+  font-weight: 300;
+  color: #b599e5;
+  letter-spacing: 0;
+  line-height: .87;
+  margin-left: .18em;
+}
+.s5-hero-tagline {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #b599e5;
+  line-height: 1.5;
+  max-width: 210px;
+  margin-left: 2rem;
+  padding-top: .6rem;
+  flex-shrink: 0;
+}
+
+/* "Intelligence" as a block-level container for split chars */
+.s5-hero-intel {
+  display: block;
+  font-family: 'ABC Favorit', 'Inter', sans-serif;
+  font-size: clamp(6rem, 13.5vw, 11.5rem);
+  font-weight: 500;
+  color: #b599e5;
+  letter-spacing: -.04em;
+  line-height: .87;
+  white-space: nowrap;
+}
+
+.s5-hero-right {
+  background: #d4d4d4;
+  padding: 2rem 2.75rem 2rem;
+  flex: 0 0 50vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.s5-hero-right-desc {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.45;
+  max-width: 280px;
+}
+
+.s5-hero-right-status {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.s5-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(26,26,26,.1);
+  border: 1px solid rgba(26,26,26,.15);
+  border-radius: 50px;
+  padding: .3rem .7rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: #b599e5;
+  text-transform: uppercase;
+  position: relative;
+}
+.s5-live-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #b599e5;
+  position: relative;
+}
+.s5-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: #b599e5;
+  opacity: 0;
+  animation: s5LivePing 1.6s cubic-bezier(0,0,.2,1) infinite;
+}
+.s5-live-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .65rem;
+  color: rgba(181,153,229,0.65);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* (media-section merged into s5-main-grid) */
+
+/* Video */
+.s5-video-block {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.s5-video-el {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: .84;
+
+}
+.s5-video-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,.04), rgba(0,0,0,.25));
+  pointer-events: none;
+}
+.s5-video-logo-overlay {
+  position: absolute;
+  top: 1.5rem; left: 2rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.s5-video-logo-sm    { width:24px; height:24px; object-fit:contain; filter:brightness(0) invert(1); opacity:.85 }
+.s5-video-logo-label { font-family:'Inter',sans-serif; font-size:.9rem; font-weight:800; letter-spacing:.08em; color:rgba(255,255,255,.82) }
+
+/* 3 headline cards */
+.s5-cards-block {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+/* s5-headline-card base opacity/transform set above in .s5-reveal children */
+.s5-headline-card {
+  padding: 2.75rem 2.25rem;
+  border: 1.2px solid #000;
+  border-left: none;
+  background: #b9b9b9;
+  text-decoration: none;
+  color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  min-height: 190px;
+}
+.s5-headline-card:first-child { border-left: 1px solid #000 }
+.s5-headline-card:hover { background: #a8a8a8 }
+.s5-headline-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.2;
+  margin-bottom: 1.25rem;
+  letter-spacing: -.01em;
+}
+.s5-headline-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .62rem;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  line-height: 1.85;
+  flex: 1;
+}
+.s5-card-arrow {
+  margin-top: 1.5rem;
+  color: #999;
+  transition: color .25s, transform .25s;
+}
+.s5-headline-card:hover .s5-card-arrow {
+  color: #b599e5;
+  transform: translate(3px, -3px);
+}
+
+/* Right col already handled by .s5-right-col above */
+.s5-right-mid {
+  flex: 0 0 70vh;
+  min-height: 0;
+  background: #1a1a1a;
+  padding: 2rem 2.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.s5-stats-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #b599e5;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+.s5-stats-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+.s5-stats-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .68rem;
+  color: rgba(181,153,229,0.5);
+  padding: .32rem 0;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  transition: color .35s;
+}
+.s5-stats-item--active { color: #b599e5; }
+.s5-stats-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #3a3a3a;
+  flex-shrink: 0;
+  transition: background .35s, box-shadow .35s;
+}
+.s5-stats-dot--active {
+  background: #b599e5;
+  box-shadow: 0 0 8px rgba(181,153,229,.6);
+  animation: s5DotPulse 1.8s infinite;
+}
+
+/* Bottom graph + binary block */
+.s5-stats-block {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  flex-shrink: 0;
+}
+.s5-graph-asset {
+  width: 100%;
+}
+.s5-binary-content {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.s5-binary-side {
+  flex-shrink: 0;
+  width: 8px;
+  height: clamp(100px, 18vh, 187px);
+}
+.s5-asset-binary {
+  flex: 1;
+  overflow: hidden;
+}
+.s5-binary-item {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: #4a4a4a;
+  letter-spacing: .06em;
+  line-height: 1.75;
+  white-space: nowrap;
+  overflow: hidden;
+  animation: s5BinaryFx 3.2s infinite;
+}
+.s5-binary-item:nth-child(3n) {
+  margin-bottom: .6rem;
+}
+
+/* Orange CTA — fixed height at bottom of sticky right */
+.s5-right-cta {
+  flex: 0 0 46vh;
+  background: #1d0d2b;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 2rem 2rem 2.5rem 2.5rem;
+  text-decoration: none;
+  transition: background .3s;
+  overflow: hidden;
+  position: relative;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.s5-cta-arrow-img {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+  align-self: flex-end;
+}
+.s5-right-cta .s5-explore-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.55rem;
+  font-weight: 400;
+  color: #b599e5;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+}
+.s5-right-cta:hover { background: #2d1a4a; }
+.s5-right-cta:hover .s5-explore-text { letter-spacing: -.01em; }
+
+/* Legacy CTA class */
+.s5-right-btm {
+  flex: 0 0 120px;
+  background: #1d0d2b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.25rem 2rem;
+  text-decoration: none;
+  border-top: 1px solid rgba(0,0,0,.06);
+  transition: background .3s;
+  overflow: hidden;
+}
+.s5-right-btm:hover { background: #2d1a4a }
+
+/* SVG arrow — stroke-dashoffset draw on hover */
+.s5-cta-arrow-wrap {
+  margin-bottom: 1rem;
+}
+.s5-arrow-icon {
+  width: 80px;
+  height: 80px;
+  color: #b599e5;
+  display: block;
+}
+.s5-arrow-path {
+  transition: stroke-dashoffset 0.45s cubic-bezier(.22,1,.36,1);
+}
+.s5-ap-diag { stroke-dashoffset: 85; }
+.s5-ap-h    { stroke-dashoffset: 30; }
+.s5-ap-v    { stroke-dashoffset: 30; }
+
+/* Animate to drawn on hover */
+.s5-right-btm:hover .s5-ap-diag { stroke-dashoffset: 0; }
+.s5-right-btm:hover .s5-ap-h    { stroke-dashoffset: 0; transition-delay: .15s; }
+.s5-right-btm:hover .s5-ap-v    { stroke-dashoffset: 0; transition-delay: .25s; }
+
+/* On initial load — draw the arrow after a moment */
+.s5-ap-diag { animation: s5ArrowDraw1 0.6s 1.2s cubic-bezier(.22,1,.36,1) forwards; }
+.s5-ap-h    { animation: s5ArrowDraw2 0.4s 1.7s cubic-bezier(.22,1,.36,1) forwards; }
+.s5-ap-v    { animation: s5ArrowDraw3 0.4s 1.9s cubic-bezier(.22,1,.36,1) forwards; }
+
+@keyframes s5ArrowDraw1 { to { stroke-dashoffset: 0 } }
+@keyframes s5ArrowDraw2 { to { stroke-dashoffset: 0 } }
+@keyframes s5ArrowDraw3 { to { stroke-dashoffset: 0 } }
+
+.s5-explore-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #b599e5;
+  text-align: center;
+  line-height: 1.35;
+  transition: letter-spacing .3s;
+}
+.s5-right-btm:hover .s5-explore-text { letter-spacing: .01em }
+
+/* ══════════════════════════════════════════
+   SOLUTIONS — infinite carousel
+   ══════════════════════════════════════════ */
+.s5-solutions {
+  background: #b9b9b9;
+  overflow: hidden;
+}
+.s5-solutions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 3.5rem 2.5rem 1.75rem;
+  border-bottom: 1px solid rgba(50,50,50,0.15);
+}
+.s5-solutions-title {
+  font-size: 2.5rem;
+  font-weight: 550;
+  color: #555;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+}
+.s5-solutions-arrows { display:flex; gap:.5rem }
+.s5-arrow-btn {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #1a1a1a;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .2s, transform .2s;
+  color: #b599e5;
+}
+.s5-arrow-btn:hover { background:#333; transform:scale(1.06) }
+.s5-arr-svg { width:16px; height:16px; }
+
+.s5-solutions-viewport {
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+.s5-solutions-viewport:active { cursor: grabbing }
+
+.s5-solutions-track {
+  display: flex;
+  will-change: transform;
+  /* Step distance per carousel index — kept in sync with .s5-solution-card width
+     at each breakpoint so the inline translateX() in LandingPage.tsx always lands
+     a card exactly in the viewport. */
+  --s5-card-step: 33.333vw;
+}
+
+.s5-solution-card {
+  width: 33.333vw;
+  flex-shrink: 0;
+  border-top: 0.5px solid #000;
+  border-bottom: 0.5px solid #000;
+  border-right: 0.5px solid #000;
+  background: #b9b9b9;
+  display: flex;
+  flex-direction: column;
+  transition: background .45s ease, color .45s ease;
+  cursor: pointer;
+  height: 78vh;
+  color: rgba(80,80,80,0.5);
+}
+.s5-solution-card:hover {
+  background: #1d0d2b;
+  color: #b599e5;
+}
+.s5-solution-card:hover .s5-solution-name { color: #b599e5 }
+.s5-solution-card:hover .s5-solution-desc { color: #b599e5; opacity: 1 }
+.s5-solution-card:hover .s5-explore-btn { color: #b599e5; border-color: rgba(181,153,229,0.5) }
+.s5-solution-card--active { background: #b9b9b9; color: rgba(26,26,26,0.7); }
+
+.s5-solution-illustration {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 2.5rem 3rem;
+}
+.s5-sol-icon {
+  width: 100%;
+  height: 100%;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+.s5-solution-content { padding: 1.75rem 2rem 2.5rem; display:flex; flex-direction:column }
+.s5-solution-name {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #1a1a1a;
+  margin-bottom: .7rem;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+  transition: color .45s ease;
+}
+.s5-solution-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  line-height: 1.85;
+  flex: 1;
+  margin-bottom: 1.5rem;
+  opacity: .7;
+  transition: color .45s ease, opacity .45s ease;
+}
+.s5-solution-card--active .s5-solution-desc { color: #555; opacity: .75 }
+.s5-explore-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: .5rem 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #444;
+  background: transparent;
+  border: 1.5px solid rgba(0,0,0,0.25);
+  border-radius: 50px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: border-color .2s, background .2s, color .2s;
+}
+.s5-explore-btn:hover { border-color:#1a1a1a; background:rgba(0,0,0,.06) }
+.s5-solution-card--active .s5-explore-btn {
+  border-color: rgba(0,0,0,0.4);
+  background: rgba(0,0,0,0.08);
+  color: #1a1a1a;
+}
+
+/* ══════════════════════════════════════════
+   INSIGHTS — sticky featured left
+   ══════════════════════════════════════════ */
+.s5-insights {
+  display: grid;
+  grid-template-columns: 52% 48%;
+  align-items: start;
+}
+
+.s5-insights-featured {
+  background: #202020;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.s5-insights-featured-art {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+}
+.s5-insights-featured-art-img {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .18;
+}
+.s5-insights-featured-art-img svg { width: 90%; height: 90% }
+.s5-insights-featured-content {
+  padding: 2.5rem 2.75rem 2.75rem;
+  position: relative;
+  z-index: 1;
+}
+
+.s5-insights-featured-cat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: #b599e5;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 1rem;
+}
+.s5-insights-featured-title {
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: #b599e5;
+  line-height: 1.25;
+  margin-bottom: .9rem;
+  letter-spacing: -.01em;
+}
+.s5-insights-featured-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: rgba(181,153,229,0.55);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: .65rem;
+}
+.s5-insights-featured-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: rgba(181,153,229,0.65);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  line-height: 1.8;
+  margin-bottom: 1.75rem;
+}
+.s5-readmore-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: .5rem 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #b599e5;
+  background: transparent;
+  border: 1.5px solid rgba(181,153,229,0.4);
+  border-radius: 50px;
+  cursor: pointer;
+  transition: border-color .25s, color .25s;
+}
+.s5-readmore-btn:hover { border-color:#b599e5; color:#b599e5 }
+
+.s5-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #b599e5;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: hidden;
+  align-content: start;
+}
+.s5-insight-card {
+  padding: 1.75rem;
+  border-bottom: 0.5px solid rgba(0,0,0,0.15);
+  border-left: 0.5px solid rgba(0,0,0,0.15);
+  text-decoration: none;
+  color: #444;
+  transition: background .25s, color .25s;
+  background: #b599e5;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  aspect-ratio: 1 / 1;
+}
+.s5-insight-card:nth-child(-n+2) { border-top: 0.5px solid rgba(0,0,0,0.15) }
+
+.s5-insight-card:hover {
+  background: #202020;
+  color: #888;
+}
+.s5-insight-card:hover .s5-insight-title { color: #888 }
+.s5-insight-card:hover .s5-insight-date  { color: #666 }
+.s5-insight-card:hover .s5-insight-desc  { color: #666 }
+
+.s5-insight-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.3;
+  margin-bottom: .2rem;
+  transition: color .25s;
+}
+.s5-insight-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .65rem;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  transition: color .25s;
+}
+.s5-insight-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .63rem;
+  font-weight: 500;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  line-height: 1.7;
+  margin-top: auto;
+  transition: color .25s;
+}
+
+/* ══════════════════════════════════════════
+   CTA
+   ══════════════════════════════════════════ */
+.s5-cta {
+  background: #1d0d2b;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6rem 2rem 0;
+  position: relative;
+}
+.s5-cta-title {
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(3rem, 5.5vw, 5.25rem);
+  font-weight: 400;
+  color: #b599e5;
+  line-height: 1.08;
+  margin-bottom: 3rem;
+  letter-spacing: -.02em;
+  text-align: center;
+}
+.s5-cta-title em { font-style: normal }
+.s5-cta-slash { font-weight: 300 }
+.s5-cta-input-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+.s5-cta-bracket {
+  font-size: 5.5rem;
+  font-weight: 200;
+  color: #b599e5;
+  line-height: 1;
+  opacity: .7;
+}
+.s5-cta-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid rgba(181,153,229,.35);
+  padding: .6rem 0;
+  font-size: 1.1rem;
+  font-family: 'Inter', sans-serif;
+  color: #b599e5;
+  outline: none;
+  min-width: 300px;
+  text-align: center;
+  transition: border-color .3s;
+}
+.s5-cta-input:focus { border-color: #b599e5 }
+.s5-cta-input::placeholder { color: rgba(181,153,229,.42) }
+.s5-continue-btn {
+  padding: .6rem 2.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: #b599e5;
+  background: transparent;
+  border: 1.5px solid rgba(181,153,229,.5);
+  border-radius: 50px;
+  cursor: pointer;
+  transition: background .22s, border-color .22s;
+  margin-bottom: 4rem;
+}
+.s5-continue-btn:hover { background: rgba(181,153,229,.1); border-color:#b599e5 }
+.s5-cta-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid rgba(181,153,229,.18);
+  margin: 0;
+}
+.s5-cta-contact {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  padding: 2.25rem 2.5rem;
+  gap: 2rem;
+}
+.s5-cta-contact-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: rgba(181,153,229,.5);
+  margin-bottom: .4rem;
+}
+.s5-cta-contact-val {
+  font-size: 1.05rem;
+  font-weight: 400;
+  color: #b599e5;
+  letter-spacing: -.01em;
+}
+.s5-cta-contact-val-sm {
+  font-size: .9rem;
+  font-weight: 400;
+  color: #b599e5;
+  margin-top: .2rem;
+}
+.s5-cta-contact-row { display: flex; flex-direction: column }
+
+/* ══════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════ */
+/* ── NEW FOOTER ────────────────────────────────────── */
+.s5-footer {
+  position: relative;
+  background: #1d0d2b;
+  color: #b599e5;
+  padding: 56px;
+  font-family: 'Archivo', system-ui, sans-serif;
+}
+.s5-footer-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(0,0,0,0.18) 1px, transparent 1px);
+  background-size: 3px 3px;
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+  z-index: 0;
+}
+.s5-footer-signup {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 48px;
+  padding: 0 8px 56px;
+}
+.s5-footer-signup-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b599e5;
+  margin: 0 0 14px;
+}
+.s5-footer-signup-field {
+  font-family: 'Archivo', sans-serif;
+  font-size: clamp(28px, 3.6vw, 56px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  border: 0;
+  background: transparent;
+  color: #b599e5;
+  width: 100%;
+  outline: none;
+  padding: 0;
+}
+.s5-footer-signup-field::placeholder { color: #b599e5; opacity: 0.45; }
+.s5-footer-subscribe-btn {
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b599e5;
+  background: transparent;
+  border: 1.5px solid rgba(181,153,229,0.45);
+  padding: 22px 38px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform .15s ease, background .2s ease, color .2s ease, border-color .2s ease;
+}
+.s5-footer-subscribe-btn:hover { background: rgba(181,153,229,0.12); color: #b599e5; border-color: #b599e5; transform: translateY(-1px); }
+.s5-footer-subscribe-btn:disabled { opacity: 0.7; cursor: default; }
+.s5-footer-panel {
+  position: relative;
+  z-index: 1;
+  background: #202020;
+  color: #b599e5;
+  border-radius: 28px;
+  padding: 64px 64px 62px;
+  overflow: hidden;
+  clip-path: inset(100% 0 0 0 round 28px);
+  transition:
+    clip-path 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s;
+}
+.s5-footer-panel--visible {
+  clip-path: inset(0% 0 0 0 round 28px);
+}
+.s5-footer-panel-grain {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 3px 3px;
+  pointer-events: none;
+}
+.s5-footer-panel-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 220px 1fr 1fr 1fr;
+  gap: 48px;
+  padding-bottom: 24px;
+}
+.s5-footer-logo {
+  width: 64px;
+  height: 64px;
+  color: #b599e5;
+}
+.s5-footer-col-h {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  margin: 0 0 18px;
+  color: #b599e5;
+  line-height: 1;
+}
+.s5-footer-col-h sup {
+  font-size: 14px;
+  font-weight: 500;
+  vertical-align: super;
+  margin-left: 2px;
+  opacity: 0.9;
+}
+.s5-footer-col-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.s5-footer-col-list li {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  color: #b599e5;
+  line-height: 1.05;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.s5-footer-col-list li a {
+  color: #b599e5;
+  text-decoration: none;
+  transition: opacity .15s ease;
+}
+.s5-footer-col-list li a:hover { opacity: 0.7; }
+.s5-footer-col-arrow {
+  display: inline-block;
+  width: 18px;
+  transform: translateY(2px);
+  flex-shrink: 0;
+}
+.s5-footer-wordmark {
+  display: block;
+  width: 100%;
+  margin-top: -30px;
+  overflow: visible;
+  user-select: none;
+  position: relative;
+}
+
+/* ══════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════ */
+@media (max-width: 1024px) {
+  /* Main two-column hero grid → stacked single column.
+     The right column is sticky with a negative top offset on desktop; on
+     tablet/mobile it must become a normal, static block so it flows below
+     the left column instead of overlapping or being clipped. */
+  .s5-main-grid { grid-template-columns: 1fr; }
+  .s5-left-col { min-height: auto; }
+  .s5-right-col {
+    position: static;
+    top: auto;
+  }
+
+  /* Hero left: drop the desktop full-viewport height and the staggered
+     translateY offsets — those only make sense inside the fixed-height,
+     sticky desktop composition. Stacked, the headline should simply flow. */
+  .s5-hero-left {
+    min-height: auto;
+    padding: 7rem 2rem 3rem;
+    height: auto;
+  }
+  .s5-hero-title-wrap { transform: none; }
+  .s5-hero-title-wrap > .s5-hero-intel:last-child { margin-top: 0; }
+  .s5-op-row { padding-top: 0; transform: none; }
+  .s5-hero-intel--btm { transform: none; }
+
+  /* Right-col panels used fixed vh flex-basis tuned for the sticky desktop
+     layout; let them grow to their content once stacked. */
+  .s5-hero-right { flex: 0 0 auto; padding: 2.5rem 2rem; }
+  .s5-right-mid  { flex: 0 0 auto; }
+  .s5-right-cta  { flex: 0 0 auto; min-height: clamp(180px, 30vh, 280px); }
+
+  .s5-video-block { aspect-ratio: 16 / 9 }
+  .s5-cards-block { grid-template-columns: 1fr }
+  .s5-headline-card { border: 1.2px solid #000; border-top: none }
+  .s5-headline-card:first-child { border-top: 1px solid #000; border-left: 1px solid #000 }
+
+  /* Carousel: show one near-full card with a small peek of the next. */
+  .s5-solutions-track { --s5-card-step: 72vw; }
+  .s5-solution-card { width: 72vw; height: auto; min-height: 64vh }
+
+  .s5-insights { grid-template-columns: 1fr }
+  .s5-insights-featured { position: static; height: auto; min-height: 60vh }
+  .s5-insights-grid { grid-template-columns: 1fr; position: static; height: auto; overflow-y: visible }
+
+  .s5-footer { padding: 32px 20px; }
+  .s5-footer-panel { padding: 32px 28px 32px; border-radius: 20px; }
+  .s5-footer-panel-grid { grid-template-columns: 100px 1fr 1fr; gap: 24px; }
+  .s5-footer-logo { width: 40px; height: 40px; }
+  .s5-footer-col-h, .s5-footer-col-list li, .s5-footer-col-list li a { font-size: 20px; }
+  .s5-footer-signup { grid-template-columns: 1fr; }
+  .s5-footer-subscribe-btn { justify-self: start; padding: 16px 28px; }
+  /* No tucked-up overlap on stacked footers — give the wordmark a clean baseline. */
+  .s5-footer-wordmark { margin-top: 0; }
+}
+
+@media (max-width: 640px) {
+  /* The decorative custom scroll indicator is desktop-only flourish; on touch
+     it just overlaps the right edge of full-bleed cards. */
+  .s5-scrollbar-track { display: none; }
+
+  /* Fixed nav: logo (left) + MENU pill (right) align via the flex header.
+     Tighten padding and scale the logo so the row reads cleanly on phones. */
+  .s5-fixed-nav { padding: 0.85rem 1.1rem; }
+  .s5-nav-logo-img  { width: 34px; height: 34px; }
+  .s5-nav-logo-text { font-size: 1.1rem; }
+  .s5-menu-pill { padding: .45rem .9rem .45rem .8rem; font-size: .66rem; }
+
+  /* Hero headline: larger type, dropped toward the bottom of the hero panel.
+     Both lines stay on one row each (white-space:nowrap); the size is tuned so
+     the longest line ("Reimagined.") never overflows down to 320px. */
+  .s5-hero-left {
+    /* Shorter violet panel on mobile: trim the empty space above the heading
+       (top padding) and the overall min-height. Top padding still clears the
+       fixed nav (~61px). */
+    padding: 4.25rem 1.25rem 2.25rem;
+    min-height: 38.8vh;
+    justify-content: flex-end;
+  }
+  .s5-hero-title-wrap {
+    flex: none;
+    gap: 0.1rem;
+    margin-top: 0;
+  }
+  .s5-hero-intel {
+    font-size: clamp(2.75rem, 14.5vw, 5rem);
+    line-height: 0.95;
+  }
+  .s5-hero-slash-img {
+    height: clamp(2.5rem, 13vw, 4.6rem);
+    margin-left: 0.12em;
+  }
+  .s5-op-row { margin-bottom: 0; }
+
+  .s5-hero-right { padding: 2.25rem 1.25rem; }
+  .s5-hero-right-desc { font-size: 1.15rem; max-width: none; }
+
+  .s5-right-mid { padding: 1.75rem 1.25rem 1.25rem; }
+
+  .s5-right-cta { padding: 1.5rem 1.25rem 2rem; }
+  .s5-cta-arrow-img { width: 96px; height: 96px; }
+  .s5-right-cta .s5-explore-text { font-size: 1.3rem; }
+
+  .s5-headline-card { padding: 2rem 1.5rem; min-height: 0; }
+  .s5-headline-title { font-size: 1.25rem; }
+
+  /* Solutions header: title + arrows stack a bit tighter; reduce big title. */
+  .s5-solutions-header { padding: 2.5rem 1.25rem 1.25rem; }
+  .s5-solutions-title { font-size: 1.85rem; }
+  .s5-solution-illustration { padding: 1.75rem 1.5rem; min-height: 220px; }
+  .s5-solution-content { padding: 1.5rem 1.5rem 2rem; }
+
+  /* One card = full viewport width on phones (no awkward side gap). The track
+     step matches so paging lands each card flush. */
+  .s5-solutions-track { --s5-card-step: 100vw; }
+  .s5-solution-card { width: 100vw; min-height: 58vh; border-left: 0.5px solid #000; }
+
+  .s5-insights-featured-content { padding: 2rem 1.5rem 2.25rem; }
+  .s5-insights-featured-title { font-size: 1.45rem; }
+  .s5-insight-card { padding: 1.5rem 1.25rem; aspect-ratio: auto; }
+
+  .s5-footer { padding: 28px 16px; }
+  .s5-footer-panel { padding: 28px 20px 24px; }
+  /* Footer columns: stack the logo above a 2-up link grid so the headings
+     don't overflow a 320px viewport. */
+  .s5-footer-panel-grid { grid-template-columns: 1fr 1fr; gap: 22px 18px; padding-bottom: 8px; }
+  .s5-footer-panel-grid > :first-child { grid-column: 1 / -1; }
+  .s5-footer-col-h, .s5-footer-col-list li, .s5-footer-col-list li a { font-size: 18px; }
+  .s5-footer-signup { padding: 0 0 40px; }
+  .s5-footer-signup-field { font-size: clamp(24px, 8vw, 40px); }
+  .s5-footer-subscribe-btn { padding: 14px 24px; }
+  /* Keep the giant KRYON wordmark clear of the link grid with a real gap. */
+  .s5-footer-wordmark { margin-top: 12px; }
+}

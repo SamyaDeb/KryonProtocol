@@ -1,0 +1,19 @@
+[package]
+name = "protocol-core"
+description = "Deterministic protocol primitives for the Stellar-native perp rebuild."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+doctest = false
+
+[dependencies]
+ethnum = "1.5"
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

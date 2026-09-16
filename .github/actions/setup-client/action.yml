@@ -1,0 +1,35 @@
+# Reusable composite action: deterministic Node + client dependency install.
+# Centralizing this removes copy-paste drift between CI, deploy, and preflight
+# workflows and guarantees every job uses the SAME node version, cache key,
+# and install flags (reproducible builds).
+#
+# NOTE: the consuming job MUST run actions/checkout BEFORE calling this action,
+# because a local (`./...`) composite action only exists on disk after checkout.
+name: Setup client toolchain
+description: Install pinned Node, restore npm cache, and install client deps with npm ci.
+
+inputs:
+  install:
+    description: Whether to run `npm ci` in the client workspace.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # node-version-file:.nvmrc keeps CI, Docker (node:22-alpine), and local dev on
+    # one version. Built-in npm cache is keyed on the lockfile hash.
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+        cache-dependency-path: client/package-lock.json
+
+    # npm ci installs strictly from the lockfile (deterministic). --no-audit and
+    # --fund=false keep logs clean and avoid network calls that can flake install;
+    # auditing happens in a dedicated, non-blocking security job instead.
+    - name: Install client dependencies
+      if: ${{ inputs.install == 'true' }}
+      shell: bash
+      working-directory: client
+      run: npm ci --no-audit --fund=false

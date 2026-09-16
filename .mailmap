@@ -1,0 +1,26 @@
+# Canonical identities for contributors.
+# Collapses duplicate name/email spellings so `git shortlog -sne` and
+# GitHub attribution show one entry per person.
+
+Samya Deb <sammodeb28@gmail.com>
+Samya Deb <sammodeb28@gmail.com> Samya <sammodeb28@gmail.com>
+Samya Deb <sammodeb28@gmail.com> SamyaDeb <sammodeb28@gmail.com>
+
+Debanjan Mondal <debanjanmondalk2005@gmail.com>
+Debanjan Mondal <debanjanmondalk2005@gmail.com> Debanjannn <debanjanmondalk2005@gmail.com>
+
+# Two GitHub accounts, one person. saxux2 is the canonical identity so that
+# `git shortlog -sne` reports a single contributor rather than splitting the
+# history across both addresses.
+#
+# Note that .mailmap only affects git's own output. GitHub credits the
+# contribution graph from the raw author email, so commits authored as
+# funnypost00 stay credited to that account there regardless of this file.
+#
+# The second entry uses the address-only form, `<canonical> <old>`, which
+# rewrites both the name and the address for every commit under the old
+# address. The name-qualified form would not: it matches on the recorded
+# author name, and the previous entry here named a spelling those commits
+# were never authored under.
+saxux2 <skybiswas0722@gmail.com>
+saxux2 <skybiswas0722@gmail.com> <funnypost00@gmail.com>

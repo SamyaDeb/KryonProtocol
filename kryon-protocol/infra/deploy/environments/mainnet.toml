@@ -1,0 +1,167 @@
+[network]
+name = "stellar-mainnet"
+rpc_url = ""
+passphrase = "Public Global Stellar Network ; September 2015"
+
+[contracts]
+governance = ""
+oracle_adapter = ""
+vault = ""
+engine = ""
+order_gateway = ""
+insurance = ""
+liquidation = ""
+risk = ""
+
+[governance]
+min_delay_secs = 172800
+guardian = ""
+admin_multisig = ""
+
+[keepers]
+oracle_interval_secs = 5
+funding_interval_secs = 60
+liquidation_interval_secs = 3
+tx_retry_limit = 5
+
+[risk_limits]
+max_oracle_age_secs = 30
+max_oracle_confidence_bps = 100
+max_execution_deviation_bps = 75
+
+# ── Markets ───────────────────────────────────────────────────────────────────
+# One [[markets]] entry per registered perpetual. This replaced the singular
+# [initial_market] table on 2026-08-22: the contracts were always multi-market
+# (every piece of state is keyed on u32 market_id), only the manifest was not.
+#
+# client/config/index.ts MARKETS is the single source of truth — these entries
+# mirror it for deploy tooling. settlement_asset_contract comes from
+# [assets].circle_usdc above.
+
+[[markets]]
+market_id = 1
+symbol = "XLM-PERP"
+base_asset = "XLM"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "XLM"
+price_source_symbol = "XLMUSDT"
+reflector_symbol = "XLM"
+max_leverage_bps = 100000
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_open_interest = "1450000000000000000000000"  # 1450000 XLM ≈ $300,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 2
+symbol = "BTC-PERP"
+base_asset = "BTC"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "BTC"
+price_source_symbol = "BTCUSDT"
+reflector_symbol = "BTC"
+max_leverage_bps = 500000
+initial_margin_bps = 200
+maintenance_margin_bps = 100
+liquidation_fee_bps = 25
+max_open_interest = "25000000000000000000"  # 25 BTC ≈ $2,000,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 3
+symbol = "ETH-PERP"
+base_asset = "ETH"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "ETH"
+price_source_symbol = "ETHUSDT"
+reflector_symbol = "ETH"
+max_leverage_bps = 200000
+initial_margin_bps = 500
+maintenance_margin_bps = 250
+liquidation_fee_bps = 35
+max_open_interest = "400000000000000000000"  # 400 ETH ≈ $1,000,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 4
+symbol = "SOL-PERP"
+base_asset = "SOL"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "SOL"
+price_source_symbol = "SOLUSDT"
+reflector_symbol = "SOL"
+max_leverage_bps = 100000
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_open_interest = "5000000000000000000000"  # 5000 SOL ≈ $500,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 5
+symbol = "XRP-PERP"
+base_asset = "XRP"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "XRP"
+price_source_symbol = "XRPUSDT"
+reflector_symbol = "XRP"
+max_leverage_bps = 100000
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_open_interest = "325000000000000000000000"  # 325000 XRP ≈ $500,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 6
+symbol = "ADA-PERP"
+base_asset = "ADA"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "ADA"
+price_source_symbol = "ADAUSDT"
+reflector_symbol = "ADA"
+max_leverage_bps = 50000
+initial_margin_bps = 2000
+maintenance_margin_bps = 1000
+liquidation_fee_bps = 50
+max_open_interest = "850000000000000000000000"  # 850000 ADA ≈ $200,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 7
+symbol = "BNB-PERP"
+base_asset = "BNB"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "BNB"
+price_source_symbol = "BNBUSDT"
+# no Reflector feed — divergence guard disabled for this market
+max_leverage_bps = 100000
+initial_margin_bps = 1000
+maintenance_margin_bps = 500
+liquidation_fee_bps = 50
+max_open_interest = "425000000000000000000"  # 425 BNB ≈ $300,000
+funding_interval_secs = 3600
+
+[[markets]]
+market_id = 8
+symbol = "TRX-PERP"
+base_asset = "TRX"
+quote_asset = "USDC"
+settlement_asset = "USDC"
+oracle_symbol = "TRX"
+price_source_symbol = "TRXUSDT"
+# no Reflector feed — divergence guard disabled for this market
+max_leverage_bps = 50000
+initial_margin_bps = 2000
+maintenance_margin_bps = 1000
+liquidation_fee_bps = 50
+max_open_interest = "575000000000000000000000"  # 575000 TRX ≈ $200,000
+funding_interval_secs = 3600

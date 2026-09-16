@@ -1,0 +1,211 @@
+# Render blueprint for the Kryon off-chain services.
+#
+# ⚠ CONTRACT ADDRESSES: these must match the CURRENT deployment
+#   (kryon-protocol/infra/deploy/testnet-deployment.toml / redeploy-core.ts
+#   output). Stale addresses here mean services silently run against old,
+#   unpatched contract instances. Re-generate this block on every redeploy.
+#
+# ⚠ PLANS: `starter` (paid, always-on) is the minimum for production — free
+#   instances sleep, and a sleeping reconciler/liquidator strands settlements
+#   and lets underwater positions rot.
+#
+# Secrets (DATABASE_URL, *_SECRET) are set in the Render dashboard, never here.
+
+services:
+  - type: web
+    name: kryon-ws-server
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/ws-server.ts
+    plan: starter
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: NEXT_PUBLIC_CONTRACT_VAULT
+        value: CBQ6634Z3UPXFVVHHV2JNSGXHQOZZK62Z65HCAQTINBGXS3IDXKRTRYK
+      - key: NEXT_PUBLIC_CONTRACT_ENGINE
+        value: CBSUYAO2EYAQVFISJQKG4TNMJPCDCPPFGI25Q3SW2BJPFSKQ45GRGTXN
+      - key: NEXT_PUBLIC_CONTRACT_ORDER_GATEWAY
+        value: CAJGC2SIV6DFJETJ6ATG5MR6RPNX5HQ26LYA4RGSHF2QPTBS6OJWONL3
+      - key: NEXT_PUBLIC_CONTRACT_GOVERNANCE
+        value: CBZT5HUXI42TD55GGB5Y7OZZ72IT5SN64ONOGDYS2PFQCOWIT4XOA6MU
+      - key: NEXT_PUBLIC_ASSET_NATIVE_XLM
+        value: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+      - key: NEXT_PUBLIC_ASSET_USDC
+        value: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+      - key: DATABASE_URL
+        sync: false # set in Render dashboard — do not commit secrets
+
+  - type: worker
+    name: kryon-oracle-keeper
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/oracle-keeper.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: DATABASE_URL
+        sync: false
+      - key: ORACLE_PUBLISHER_SECRET
+        sync: false # its own key — NEVER the admin or matcher key
+
+  - type: worker
+    name: kryon-matcher
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/matcher-service.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORDER_GATEWAY
+        value: CAJGC2SIV6DFJETJ6ATG5MR6RPNX5HQ26LYA4RGSHF2QPTBS6OJWONL3
+      - key: NEXT_PUBLIC_CONTRACT_ENGINE
+        value: CBSUYAO2EYAQVFISJQKG4TNMJPCDCPPFGI25Q3SW2BJPFSKQ45GRGTXN
+      - key: NEXT_PUBLIC_CONTRACT_VAULT
+        value: CBQ6634Z3UPXFVVHHV2JNSGXHQOZZK62Z65HCAQTINBGXS3IDXKRTRYK
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: MATCHER_OPERATOR_SECRET
+        sync: false # its own key — must equal the gateway operator
+      - key: DATABASE_URL
+        sync: false
+
+  - type: worker
+    name: kryon-state-indexer
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/state-indexer.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: NEXT_PUBLIC_CONTRACT_ENGINE
+        value: CBSUYAO2EYAQVFISJQKG4TNMJPCDCPPFGI25Q3SW2BJPFSKQ45GRGTXN
+      - key: NEXT_PUBLIC_CONTRACT_VAULT
+        value: CBQ6634Z3UPXFVVHHV2JNSGXHQOZZK62Z65HCAQTINBGXS3IDXKRTRYK
+      - key: DATABASE_URL
+        sync: false
+
+  - type: worker
+    name: kryon-reconciler
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/settlement-reconciler.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SETTLEMENT_JOB_MAX_AGE_MINUTES
+        value: "15"
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: DATABASE_URL
+        sync: false
+      - key: MATCHER_OPERATOR_SECRET
+        sync: false
+
+  - type: worker
+    name: kryon-liquidator
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/liquidation-keeper.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: NEXT_PUBLIC_CONTRACT_ENGINE
+        value: CBSUYAO2EYAQVFISJQKG4TNMJPCDCPPFGI25Q3SW2BJPFSKQ45GRGTXN
+      - key: NEXT_PUBLIC_CONTRACT_VAULT
+        value: CBQ6634Z3UPXFVVHHV2JNSGXHQOZZK62Z65HCAQTINBGXS3IDXKRTRYK
+      - key: NEXT_PUBLIC_CONTRACT_LIQUIDATION
+        value: CDCRNKXTTTOO7IRVC66KZR5QMVGGZIOF2QPJSVELLD7G7F4IVLM2DCMG
+      - key: NEXT_PUBLIC_ASSET_USDC
+        value: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+      - key: DATABASE_URL
+        sync: false
+      - key: LIQUIDATOR_SECRET
+        sync: false # its own key — never shared with any other role
+
+  - type: worker
+    name: kryon-monitor
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx tsx scripts/monitor.ts
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_STELLAR_NETWORK
+        value: testnet
+      - key: NEXT_PUBLIC_STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: NEXT_PUBLIC_STELLAR_PASSPHRASE
+        value: "Test SDF Network ; September 2015"
+      - key: NEXT_PUBLIC_ACTIVE_MARKETS
+        value: "XLM-PERP,BTC-PERP,ETH-PERP,SOL-PERP,XRP-PERP,ADA-PERP,BNB-PERP,TRX-PERP"
+      - key: NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER
+        value: CARSV4BT3II5QONUAOP4D363OUNTTSSZCXSKNNXKZCBJM7Z6UXSNZ3LP
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false # public URL of the client app (health endpoint)
+      - key: NEXT_PUBLIC_WS_URL
+        sync: false # public URL of the WS server
+      - key: DATABASE_URL
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false # optional — Discord-style webhook for alerts

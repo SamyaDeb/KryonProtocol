@@ -1,0 +1,66 @@
+{
+  "ops": {
+    "oracle-publisher": {
+      "pub": "GDCVRZJCHTXOP5L3YNPIXDP7IKVIRUVAT2KCF3R7O524DLNNOKDZZUF6"
+    },
+    "matcher-operator": {
+      "pub": "GC6SSIGNURTB4XVQW7FJ2EW53IUYAF5UYEBWJ62GQJAFXQMXBP6VQZB4"
+    },
+    "liquidator": {
+      "pub": "GCWTHH5KJ3XJYHGRIYFFG6R5LFQJ6PKKFCJAEJU7FSS3CMPBVTOOY2JW"
+    },
+    "guardian": {
+      "pub": "GBG35XXDFMB62ZCRYJPYMOYH676TQVYC5W5PP5CB7HEQ5FLYXWAMVFR5"
+    }
+  },
+  "wasm": {
+    "perp_vault": "063b932fb6b953a685bcb66b189b2143eda715650979095e39eb36c92ec7eaa2",
+    "perp_engine": "bc054afff1d44565a17381250e3a52127ee3d39b95c5eae582f43f0f6077e577",
+    "perp_order_gateway": "0ba8f9707e2e70b35267da7ab9718e4cae2c3ba2917e90aa625d413e02fe4d6d",
+    "perp_risk": "87226639ea86545d54eaa2c81bf0658647434151ef2688179d76654307549f9d",
+    "perp_oracle_adapter": "887b08be75d275a9760e796f6e96bc297223d7a8018cedc70e0f46d9086ebae8",
+    "perp_insurance": "26e0506ebf3e5954906ddd5ac80ed6f57c95d79480da56be9edc9a629ba79368",
+    "perp_liquidation": "08168a26fa82d64ed906c4e6d839508f70b7ac32c02595cfe3a3e64946e53cdb",
+    "perp_governance": "90f9b22631a09ec921847b3cfdf68a0734e4c7b9e7c1730f53bdf74515723220"
+  },
+  "contracts": {
+    "perp_oracle_adapter": "CD5NFH3JWGIAPTRD4R5OBBJNMJKR3SEL2WXOXG5SH3YT7Q65VVNUZUI4",
+    "perp_vault": "CCFVY4ISEKH5MOOONDDPZXE3ZH7DMEHH7P3GPT5HOZOXD4NMIVPOKK6P",
+    "perp_risk": "CDZVGUXWAE5NZSVAQ62NTKJUBBXWJD6OCXBHNYQHYLX4KPWV6AF7PANX",
+    "perp_engine": "CAF5OD5KKQOJUW6C3RKSBT2B3U4FZBAO2GM5CN5HQY37FPOL3EHNLF5P",
+    "perp_order_gateway": "CDGWXDAFGPARVZ2VRFTDAJK5MIJ326SPBE4UWZF5CD4CQEEKPVIIDARQ",
+    "perp_insurance": "CAHX6XS4AUO3BF5JIVIPEW3ZNP7S6FDWZ3KXLW5LAMPEFO57H7IXA7MC",
+    "perp_liquidation": "CBQC3MTE5INOJKBWO66TBZ3EVGKQDJCUIBJAEFAABK5X2AKILJYBEMOL",
+    "perp_governance": "CA4RGOU5S74EZHG6P5PKKMB5SR7TRXLY7DMJOTLUG6F6XE4P6YZSHH34"
+  },
+  "steps": {
+    "ops_accounts": true,
+    "init_oracle": true,
+    "init_vault": true,
+    "init_risk": true,
+    "init_engine": true,
+    "init_gateway": true,
+    "init_insurance": true,
+    "init_liquidation": true,
+    "init_governance": true,
+    "wire_vault_engine": true,
+    "wire_engine_gateway": true,
+    "wire_gw_operator": true,
+    "wire_gw_domain": true,
+    "wire_vault_collateral": true,
+    "wire_engine_insurance": true,
+    "wire_engine_liq": true,
+    "wire_vault_insurance": true,
+    "wire_vault_liq": true,
+    "wire_ins_vault": true,
+    "oracle_feed": true,
+    "market_engine": true,
+    "guardian_vault": true,
+    "guardian_gw": true,
+    "cap_usdc": true,
+    "ttl_oracle": true,
+    "ttl_vault": true,
+    "ttl_engine": true,
+    "ttl_gw": true
+  }
+}

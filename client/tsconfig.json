@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    // `scripts/` used to be excluded wholesale, which left every keeper, the
+    // matcher, the settlement reconciler and the deploy tooling — the most
+    // operationally critical code in the repo — unchecked by `tsc --noEmit`
+    // locally and in CI. Turning it on surfaced an out-of-scope variable that
+    // would have crashed the reconciler on its first on-chain settlement
+    // failure, an `instanceof` against a non-existent export, and a call
+    // passing an argument to a parameter that did not exist.
+    //
+    // Only the ad-hoc drill/debug scripts stay excluded. They are gitignored
+    // (see client/.gitignore), so they never reach CI, and they are written
+    // against whatever the chain looked like that afternoon.
+    "scripts/_*.ts",
+    "scripts/test-*.ts"
+  ]
+}

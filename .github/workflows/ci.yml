@@ -1,0 +1,221 @@
+name: ci
+
+# Continuous integration for the Kryon Perps DEX monorepo.
+# Modular jobs (client / contracts / prisma / security) run in parallel so
+# unrelated changes still get full coverage without serializing the pipeline.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least-privilege by default. Individual jobs add scopes only if they need them.
+# This overrides any permissive repo/org default (which can otherwise be write-all).
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref/PR to save runner minutes, but never
+# cancel a push to main mid-flight (those feed the deploy pipeline).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Frontend: lint, typecheck, production gate, and a real Next.js build.
+  # ---------------------------------------------------------------------------
+  client:
+    name: client (lint · typecheck · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      # Local composite actions require the repo on disk first.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup-client
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production readiness gate
+        run: npm run production:gate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # The client's node:test suites had no runner and no script, so they had
+      # never executed despite CI being green. Run them.
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Upload the build (minus the cache) for debugging. always() + ignore keeps
+      # this from masking or failing on an earlier build error.
+      - name: Upload build artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-next-build
+          path: |
+            client/.next/
+            !client/.next/cache/**
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Soroban / Stellar smart contracts: format, lint, test, and a wasm release build.
+  # ---------------------------------------------------------------------------
+  contracts:
+    name: contracts (fmt · clippy · test · wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: kryon-protocol
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Toolchain version is pinned and MUST match kryon-protocol/rust-toolchain.toml
+      # (1.89.0) and the wasm target Soroban 23 expects (wasm32v1-none).
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt,clippy
+
+      # Caches registry + target dir keyed on Cargo.lock for fast, deterministic builds.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kryon-protocol
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (warnings = errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      # --locked forbids any implicit Cargo.lock change, guaranteeing the audited
+      # dependency set is exactly what ships on-chain.
+      - name: Build release wasm
+        run: cargo build --workspace --release --locked
+
+  # ---------------------------------------------------------------------------
+  # Database schema: validate + generate the Prisma client.
+  # ---------------------------------------------------------------------------
+  prisma:
+    name: prisma (validate · generate · drift)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: kryon-protocol
+    # Dummy URLs: `prisma validate`/`generate` parse the schema only — no DB is
+    # contacted — but the datasource block requires the env vars to be present.
+    # The drift check replays migrations into the EMPTY service container below
+    # (never a real database) and diffs the result against schema.prisma.
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/kryon
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: kryon-protocol/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Validate schema
+        run: npx prisma validate
+
+      - name: Generate client
+        run: npx prisma generate
+
+      # Migrations replayed into the empty CI postgres must produce exactly
+      # schema.prisma — catches ad-hoc prod SQL and schema edits that skipped
+      # `prisma migrate dev`. Exit code 2 (= drift) fails the job.
+      - name: Migration drift check (empty shadow)
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --exit-code
+
+  # ---------------------------------------------------------------------------
+  # Dependency vulnerability scan. NON-BLOCKING: advisory databases change daily,
+  # so a hard-failing `npm audit` makes green builds non-deterministic and can
+  # freeze deploys on an unrelated advisory. Findings go to the job summary;
+  # Dependabot + dependency-review.yml do the actual gating.
+  # ---------------------------------------------------------------------------
+  security:
+    name: security (npm audit — advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --no-audit --fund=false
+
+      - name: Audit (report only)
+        working-directory: client
+        run: |
+          set +e
+          npm audit --audit-level=high --omit=dev > audit.txt 2>&1
+          {
+            echo "### npm audit (client, prod deps, high+)"
+            echo ""
+            echo '```'
+            cat audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Always succeed: this job informs, it does not block the pipeline.
+          exit 0

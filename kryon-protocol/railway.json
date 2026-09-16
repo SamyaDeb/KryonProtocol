@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install"
+  },
+  "deploy": {
+    "startCommand": "npm run db:migrate:deploy",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 1
+  }
+}
