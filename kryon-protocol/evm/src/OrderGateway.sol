@@ -35,9 +35,9 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         IEngine engine;
         IRiskParams risk;
         IFeeRouter feeRouter;
-        mapping(bytes32 => uint256) filled;
-        /// owner => nonce => order hash first settled under it.
-        mapping(address => mapping(uint256 => bytes32)) nonceOrder;
+        /// owner => nonce => (high 128 bits of the bound order digest,
+        ///                    low 128 bits: amount filled). One slot per order.
+        mapping(address => mapping(uint256 => uint256)) orderState;
         mapping(address => mapping(uint256 => bool)) cancelled;
         /// Orders with nonce < minNonce are void (`cancelUpTo`).
         mapping(address => uint256) minNonce;
@@ -122,11 +122,19 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
 
     /// @notice Settle a single fill. Only callable by this contract, so a
     ///         failure stays isolated to the one fill.
+    /// @dev Runs inside the nonReentrant `settleFillsSigned`; external calls go
+    ///      only to protocol contracts (Insurance, Engine, FeeRouter).
+    // slither-disable-next-line reentrancy-no-eth
     function settleOne(Fill calldata f) external {
         if (msg.sender != address(this)) revert Errors.OnlySelf();
-        Settlement memory st;
-        st.makerHash = hashOrder(f.maker);
-        st.takerHash = hashOrder(f.taker);
+        Settlement memory st = Settlement({
+            makerHash: hashOrder(f.maker),
+            takerHash: hashOrder(f.taker),
+            makerFee: 0,
+            takerFee: 0,
+            makerTier: 0,
+            takerTier: 0
+        });
         _validateFill(f);
         _consume(f.maker, st.makerHash, f.makerSignature, f.size, f.price);
         _consume(f.taker, st.takerHash, f.takerSignature, f.size, f.price);
@@ -211,21 +219,21 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         if (o.nonce < $.minNonce[o.owner] || $.cancelled[o.owner][o.nonce]) {
             revert Errors.OrderCancelled();
         }
-        bytes32 bound = $.nonceOrder[o.owner][o.nonce];
-        if (bound == bytes32(0)) {
-            $.nonceOrder[o.owner][o.nonce] = digest;
-        } else if (bound != digest) {
-            // One nonce, one order: a second order signed under a used nonce
-            // must not open a second fill budget.
-            revert Errors.NonceReused();
-        }
-        uint256 next = $.filled[digest] + fillSize;
+        // One nonce, one order: the first fill binds the nonce to this digest,
+        // so a second order signed under a used nonce can't open a second fill
+        // budget. The 128-bit prefix makes a forged match infeasible.
+        uint256 state = $.orderState[o.owner][o.nonce];
+        uint256 prefix = uint256(digest) >> 128;
+        uint256 filledSoFar = uint128(state);
+        if (state != 0 && state >> 128 != prefix) revert Errors.NonceReused();
+        uint256 next = filledSoFar + fillSize;
         if (next > o.size) revert Errors.OrderOverfilled();
+        if (next > type(uint128).max) revert Errors.MathOverflow();
         if (o.isLong ? fillPrice > o.limitPrice : fillPrice < o.limitPrice) {
             revert Errors.PriceOutsideBand();
         }
         if (!OrderLib.isValidSignature(o.owner, digest, signature)) revert Errors.InvalidSignature();
-        $.filled[digest] = next;
+        $.orderState[o.owner][o.nonce] = (prefix << 128) | next;
     }
 
     /// @notice The Insurance backstop whose fills are held to its unwind limits.
@@ -283,9 +291,9 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         return _hashTypedDataV4(OrderLib.hashStruct(c));
     }
 
-    /// @notice Filled amount for an order, keyed by its EIP-712 digest.
-    function filled(bytes32 orderDigest) external view returns (uint256) {
-        return _s().filled[orderDigest];
+    /// @notice Amount filled so far for `owner`'s order under `nonce`.
+    function filled(address owner, uint256 nonce) external view returns (uint256) {
+        return uint128(_s().orderState[owner][nonce]);
     }
 
     function isCancelled(address owner, uint256 nonce) external view returns (bool) {
@@ -297,8 +305,9 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
         return _s().minNonce[owner];
     }
 
-    function orderForNonce(address owner, uint256 nonce) external view returns (bytes32) {
-        return _s().nonceOrder[owner][nonce];
+    /// @notice High 128 bits of the digest bound to `owner`'s `nonce` (0 if unused).
+    function orderPrefixForNonce(address owner, uint256 nonce) external view returns (bytes16) {
+        return bytes16(uint128(_s().orderState[owner][nonce] >> 128));
     }
 
     function domainSeparator() external view returns (bytes32) {

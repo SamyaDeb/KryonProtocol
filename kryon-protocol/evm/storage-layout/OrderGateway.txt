@@ -6,7 +6,7 @@ erc7201:kryon.storage.OrderGateway
 IEngine engine;
 IRiskParams risk;
 IFeeRouter feeRouter;
-mapping(bytes32 => uint256) filled;
-mapping(address => mapping(uint256 => bytes32)) nonceOrder;
+mapping(address => mapping(uint256 => uint256)) orderState;
 mapping(address => mapping(uint256 => bool)) cancelled;
 mapping(address => uint256) minNonce;
+address backstop;

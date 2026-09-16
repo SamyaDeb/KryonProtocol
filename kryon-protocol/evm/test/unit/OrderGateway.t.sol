@@ -25,8 +25,8 @@ contract OrderGatewayTest is KryonTest {
         Order memory mo = makeOrder(alice, BTC, false, 2 * P, 100 * P);
         Order memory to = makeOrder(bob, BTC, true, P, 100 * P);
         settleOk(makeFill(mo, to, P, 100 * P));
-        assertEq(gateway.filled(gateway.hashOrder(mo)), uint256(P));
-        assertEq(gateway.filled(gateway.hashOrder(to)), uint256(P));
+        assertEq(gateway.filled(mo.owner, mo.nonce), uint256(P));
+        assertEq(gateway.filled(to.owner, to.nonce), uint256(P));
         assertLt(pos(alice, BTC).size, 0);
         assertGt(pos(bob, BTC).size, 0);
     }
@@ -44,7 +44,7 @@ contract OrderGatewayTest is KryonTest {
         for (uint256 i = 0; i < 3; ++i) {
             settleOk(makeFill(mo, makeOrder(bob, BTC, true, P, 100 * P), P, 100 * P));
         }
-        assertEq(gateway.filled(gateway.hashOrder(mo)), uint256(3 * P));
+        assertEq(gateway.filled(mo.owner, mo.nonce), uint256(3 * P));
         Order memory to = makeOrder(bob, BTC, true, P, 100 * P);
         assertEq(bytes4(settleReason(makeFill(mo, to, 1, 100 * P))), Errors.OrderOverfilled.selector);
     }

@@ -14,3 +14,8 @@ mapping(address => ShareBalance) shares;
 mapping(address => PendingUnstake) pending;
 mapping(address => int256) recordedDebt;
 int256 badDebt;
+address gateway;
+uint16 maxUnwindDeviationBps;
+int256 maxUnwindFillNotional;
+int256 maxUnwindDailyNotional;
+mapping(uint256 => int256) unwoundOnDay;

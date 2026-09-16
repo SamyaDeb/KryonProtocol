@@ -35,6 +35,21 @@ contract GasTest is KryonTest {
         emit log_named_uint("  per fill", g40 / 40);
     }
 
+    /// The common case for a market maker: both sides already hold a position.
+    function test_gas_settle_fills_increasing_existing_positions() public {
+        Fill[] memory seed = _fills(40, 3);
+        _settleGas(seed);
+        Fill[] memory again = new Fill[](40);
+        for (uint256 i = 0; i < 40; ++i) {
+            Order memory mo = makeOrder(seed[i].maker.owner, BTC, false, P, 100 * P);
+            Order memory to = makeOrder(seed[i].taker.owner, BTC, true, P, 100 * P);
+            again[i] = makeFill(mo, to, P, 100 * P);
+        }
+        uint256 g40 = _settleGas(again);
+        emit log_named_uint("settle 40 fills, existing positions", g40);
+        emit log_named_uint("  per fill", g40 / 40);
+    }
+
     function test_gas_oracle_push_8_markets() public {
         bytes32[] memory ids = new bytes32[](8);
         int256[] memory prices = new int256[](8);

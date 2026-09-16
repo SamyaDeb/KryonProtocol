@@ -25,6 +25,8 @@ contract RiskParams is KryonUpgradeable {
     int256 public constant MAX_FUNDING_RATE_PER_HOUR = 1e16; // 1%/h
     uint256 public constant MAX_OI_POLICY_BPS = 1_000_000; // 100x the insurance fund
     uint256 public constant MAX_MARKETS = 32;
+    /// Engine tracks each account's markets as a bitmap over ids 1-255.
+    uint32 public constant MAX_MARKET_ID = 255;
 
     /// @custom:storage-location erc7201:kryon.storage.RiskParams
     struct RiskParamsStorage {
@@ -66,7 +68,7 @@ contract RiskParams is KryonUpgradeable {
         external
         onlyRole(Roles.RISK_ADMIN_ROLE)
     {
-        if (marketId == 0) revert Errors.InvalidConfig();
+        if (marketId == 0 || marketId > MAX_MARKET_ID) revert Errors.InvalidConfig();
         _validateMarket(params);
         RiskParamsStorage storage $ = _s();
         MarketParams storage m = $.markets[marketId];

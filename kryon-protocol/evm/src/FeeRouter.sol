@@ -251,15 +251,20 @@ contract FeeRouter is KryonUpgradeable {
         (makerFee, takerFee, makerTier, takerTier) = quote(marketId, maker, taker, fillNotional);
         IVault vault_ = _s().vault;
         if (takerFee > 0) vault_.transferInternal(taker, address(this), takerFee, REASON_FEE);
+        int256 toInsurance;
         if (makerFee > 0) {
             vault_.transferInternal(maker, address(this), makerFee, REASON_FEE);
-            _accrue(marketId, maker, makerFee, makerReferrer);
-            _accrue(marketId, taker, takerFee, takerReferrer);
+            toInsurance = _accrue(marketId, maker, makerFee, makerReferrer)
+                + _accrue(marketId, taker, takerFee, takerReferrer);
         } else {
             // A rebate is paid out of this same fill's taker fee; only the net
             // (never negative, by the floor) is split.
             if (makerFee < 0) vault_.transferInternal(address(this), maker, -makerFee, REASON_REBATE);
-            _accrue(marketId, taker, takerFee + makerFee, takerReferrer);
+            toInsurance = _accrue(marketId, taker, takerFee + makerFee, takerReferrer);
+        }
+        // Both sides' insurance shares move in one ledger transfer.
+        if (toInsurance > 0) {
+            vault_.transferInternal(address(this), _s().insurance, toInsurance, REASON_FEE_INSURANCE);
         }
     }
 
@@ -282,11 +287,15 @@ contract FeeRouter is KryonUpgradeable {
         emit FeeAccrued(marketId, payer, address(0), amount, toTreasury, toInsurance, 0);
     }
 
-    function _accrue(uint32 marketId, address payer, int256 amount, address referrer) private {
-        if (amount <= 0) return;
+    /// @return toInsurance The insurance share, for the caller to transfer.
+    function _accrue(uint32 marketId, address payer, int256 amount, address referrer)
+        private
+        returns (int256 toInsurance)
+    {
+        if (amount <= 0) return 0;
         FeeRouterStorage storage $ = _s();
         Split memory sp = $.split;
-        int256 toInsurance = M.mulDiv(amount, int256(uint256(sp.insuranceBps)), 10_000);
+        toInsurance = M.mulDiv(amount, int256(uint256(sp.insuranceBps)), 10_000);
         int256 toReferral = M.mulDiv(amount, int256(uint256(sp.referralBps)), 10_000);
         int256 toTreasury = amount - toInsurance - toReferral;
 
@@ -301,9 +310,6 @@ contract FeeRouter is KryonUpgradeable {
             toReferral = 0;
         }
         $.treasuryAccrued += toTreasury;
-        if (toInsurance > 0) {
-            $.vault.transferInternal(address(this), $.insurance, toInsurance, REASON_FEE_INSURANCE);
-        }
         emit FeeAccrued(
             marketId, payer, creditedReferrer, amount, toTreasury, toInsurance, toReferral
         );

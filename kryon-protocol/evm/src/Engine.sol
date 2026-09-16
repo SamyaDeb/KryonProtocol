@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
 import {IInsurance, IOracleAdapter, IRiskParams, IVault} from "./interfaces/IKryon.sol";
@@ -30,6 +32,11 @@ import {
 ///      removed cost basis is booked against realized PnL.
 ///      The engine's own vault account is the funding pool. Payers round up,
 ///      receivers round down, so the pool only ever keeps dust.
+///
+///      Storage is packed into int128 fields (all values are already held to
+///      the i128 range by KryonMath) and an account's open markets are a
+///      bitmap over market ids 1-255, so opening a position costs one or two
+///      fresh slots instead of five.
 contract Engine is KryonUpgradeable {
     /// I2: well below RiskLib's 64-entry buffer, so a trader can never brick
     /// their own health check (which gates settlement and liquidation).
@@ -39,6 +46,35 @@ contract Engine is KryonUpgradeable {
     bytes32 public constant REASON_LIQUIDATION = "LIQUIDATION";
     bytes32 public constant REASON_ADL = "ADL";
 
+    /// Two slots: (size, openNotional) and (lastFundingIndex).
+    struct StoredPosition {
+        int128 size;
+        int128 openNotional;
+        int128 lastFundingIndex;
+    }
+
+    /// Two slots: (longIndex, shortIndex) and (ratePerHour, lastUpdate).
+    struct StoredFunding {
+        int128 longIndex;
+        int128 shortIndex;
+        int128 ratePerHour;
+        uint64 lastUpdate;
+    }
+
+    /// Two slots: (lastPrice, lastTs, windowStart) and (cumulative).
+    struct StoredMark {
+        int128 lastPrice;
+        uint64 lastTs;
+        uint64 windowStart;
+        int128 cumulative;
+    }
+
+    /// One slot.
+    struct OpenInterest {
+        int128 long;
+        int128 short;
+    }
+
     /// @custom:storage-location erc7201:kryon.storage.Engine
     struct EngineStorage {
         IVault vault;
@@ -47,14 +83,12 @@ contract Engine is KryonUpgradeable {
         IInsurance insurance;
         address gateway;
         address liquidation;
-        mapping(address => mapping(uint32 => Position)) positions;
-        mapping(address => uint32[]) accountMarkets;
-        /// 1-based index into accountMarkets; 0 = absent.
-        mapping(address => mapping(uint32 => uint256)) marketSlot;
-        mapping(uint32 => int256) longOpenInterest;
-        mapping(uint32 => int256) shortOpenInterest;
-        mapping(uint32 => FundingState) funding;
-        mapping(uint32 => MarkState) marks;
+        mapping(address => mapping(uint32 => StoredPosition)) positions;
+        /// Bit `id` set = the account has a position in market `id` (1-255).
+        mapping(address => uint256) marketBitmap;
+        mapping(uint32 => OpenInterest) openInterest;
+        mapping(uint32 => StoredFunding) funding;
+        mapping(uint32 => StoredMark) marks;
         /// Σ openNotional over every position (signed).
         int256 netCostBasis;
     }
@@ -176,7 +210,7 @@ contract Engine is KryonUpgradeable {
         AccountHealth memory h = _accountHealth(trader);
         if (increasedExposure) {
             if (h.equity < h.initialMarginRequired) revert Errors.InsufficientCollateral();
-        } else if (_s().accountMarkets[trader].length == 0) {
+        } else if (_s().marketBitmap[trader] == 0) {
             if (h.equity < 0) revert Errors.InsufficientCollateral();
         } else if (h.liquidatable) {
             revert Errors.InsufficientCollateral();
@@ -253,13 +287,12 @@ contract Engine is KryonUpgradeable {
         EngineStorage storage $ = _s();
         FundingConfig memory cfg = $.risk.fundingConfig(marketId);
         MarketParams memory m = $.risk.market(marketId);
-        FundingState memory current = $.funding[marketId];
+        FundingState memory current = _loadFunding(marketId);
         uint64 now_ = uint64(block.timestamp);
         if (current.lastUpdate == 0) {
             // First update starts the clock; nothing accrues for the time
             // before the market was configured.
             current.lastUpdate = now_;
-            $.funding[marketId] = current;
         }
 
         // Consuming the TWAP closes the averaging window, so each funding
@@ -272,7 +305,12 @@ contract Engine is KryonUpgradeable {
             premium = FundingLib.premiumFromMark(mark, index);
         }
         next = FundingLib.updateFromPremium(cfg, current, premium, now_);
-        $.funding[marketId] = next;
+        $.funding[marketId] = StoredFunding({
+            longIndex: int128(M.bound128(next.longIndex)),
+            shortIndex: int128(M.bound128(next.shortIndex)),
+            ratePerHour: int128(M.bound128(next.ratePerHour)),
+            lastUpdate: next.lastUpdate
+        });
         emit FundingUpdated(
             marketId, next.longIndex, next.shortIndex, next.ratePerHour, premium, mark, index
         );
@@ -310,25 +348,27 @@ contract Engine is KryonUpgradeable {
     }
 
     function getPosition(address trader, uint32 marketId) external view returns (Position memory) {
-        return _s().positions[trader][marketId];
+        StoredPosition memory p = _s().positions[trader][marketId];
+        return Position(p.size, p.openNotional, p.lastFundingIndex);
     }
 
-    /// @notice Every open position of `trader`, with its market id.
+    /// @notice Every open position of `trader`, in ascending market id.
     function positionsOf(address trader)
         external
         view
         returns (uint32[] memory marketIds, Position[] memory positions)
     {
         EngineStorage storage $ = _s();
-        marketIds = $.accountMarkets[trader];
+        marketIds = _marketIds($.marketBitmap[trader]);
         positions = new Position[](marketIds.length);
         for (uint256 i = 0; i < marketIds.length; ++i) {
-            positions[i] = $.positions[trader][marketIds[i]];
+            StoredPosition memory p = $.positions[trader][marketIds[i]];
+            positions[i] = Position(p.size, p.openNotional, p.lastFundingIndex);
         }
     }
 
     function positionCount(address trader) external view returns (uint256) {
-        return _s().accountMarkets[trader].length;
+        return _popcount(_s().marketBitmap[trader]);
     }
 
     /// @notice Validated oracle index for a market (the market's own guard).
@@ -342,15 +382,17 @@ contract Engine is KryonUpgradeable {
     }
 
     function markState(uint32 marketId) external view returns (MarkState memory) {
-        return _s().marks[marketId];
+        StoredMark memory st = _s().marks[marketId];
+        return MarkState(st.lastPrice, st.lastTs, st.cumulative, st.windowStart);
     }
 
     function fundingState(uint32 marketId) external view returns (FundingState memory) {
-        return _s().funding[marketId];
+        return _loadFunding(marketId);
     }
 
     function openInterest(uint32 marketId) external view returns (int256 longOi, int256 shortOi) {
-        return (_s().longOpenInterest[marketId], _s().shortOpenInterest[marketId]);
+        OpenInterest memory oi = _s().openInterest[marketId];
+        return (oi.long, oi.short);
     }
 
     function netCostBasis() external view returns (int256) {
@@ -361,7 +403,8 @@ contract Engine is KryonUpgradeable {
     ///         `type(int128).max` when the market has no open interest.
     function insuranceCoverageBps(uint32 marketId) external view returns (int256) {
         EngineStorage storage $ = _s();
-        int256 oi = $.longOpenInterest[marketId] + $.shortOpenInterest[marketId];
+        OpenInterest memory o = $.openInterest[marketId];
+        int256 oi = int256(o.long) + int256(o.short);
         if (oi <= 0) return M.I128_MAX;
         int256 oiNotional = RiskLib.notional(oi, _indexPrice($.risk.market(marketId)));
         return M.mulDiv(_effectiveInsurance(), 10_000, oiNotional);
@@ -393,7 +436,8 @@ contract Engine is KryonUpgradeable {
     // --------------------------------------------------------------- internal
 
     /// @dev External calls reach only the Vault, which never calls back into
-    ///      the Engine; every entry point is also nonReentrant.
+    ///      the Engine; every entry point is also nonReentrant. The position
+    ///      is read once, updated in memory and written once.
     /// @return increased Whether exposure grew.
     /// @return realized  Realized PnL booked to the trader (excl. funding).
     // slither-disable-next-line reentrancy-no-eth
@@ -409,14 +453,15 @@ contract Engine is KryonUpgradeable {
         bytes32 reason
     ) private returns (bool increased, int256 realized) {
         EngineStorage storage $ = _s();
-        Position storage p = $.positions[trader][marketId];
+        Position memory p = _loadPosition(trader, marketId);
         _settleFunding(trader, marketId, p);
         int256 s = p.size;
+        int256 basisChange;
 
         if (s == 0 || (s > 0) == (delta > 0)) {
             if (reduceOnly) revert Errors.PositionNotFound();
             if (s == 0) _addMarket(trader, marketId, enforceLimits);
-            _open(trader, marketId, m, p, delta, fillNotional, enforceLimits);
+            basisChange = _open(marketId, m, p, delta, fillNotional, enforceLimits);
             increased = true;
         } else {
             int256 absS = M.abs(s);
@@ -431,13 +476,12 @@ contract Engine is KryonUpgradeable {
 
             p.openNotional -= removedBasis;
             p.size = s > 0 ? s - closeQty : s + closeQty;
-            $.netCostBasis -= removedBasis;
+            basisChange = -removedBasis;
             _changeOpenInterest(marketId, s > 0, -closeQty);
 
             if (residual > 0) {
                 if (reduceOnly) revert Errors.InvalidAmount();
-                _open(
-                    trader,
+                basisChange += _open(
                     marketId,
                     m,
                     p,
@@ -446,46 +490,49 @@ contract Engine is KryonUpgradeable {
                     enforceLimits
                 );
                 increased = true;
-            } else if (p.size == 0) {
-                delete $.positions[trader][marketId];
-                _removeMarket(trader, marketId);
             }
-            if (realized != 0) $.vault.applyPnl(trader, realized);
         }
 
+        $.netCostBasis = M.add($.netCostBasis, basisChange);
+        if (p.size == 0) {
+            delete $.positions[trader][marketId];
+            $.marketBitmap[trader] &= ~(uint256(1) << marketId);
+        } else {
+            $.positions[trader][marketId] = StoredPosition({
+                size: int128(M.bound128(p.size)),
+                openNotional: int128(M.bound128(p.openNotional)),
+                lastFundingIndex: int128(M.bound128(p.lastFundingIndex))
+            });
+        }
+        if (realized != 0) $.vault.applyPnl(trader, realized);
+
         if (increased && enforceLimits) _checkOpenInterest(marketId, m, price);
-        Position memory after_ = $.positions[trader][marketId];
-        emit PositionChanged(
-            trader, marketId, reason, delta, price, after_.size, after_.openNotional, realized
-        );
+        emit PositionChanged(trader, marketId, reason, delta, price, p.size, p.openNotional, realized);
     }
 
-    /// @dev `p` is empty or already on `delta`'s side.
+    /// @dev `p` is flat or already on `delta`'s side. Returns the basis added.
     function _open(
-        address, /* trader */
         uint32 marketId,
         MarketParams memory m,
-        Position storage p,
+        Position memory p,
         int256 delta,
         int256 notional_,
         bool enforceLimits
-    ) private {
-        EngineStorage storage $ = _s();
+    ) private returns (int256 signedNotional) {
         if (enforceLimits && !m.active) revert Errors.MarketInactive(marketId);
         if (p.size == 0) {
-            FundingState storage f = $.funding[marketId];
+            StoredFunding memory f = _s().funding[marketId];
             p.lastFundingIndex = delta > 0 ? f.longIndex : f.shortIndex;
         }
-        int256 signedNotional = delta > 0 ? notional_ : -notional_;
+        signedNotional = delta > 0 ? notional_ : -notional_;
         p.size = M.add(p.size, delta);
         p.openNotional = M.add(p.openNotional, signedNotional);
-        $.netCostBasis = M.add($.netCostBasis, signedNotional);
         _changeOpenInterest(marketId, delta > 0, M.abs(delta));
     }
 
-    function _settleFunding(address trader, uint32 marketId, Position storage p) private {
+    function _settleFunding(address trader, uint32 marketId, Position memory p) private {
         if (p.size == 0) return;
-        FundingState storage f = _s().funding[marketId];
+        StoredFunding memory f = _s().funding[marketId];
         int256 idx = p.size > 0 ? f.longIndex : f.shortIndex;
         int256 d = M.sub(idx, p.lastFundingIndex);
         p.lastFundingIndex = idx;
@@ -503,17 +550,18 @@ contract Engine is KryonUpgradeable {
     }
 
     function _changeOpenInterest(uint32 marketId, bool isLong, int256 amount) private {
-        EngineStorage storage $ = _s();
+        OpenInterest storage oi = _s().openInterest[marketId];
         if (isLong) {
-            $.longOpenInterest[marketId] = M.add($.longOpenInterest[marketId], amount);
+            oi.long = int128(M.add(oi.long, amount));
         } else {
-            $.shortOpenInterest[marketId] = M.add($.shortOpenInterest[marketId], amount);
+            oi.short = int128(M.add(oi.short, amount));
         }
     }
 
     function _checkOpenInterest(uint32 marketId, MarketParams memory m, int256 price) private view {
         EngineStorage storage $ = _s();
-        int256 oi = $.longOpenInterest[marketId] + $.shortOpenInterest[marketId];
+        OpenInterest memory o = $.openInterest[marketId];
+        int256 oi = int256(o.long) + int256(o.short);
         if (oi > m.maxOpenInterest) revert Errors.OpenInterestExceeded();
         uint256 bps = $.risk.oiPolicyBps(marketId);
         if (bps == 0) return;
@@ -528,22 +576,35 @@ contract Engine is KryonUpgradeable {
     }
 
     function _addMarket(address trader, uint32 marketId, bool capped) private {
+        if (marketId == 0 || marketId > 255) revert Errors.UnknownMarket(marketId);
         EngineStorage storage $ = _s();
-        uint32[] storage list = $.accountMarkets[trader];
-        if (capped && list.length >= MAX_POSITIONS_PER_ACCOUNT) revert Errors.TooManyPositions();
-        list.push(marketId);
-        $.marketSlot[trader][marketId] = list.length;
+        uint256 bitmap = $.marketBitmap[trader];
+        if (capped && _popcount(bitmap) >= MAX_POSITIONS_PER_ACCOUNT) revert Errors.TooManyPositions();
+        $.marketBitmap[trader] = bitmap | (uint256(1) << marketId);
     }
 
-    function _removeMarket(address trader, uint32 marketId) private {
-        EngineStorage storage $ = _s();
-        uint32[] storage list = $.accountMarkets[trader];
-        uint256 slot = $.marketSlot[trader][marketId];
-        uint32 last = list[list.length - 1];
-        list[slot - 1] = last;
-        $.marketSlot[trader][last] = slot;
-        list.pop();
-        delete $.marketSlot[trader][marketId];
+    function _popcount(uint256 bitmap) private pure returns (uint256 n) {
+        for (; bitmap != 0; bitmap &= bitmap - 1) ++n;
+    }
+
+    /// @dev Set bits in ascending order.
+    function _marketIds(uint256 bitmap) private pure returns (uint32[] memory ids) {
+        ids = new uint32[](_popcount(bitmap));
+        for (uint256 i = 0; bitmap != 0; ++i) {
+            uint256 lowest = bitmap & (~bitmap + 1);
+            ids[i] = uint32(Math.log2(lowest));
+            bitmap ^= lowest;
+        }
+    }
+
+    function _loadPosition(address trader, uint32 marketId) private view returns (Position memory) {
+        StoredPosition memory p = _s().positions[trader][marketId];
+        return Position(p.size, p.openNotional, p.lastFundingIndex);
+    }
+
+    function _loadFunding(uint32 marketId) private view returns (FundingState memory) {
+        StoredFunding memory f = _s().funding[marketId];
+        return FundingState(f.longIndex, f.shortIndex, f.ratePerHour, f.lastUpdate);
     }
 
     function _indexPrice(MarketParams memory m) private view returns (int256) {
@@ -568,14 +629,14 @@ contract Engine is KryonUpgradeable {
         c = new RiskCollateral[](1);
         c[0] = RiskCollateral({value: $.vault.balanceOf(trader), haircutBps: 0});
 
-        uint32[] storage ids = $.accountMarkets[trader];
+        uint32[] memory ids = _marketIds($.marketBitmap[trader]);
         p = new RiskPosition[](ids.length);
         mk = new RiskMarket[](ids.length);
         for (uint256 i = 0; i < ids.length; ++i) {
             uint32 id = ids[i];
-            Position storage pos = $.positions[trader][id];
+            StoredPosition memory pos = $.positions[trader][id];
             MarketParams memory m = $.risk.market(id);
-            FundingState storage f = $.funding[id];
+            StoredFunding memory f = $.funding[id];
             int256 absSize = M.abs(pos.size);
             // Entry is derived from the exact basis; floor at 1 wei so dust
             // basis can never make the position unpriceable.
@@ -606,20 +667,26 @@ contract Engine is KryonUpgradeable {
     // -------------------------------------------------------------- mark TWAP
 
     /// @dev Credit the price standing since `lastTs`, then move `lastTs` to now.
-    function _accrueMark(MarkState memory st, uint64 now_) private pure {
+    function _accrueMark(StoredMark memory st, uint64 now_) private pure {
         if (now_ > st.lastTs && st.lastPrice > 0) {
-            st.cumulative = M.add(st.cumulative, M.mul(st.lastPrice, int256(uint256(now_ - st.lastTs))));
+            st.cumulative = int128(
+                M.add(st.cumulative, M.mul(st.lastPrice, int256(uint256(now_ - st.lastTs))))
+            );
         }
         st.lastTs = now_;
     }
 
     /// @notice Record an executed gateway fill price into the TWAP mark.
     /// @dev Time-weighted, not fill-weighted (KRY-Q6): a burst of prints in one
-    ///      block barely moves it. Liquidation and ADL never call this.
+    ///      block barely moves it. Liquidation and ADL never call this. Both
+    ///      sides of a fill record the same price, so the second is a no-op.
     function _recordMark(uint32 marketId, int256 price) private {
         EngineStorage storage $ = _s();
         uint64 now_ = uint64(block.timestamp);
-        MarkState memory st = $.marks[marketId];
+        StoredMark memory st = $.marks[marketId];
+        // Exact match on purpose: the second side of the same fill is a no-op.
+        // slither-disable-next-line incorrect-equality
+        if (st.lastPrice == price && st.lastTs == now_) return;
         if (st.lastTs == 0) {
             st.lastTs = now_;
             st.windowStart = now_;
@@ -629,10 +696,10 @@ contract Engine is KryonUpgradeable {
             st.windowStart = now_;
             st.cumulative = 0;
             // The funding clock starts with the market's first trade.
-            FundingState storage f = $.funding[marketId];
+            StoredFunding storage f = $.funding[marketId];
             if (f.lastUpdate == 0) f.lastUpdate = now_;
         }
-        st.lastPrice = price;
+        st.lastPrice = int128(M.bound128(price));
         $.marks[marketId] = st;
     }
 
@@ -640,7 +707,7 @@ contract Engine is KryonUpgradeable {
     function _consumeTwap(uint32 marketId) private returns (int256 twap) {
         EngineStorage storage $ = _s();
         uint64 now_ = uint64(block.timestamp);
-        MarkState memory st = $.marks[marketId];
+        StoredMark memory st = $.marks[marketId];
         if (st.lastPrice <= 0) return 0;
         _accrueMark(st, now_);
         uint64 elapsed = now_ > st.windowStart ? now_ - st.windowStart : 0;

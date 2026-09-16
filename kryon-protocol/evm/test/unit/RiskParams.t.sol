@@ -150,11 +150,11 @@ contract RiskParamsTest is KryonTest {
         vm.startPrank(address(timelock));
         for (uint32 i = 0; i < room; ++i) {
             m.oracleId = bytes32(uint256(1000 + i));
-            risk.setMarket(1000 + i, m);
+            risk.setMarket(200 + i, m);
         }
         m.oracleId = "LAST";
         vm.expectRevert(Errors.InvalidConfig.selector);
-        risk.setMarket(5000, m);
+        risk.setMarket(250, m);
         vm.stopPrank();
     }
 
