@@ -7,7 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {KryonUpgradeable} from "./governance/KryonUpgradeable.sol";
 import {Roles} from "./governance/Roles.sol";
-import {IEngine, ISignatureTransfer} from "./interfaces/IKryon.sol";
+import {IEngine, IInsurance, ISignatureTransfer} from "./interfaces/IKryon.sol";
 import {Decimals} from "./libraries/Decimals.sol";
 import {Errors} from "./libraries/Errors.sol";
 import {KryonMath as M} from "./libraries/KryonMath.sol";
@@ -50,6 +50,7 @@ contract Vault is KryonUpgradeable {
         uint256 accountDepositCap;
         mapping(address => bool) capExempt;
         mapping(address => CollateralConfig) collateral;
+        IInsurance insurance;
     }
 
     // keccak256(abi.encode(uint256(keccak256("kryon.storage.Vault")) - 1)) & ~bytes32(uint256(0xff))
@@ -70,6 +71,7 @@ contract Vault is KryonUpgradeable {
     event CapExemptSet(address indexed account, bool exempt);
     event CollateralSet(address indexed token, bool active);
     event EngineSet(address indexed engine);
+    event InsuranceSet(address indexed insurance);
 
     function _s() private pure returns (VaultStorage storage $) {
         assembly {
@@ -94,6 +96,14 @@ contract Vault is KryonUpgradeable {
         if (engine_ == address(0)) revert Errors.ZeroAddress();
         _s().engine = IEngine(engine_);
         emit EngineSet(engine_);
+    }
+
+    /// @notice Insurance is told when a deposit repays a negative balance, so
+    ///         its recorded bad debt never outlives the debt itself.
+    function setInsurance(address insurance_) external onlyRole(Roles.DEFAULT_ADMIN_ROLE) {
+        if (insurance_ == address(0)) revert Errors.ZeroAddress();
+        _s().insurance = IInsurance(insurance_);
+        emit InsuranceSet(insurance_);
     }
 
     /// @notice Staged-launch caps in USDC (6 dp). 0 closes deposits;
@@ -198,8 +208,10 @@ contract Vault is KryonUpgradeable {
             $.totalDeposited += amount;
             $.netDeposited[account] += amount;
         }
+        bool wasNegative = $.balances[account] < 0;
         _move(account, internalAmount);
         emit Deposited(payer, account, amount, internalAmount);
+        if (wasNegative && address($.insurance) != address(0)) $.insurance.refreshDebt(account);
     }
 
     // ------------------------------------------------------------ withdrawals
@@ -300,6 +312,10 @@ contract Vault is KryonUpgradeable {
 
     function engine() external view returns (address) {
         return address(_s().engine);
+    }
+
+    function insurance() external view returns (address) {
+        return address(_s().insurance);
     }
 
     function depositCaps() external view returns (uint256 total, uint256 perAccount) {

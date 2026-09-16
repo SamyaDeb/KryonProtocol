@@ -181,6 +181,7 @@ library KryonDeploy {
     function wire(Deployment memory d, DeployConfig memory cfg, address deployer) internal {
         // Contract-to-contract wiring.
         d.vault.setEngine(address(d.engine));
+        d.vault.setInsurance(address(d.insurance));
         d.engine.setGateway(address(d.gateway));
         d.engine.setLiquidation(address(d.liquidation));
         d.engine.setInsurance(address(d.insurance));

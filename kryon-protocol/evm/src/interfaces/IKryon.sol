@@ -79,6 +79,7 @@ interface IInsurance {
     function badDebt() external view returns (int256);
     function unfundedShortfall() external view returns (int256);
     function settleBadDebt(address trader) external returns (int256 covered);
+    function refreshDebt(address trader) external;
 }
 
 interface IFeeRouter {

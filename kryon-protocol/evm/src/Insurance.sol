@@ -216,6 +216,22 @@ contract Insurance is KryonUpgradeable {
         emit DeficitCovered(trader, covered, remaining);
     }
 
+    /// @notice Shrink `trader`'s recorded debt to what they still owe. Called
+    ///         by the vault when a deposit repays a negative balance; never
+    ///         moves funds and never increases the record.
+    function refreshDebt(address trader) external {
+        InsuranceStorage storage $ = _s();
+        if (msg.sender != address($.vault)) revert Errors.Unauthorized();
+        int256 previous = $.recordedDebt[trader];
+        if (previous == 0) return;
+        int256 bal = $.vault.balanceOf(trader);
+        int256 owed = bal < 0 ? -bal : int256(0);
+        if (owed >= previous) return;
+        $.recordedDebt[trader] = owed;
+        $.badDebt = $.badDebt - previous + owed;
+        emit BadDebtRecorded(trader, owed, $.badDebt);
+    }
+
     // ------------------------------------------------------------------ views
 
     /// @notice Operating capital (may be negative after backstop losses).

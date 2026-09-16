@@ -122,6 +122,33 @@ contract LiquidationTest is KryonTest {
         assertSolvencyExact();
     }
 
+    /// A trader who repays their own deficit clears the recorded bad debt, so
+    /// ADL can never socialise a loss that has already been paid.
+    function test_repaying_a_deficit_clears_recorded_bad_debt() public {
+        fund(bob, 1100e6);
+        trade(alice, bob, BTC, true, 100 * P, 100 * P);
+        _crash(10 * P);
+        vm.prank(liquidator);
+        liquidation.liquidate(bob, BTC, type(uint256).max);
+        int256 debt = insurance.recordedDebt(bob);
+        assertGt(debt, 0);
+
+        fund(bob, uint256(debt / 2e12)); // repay about half
+        assertEq(insurance.recordedDebt(bob), -bal(bob));
+        assertEq(insurance.badDebt(), -bal(bob));
+
+        fund(bob, uint256(debt / 1e12) + 1); // repay the rest
+        assertEq(insurance.recordedDebt(bob), 0);
+        assertEq(insurance.badDebt(), 0);
+        assertEq(insurance.unfundedShortfall(), 0);
+        vm.expectRevert(Errors.NoBadDebtToOffset.selector);
+        liquidation.adl(alice, BTC, type(uint256).max);
+
+        vm.expectRevert(Errors.Unauthorized.selector);
+        insurance.refreshDebt(bob);
+        assertSolvencyExact();
+    }
+
     // ------------------------------------------------------------- ADL
 
     function test_adl_pays_down_bad_debt_from_an_in_profit_counterparty() public {
