@@ -205,6 +205,27 @@ kryon-protocol/
 
 ---
 
+### 4.4 Liquidation, backstop and ADL (decided 2026-09-17)
+
+- **Liquidation moves the closed size to the Insurance backstop** at the oracle index, so long and
+  short OI stay equal and invariant #5 holds exactly. The penalty pays a capped liquidator reward;
+  the rest is split by the FeeRouter.
+- **Partial-liquidation sizing** closes the smallest size that restores maintenance margin net of
+  the penalty: `q = size·shortfall / (notional·(mm − fee)) + 1`, capped per step. This corrects
+  the reference model (`crates/risk-engine`), which under-closed by `1/(mm − fee)`. Both
+  implementations are differentially fuzzed, and a property test asserts that one uncapped step
+  restores maintenance. The change is flagged in the audit package (G7).
+- **ADL** closes backstop positions against in-profit counterparties and haircuts their realized
+  gain by the unfunded shortfall (recorded bad debt that operating capital can't cover).
+- **Backstop unwind.** Insurance implements ERC-1271 so the backstop can close its positions
+  through the normal order book:
+  - Orders are signed by a governance-revocable `BACKSTOP_SIGNER_ROLE` key.
+  - On-chain limits: reduce-only; limit price within `maxUnwindDeviationBps` of the oracle index;
+    `maxUnwindOrderSize` per order; `maxUnwindDailyNotional` per day. All bounded setters.
+  - A leaked signer key can at most close backstop exposure near the index, in bounded amounts.
+  - The monitor alerts on backstop exposure, and a runbook (`backstop-unwind.md`) covers operation.
+  - **Mainnet gate:** backstop exposure per market stays under its OI-policy share.
+
 ## 5. Phase B: Trading fees and protocol revenue
 
 Goal: Kryon earns trading fees on Arc mainnet from the first fill. Fees are enforced on-chain,
@@ -285,8 +306,22 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
 | Funding update (8 markets) | ~300k | ~$0.006 | hourly | ~$0.15 |
 | Liquidation | ~400k | ~$0.008 | rare | – |
 
-- 3.5 + 0.5 bps = **4 bps per fill**. Break-even notional ≈ $0.007 / 0.0004 ≈ **$17.50**, so
-  **`minFillNotional` = $20** at launch.
+- 3.5 + 0.5 bps = **4 bps per fill**.
+- **Measured (2026-09-16):** settling an opening fill costs ~558k gas in a 40-fill batch, not the
+  ~350k estimate. At 20 gwei that is ~$0.011, so break-even is ~$28 of notional (~$39 at the
+  ~28 gwei seen on mainnet).
+- **Decision (2026-09-17):**
+  - **Launch `minFillNotional` = $40** per market. It is a bounded config value, so the timelock
+    can lower it.
+  - **Gas pass before the audit freeze**, targeting ≤ 350k gas per fill:
+    - read the oracle index once per fill instead of per side and per margin check;
+    - compute account health once per trader per fill;
+    - pack `Position`, `FundingState` and `MarkState` into `int128` fields;
+    - drop the read-after-write used for the event.
+  - When the target is met and verified with `arc-forge snapshot`, the timelock may lower the
+    minimum to $20.
+- Batch cap: ≤ 40 fills per `settleFillsSigned` until simulation shows headroom (40 measured at
+  22.3M gas).
 - The oracle is the largest fixed cost, so use deviation-triggered pushes plus a heartbeat (§7).
 - The monitor reports **fees earned vs gas spent** per day, per service.
 
@@ -512,6 +547,12 @@ The repository becomes Arc-only. All legacy chain code is removed:
   (full list in Appendix A).
 - `README.md`, `ARCHITECTURE.md`, `client/README.md`, `client/CLAUDE.md`, `client/AGENTS.md`,
   and `docs/docs/**` are rewritten for Arc. Diagrams are regenerated.
+- **Sequencing (decided 2026-09-17):** code that nothing running depends on is removed first
+  (Soroban contracts, Stellar-only scripts, the Soroban CI job, done in `e0a327f`). Stellar
+  client code, services and API routes are removed as Steps 2–5 replace them, so the app always
+  builds. **Infra files (Dockerfiles, PM2 configs, `render.yaml`, `wrangler.jsonc`, `infra/**`,
+  runbooks) are kept as the template for their Arc equivalents** and are removed or rewritten in
+  Step 6.
 - CI check: `grep -ri "stellar\|soroban\|freighter\|xlm"` must return nothing outside
   `crates/` comments and market symbols you choose to keep.
 
@@ -563,7 +604,8 @@ The repository becomes Arc-only. All legacy chain code is removed:
 | Dropped low-fee transactions | TxSender floor, drop detection, reconciler |
 | Operator key compromise | Gateway enforces signed terms. Role rotation via timelock |
 | Fee misconfiguration | Code-level caps, preflight asserts, net-fee floor |
-| Fees below gas cost | `minFillNotional`, deviation-based oracle pushes, revenue-vs-gas monitor |
+| Fees below gas cost | `minFillNotional` $40 at launch, settlement gas pass (§5.6), deviation-based oracle pushes, revenue-vs-gas monitor |
+| Backstop holds liquidated exposure | ERC-1271 backstop unwind with on-chain limits (§4.4), ADL, exposure alerts |
 | Day-one chain (tooling/RPC/explorer issues) | Testnet first, multiple RPCs, pinned `arc-foundry` |
 | Regulatory exposure (perps + fees) | Legal review, geofencing, ToS, screening (not legal advice) |
 | Competition on Arc | Fee tiers and rebates, fast settlement UX |
@@ -574,7 +616,8 @@ The repository becomes Arc-only. All legacy chain code is removed:
 
 1. Fee schedule: taker/maker bps (proposed 3.5 / 0.5), hard caps, rebates at launch?
 2. Fee split (proposed 70 treasury / 20 insurance / 10 referral).
-3. `minFillNotional` (proposed $20).
+3. `minFillNotional`: **decided 2026-09-17: $40 at launch**, lowered to $20 by the timelock
+   after the gas pass (§5.6).
 4. Signers and thresholds for the governance, guardian, and treasury Safes.
 5. Upgradeability: UUPS + 48h timelock (recommended) vs immutable.
 6. External oracle provider once Arc mainnet feeds are published.

@@ -103,7 +103,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "1450000"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -127,7 +127,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "5"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -151,7 +151,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "100"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -175,7 +175,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "5000"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -199,7 +199,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "325000"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -223,7 +223,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "850000"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -247,7 +247,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "425"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
@@ -271,7 +271,7 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "575000"
-min_fill_notional_usd = 20
+min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.
 funding_max_rate_per_hour = "500000000000000"
