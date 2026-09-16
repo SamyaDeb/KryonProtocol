@@ -1,0 +1,75 @@
+# Built with arc-foundry (pinned in CI: v0.8.0-1). Upstream Foundry executes
+# under Ethereum rules; Arc-semantics tests must run on arc-forge / arc-anvil.
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.30"
+# Arc's baseline is Osaka; Prague is the newest target solc 0.8.30 emits and
+# every opcode it uses is available on Arc. Blob opcodes are never emitted.
+evm_version = "prague"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+bytecode_hash = "none"
+extra_output = ["storageLayout"]
+ffi = false
+fs_permissions = [
+  { access = "read", path = "./config" },
+  { access = "read", path = "./out" },
+  { access = "read-write", path = "./deployments" },
+]
+
+[profile.default.fuzz]
+runs = 1000
+seed = "0x4b52594f4e"
+
+[profile.default.invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+
+# Differential fuzzing against the Rust reference model (ffi). Opt-in so the
+# default test run never shells out.
+[profile.differential]
+ffi = true
+match_path = "test/differential/*"
+
+[profile.differential.fuzz]
+runs = 5000
+
+# Nightly: long invariant + differential campaigns (G1/G2).
+[profile.nightly]
+ffi = true
+
+[profile.nightly.fuzz]
+runs = 1000000
+
+[profile.nightly.invariant]
+runs = 2048
+depth = 256
+
+[profile.ci]
+verbosity = 2
+
+[lint]
+# Linted as its own CI step (`arc-forge lint`); keep build output readable.
+lint_on_build = false
+# Arc block timestamps come from a BFT proposer and are non-decreasing; the
+# protocol only uses them for freshness windows and funding elapsed time.
+exclude_lints = ["block-timestamp"]
+
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+quote_style = "double"
+number_underscore = "thousands"
+
+[rpc_endpoints]
+arc_mainnet = "${ARC_MAINNET_RPC_URL}"
+arc_testnet = "${ARC_TESTNET_RPC_URL}"
+local = "http://127.0.0.1:8545"

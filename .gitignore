@@ -101,3 +101,6 @@ kryon-protocol/evm/cache/
 kryon-protocol/evm/broadcast/*/31337/
 kryon-protocol/evm/broadcast/**/dry-run/
 kryon-protocol/evm/.env
+kryon-protocol/evm/lcov.info
+kryon-protocol/evm/coverage/
+kryon-protocol/evm/ffi/target/
