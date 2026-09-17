@@ -187,9 +187,9 @@ const TABLES = [
 
 async function truncateAll(q: Query) {
   await q.query(
-    `TRUNCATE ${[...TABLES, "TxJob", "KeeperAction", "GasSpend", "DeploymentArtifact", "TraderStat", "LeaderboardSnapshot", "PortfolioSnapshot", "AccountAnalytics"]
-      .map((t) => `"${t}"`)
-      .join(", ")} CASCADE`
+    // Only the indexer's own tables: other suites (e.g. TxJobStore) share this
+    // database and run in parallel.
+    `TRUNCATE ${TABLES.map((t) => `"${t}"`).join(", ")}`
   );
 }
 
