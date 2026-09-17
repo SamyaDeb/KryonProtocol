@@ -49,6 +49,7 @@ library KryonErrors {
     error ParameterOutOfBounds(bytes32 name, int256 value);
     error OnlySelf();
     error BatchTooLarge();
+    error InsufficientBatchGas();
     error FeeRateOutOfBounds();
     error NetFeeBelowFloor();
     error UnknownFeeTier(uint8 tier);

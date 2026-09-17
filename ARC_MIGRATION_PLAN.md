@@ -346,7 +346,11 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
   - At 20 gwei, break-even is ~$19 notional for opening fills and ~$14 for fills on existing
     positions. The ≤ 350k target is met for fills on existing positions only, so $40 stays the
     launch minimum; the timelock can lower it once testnet traffic confirms the mix.
-- Batch cap: ≤ 40 fills per `settleFillsSigned` (15.1M gas measured), sized from simulation.
+- Batch cap: ≤ 40 fills per `settleFillsSigned` (15.2M gas measured), enforced on-chain by
+  `OrderGateway.MAX_BATCH = 40` (2026-09-17 review). Each fill must start with
+  `MIN_GAS_PER_FILL = 900k` (worst measured fill 729k: two brand-new ERC-1271 wallets at their
+  100k verification cap, a fresh market and the OI policy on; ×1.2, rounded up). ERC-1271 checks
+  get at most 100k gas.
 - The oracle is the largest fixed cost, so use deviation-triggered pushes plus a heartbeat (§7).
 - The monitor reports **fees earned vs gas spent** per day, per service.
 
@@ -404,10 +408,13 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
 market-order book walking) is kept as-is. Around it:
 
 - **Single writer per market.** Scale by sharding markets across processes, each with its own operator key.
-- 250–500ms tick. Each tick sends one `settleFillsSigned` batch per market (cap ~40 fills /
-  ~14M gas, under the 30M block limit), sized from simulation.
+- 250–500ms tick. Each tick sends one `settleFillsSigned` batch per market (cap 40 fills, enforced
+  on-chain / ~15M gas, under the 30M block limit), sized from simulation.
 - Optimistic book: fills show as *pending* over WS and are confirmed on receipt (≤1s). `FillRejected`
-  rolls back the off-chain fill and re-opens the remaining size.
+  rolls back the off-chain fill and re-opens the remaining size. `FillRejected` always carries
+  a real reason. Running out of gas is never reported as a rejection: a batch that can't give
+  every fill `MIN_GAS_PER_FILL` reverts with `InsufficientBatchGas`. When that happens,
+  resubmit with a higher gas limit, or split the batch. No fill in it was settled or rejected.
 - Pre-trade checks: signature, expiry, nonce, `minFillNotional`, cached margin estimate.
 - Real tx hashes and block numbers on every `Fill`.
 - Optional address screening (Chainalysis/TRM) at `POST /api/orders`, cached.
