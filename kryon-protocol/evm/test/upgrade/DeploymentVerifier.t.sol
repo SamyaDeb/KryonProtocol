@@ -81,5 +81,58 @@ contract DeploymentVerifierTest is KryonTest {
         assertEq(_failures().length, 0);
     }
 
+    // ----------------------------------------- exact timelock role sets (fix 6)
+
+    function _asTimelock(bytes32 role, address who) internal {
+        vm.prank(address(timelock));
+        timelock.grantRole(role, who);
+    }
+
+    function test_timelock_roles_are_enumerable() public view {
+        assertEq(timelock.getRoleMemberCount(timelock.PROPOSER_ROLE()), 1);
+        assertEq(timelock.getRoleMember(timelock.PROPOSER_ROLE(), 0), governance);
+        assertEq(timelock.getRoleMember(timelock.CANCELLER_ROLE(), 0), governance);
+        assertEq(timelock.getRoleMember(timelock.EXECUTOR_ROLE(), 0), governance);
+        assertEq(timelock.getRoleMembers(timelock.DEFAULT_ADMIN_ROLE())[0], address(timelock));
+        assertEq(timelock.getRoleMember(Roles.PAUSER_ROLE, 0), guardian);
+    }
+
+    function test_flags_an_extra_timelock_proposer() public {
+        _asTimelock(timelock.PROPOSER_ROLE(), makeAddr("rogueProposer"));
+        string[] memory f = _failures();
+        assertEq(f.length, 1);
+        assertEq(f[0], "Timelock: PROPOSER_ROLE holders differ from config");
+    }
+
+    function test_flags_an_extra_timelock_executor() public {
+        _asTimelock(timelock.EXECUTOR_ROLE(), makeAddr("rogueExecutor"));
+        string[] memory f = _failures();
+        assertEq(f.length, 1);
+        assertEq(f[0], "Timelock: EXECUTOR_ROLE holders differ from config");
+    }
+
+    function test_flags_an_extra_timelock_canceller() public {
+        _asTimelock(timelock.CANCELLER_ROLE(), makeAddr("rogueCanceller"));
+        string[] memory f = _failures();
+        assertEq(f.length, 1);
+        assertEq(f[0], "Timelock: CANCELLER_ROLE holders differ from config");
+    }
+
+    function test_flags_an_extra_timelock_admin_or_veto_holder() public {
+        _asTimelock(timelock.DEFAULT_ADMIN_ROLE(), makeAddr("rogueAdmin"));
+        _asTimelock(Roles.PAUSER_ROLE, makeAddr("rogueGuardian"));
+        string[] memory f = _failures();
+        assertEq(f.length, 2);
+        assertEq(f[0], "Timelock: DEFAULT_ADMIN_ROLE holders differ from config");
+        assertEq(f[1], "Timelock: PAUSER_ROLE holders differ from config");
+
+        // Revocation keeps the enumeration in sync.
+        vm.startPrank(address(timelock));
+        timelock.revokeRole(timelock.DEFAULT_ADMIN_ROLE(), makeAddr("rogueAdmin"));
+        timelock.revokeRole(Roles.PAUSER_ROLE, makeAddr("rogueGuardian"));
+        vm.stopPrank();
+        assertEq(_failures().length, 0);
+    }
+
     function console2_log(string memory) internal pure {}
 }

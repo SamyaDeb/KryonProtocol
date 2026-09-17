@@ -6,6 +6,7 @@ import {IAccessControlEnumerable} from
 
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
+import {KryonTimelock} from "../../src/governance/KryonTimelock.sol";
 import {KryonUpgradeable} from "../../src/governance/KryonUpgradeable.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {FundingConfig, MarketParams} from "../../src/libraries/Types.sol";
@@ -145,13 +146,19 @@ library DeploymentVerifier {
     {
         _check(r, d.timelock.getMinDelay() >= 48 hours, "Timelock: delay below 48h");
         _check(r, d.timelock.getMinDelay() == cfg.timelockDelay, "Timelock: delay differs from config");
-        for (uint256 i = 0; i < cfg.proposers.length; ++i) {
-            _check(r, d.timelock.hasRole(d.timelock.PROPOSER_ROLE(), cfg.proposers[i]), "Timelock: proposer missing");
-        }
-        for (uint256 i = 0; i < cfg.executors.length; ++i) {
-            _check(r, d.timelock.hasRole(d.timelock.EXECUTOR_ROLE(), cfg.executors[i]), "Timelock: executor missing");
-        }
-        _check(r, d.timelock.hasRole(Roles.PAUSER_ROLE, cfg.guardian), "Timelock: guardian cannot veto");
+        // Exact sets: nobody outside the config may propose, execute, cancel,
+        // administer the timelock or veto.
+        KryonTimelock tl = d.timelock;
+        _exactTimelock(r, tl, tl.PROPOSER_ROLE(), cfg.proposers, "PROPOSER_ROLE");
+        _exactTimelock(r, tl, tl.EXECUTOR_ROLE(), cfg.executors, "EXECUTOR_ROLE");
+        // OZ grants CANCELLER_ROLE to every proposer.
+        _exactTimelock(r, tl, tl.CANCELLER_ROLE(), cfg.proposers, "CANCELLER_ROLE");
+        address[] memory self = new address[](1);
+        self[0] = address(tl);
+        _exactTimelock(r, tl, tl.DEFAULT_ADMIN_ROLE(), self, "DEFAULT_ADMIN_ROLE");
+        address[] memory guardian = new address[](1);
+        guardian[0] = cfg.guardian;
+        _exactTimelock(r, tl, Roles.PAUSER_ROLE, guardian, "PAUSER_ROLE");
         _check(r, !d.timelock.hasRole(d.timelock.DEFAULT_ADMIN_ROLE(), deployer), "Timelock: deployer is admin");
         _check(r, !d.timelock.hasRole(d.timelock.PROPOSER_ROLE(), deployer), "Timelock: deployer is proposer");
         if (d.timelock.executionPaused()) {
@@ -161,6 +168,20 @@ library DeploymentVerifier {
         }
         // Operations scheduled during a veto must fit inside the cooldown that follows it.
         _check(r, d.timelock.VETO_COOLDOWN() > d.timelock.getMinDelay(), "Timelock: veto cooldown not longer than the delay");
+    }
+
+    function _exactTimelock(
+        Report memory r,
+        KryonTimelock tl,
+        bytes32 role,
+        address[] memory expected,
+        string memory name
+    ) private view {
+        bool ok = tl.getRoleMemberCount(role) == expected.length;
+        for (uint256 i = 0; ok && i < expected.length; ++i) {
+            ok = tl.hasRole(role, expected[i]);
+        }
+        _check(r, ok, string.concat("Timelock: ", name, " holders differ from config"));
     }
 
     // ----------------------------------------------------------------- wiring

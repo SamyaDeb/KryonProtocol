@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {KryonErrors as Errors} from "../libraries/Errors.sol";
 import {Roles} from "./Roles.sol";
@@ -17,8 +18,12 @@ import {Roles} from "./Roles.sol";
 ///      VETO_COOLDOWN, which is longer than the 48h delay: anything scheduled
 ///      during the veto (scheduling is never blocked), such as revoking a
 ///      hostile guardian, can execute in that window.
-///      Not upgradeable by design.
+///      Roles are enumerable (as on the protocol contracts), so deployment
+///      verification can prove the exact proposer, executor, canceller,
+///      admin and guardian sets. Not upgradeable by design.
 contract KryonTimelock is TimelockController {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     uint256 public constant MIN_SAFE_DELAY = 48 hours;
     uint256 public constant VETO_DURATION = 7 days;
     uint256 public constant VETO_COOLDOWN = 3 days;
@@ -26,6 +31,7 @@ contract KryonTimelock is TimelockController {
     /// End of the current or most recent veto (0 = never vetoed). A lift
     /// moves it to the lift time.
     uint64 private _vetoUntil;
+    mapping(bytes32 => EnumerableSet.AddressSet) private _roleMembers;
 
     event ExecutionPaused(address indexed guardian, uint64 vetoUntil, uint64 cooldownEndsAt);
     event ExecutionUnpaused(uint64 endedAt, uint64 cooldownEndsAt);
@@ -40,6 +46,29 @@ contract KryonTimelock is TimelockController {
         if (guardian == address(0)) revert Errors.ZeroAddress();
         _setRoleAdmin(Roles.PAUSER_ROLE, DEFAULT_ADMIN_ROLE);
         _grantRole(Roles.PAUSER_ROLE, guardian);
+    }
+
+    function getRoleMemberCount(bytes32 role) external view returns (uint256) {
+        return _roleMembers[role].length();
+    }
+
+    function getRoleMember(bytes32 role, uint256 index) external view returns (address) {
+        return _roleMembers[role].at(index);
+    }
+
+    function getRoleMembers(bytes32 role) external view returns (address[] memory) {
+        return _roleMembers[role].values();
+    }
+
+    /// @dev Also runs for the grants made in TimelockController's constructor.
+    function _grantRole(bytes32 role, address account) internal override returns (bool granted) {
+        granted = super._grantRole(role, account);
+        if (granted) _roleMembers[role].add(account);
+    }
+
+    function _revokeRole(bytes32 role, address account) internal override returns (bool revoked) {
+        revoked = super._revokeRole(role, account);
+        if (revoked) _roleMembers[role].remove(account);
     }
 
     function executionPaused() public view returns (bool) {
