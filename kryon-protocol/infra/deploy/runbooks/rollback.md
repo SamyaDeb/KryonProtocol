@@ -4,10 +4,10 @@
 
 ```bash
 # List recent deployments
-vercel ls --scope samyadebs-projects
+vercel ls --scope <VERCEL_TEAM>
 
 # Promote a previous deployment to production
-vercel promote <deployment-url> --scope samyadebs-projects
+vercel promote <deployment-url> --scope <VERCEL_TEAM>
 ```
 
 The previous deployment becomes active in ~30s. No data loss.
@@ -42,7 +42,7 @@ Instead, deploy a fresh instance and update the env vars to point to the new add
 After redeployment:
 1. Update `.env.local` with new contract IDs
 2. Update Vercel env vars (see deploy step in main launch doc)
-3. Redeploy Vercel: `vercel --yes --prod --scope samyadebs-projects`
+3. Redeploy Vercel: `vercel --yes --prod --scope <VERCEL_TEAM>`
 4. Restart all services with new env
 
 **Note:** Users with open positions in the old vault must close before migration. Coordinate a maintenance window.
@@ -65,7 +65,7 @@ Prisma does not support automatic schema rollback. To undo a migration:
 All env vars are versioned in Vercel. To restore a previous value:
 
 ```bash
-vercel env ls --scope samyadebs-projects      # see current values
+vercel env ls --scope <VERCEL_TEAM>      # see current values
 vercel env rm KEY production                  # remove current
 echo "old-value" | vercel env add KEY production  # restore old
 ```

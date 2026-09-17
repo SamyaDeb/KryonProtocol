@@ -59,8 +59,8 @@ cd client
 ORACLE_PUBLISHER_SECRET=<secret> npx tsx --env-file=.env.local scripts/redeploy-oracle.ts
 
 # Then update NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER in .env.local and Vercel:
-echo "<new-id>" | vercel env add NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER production --scope samyadebs-projects --force
-vercel --yes --prod --scope samyadebs-projects
+echo "<new-id>" | vercel env add NEXT_PUBLIC_CONTRACT_ORACLE_ADAPTER production --scope <VERCEL_TEAM> --force
+vercel --yes --prod --scope <VERCEL_TEAM>
 ```
 
 ## Prevention

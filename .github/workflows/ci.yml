@@ -22,7 +22,7 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # Separation guard: no tracked file may reference the previous deployment's
-  # hosts or hosting-provider project ids. Each literal is written with a
+  # hosts, hosting-provider project/team ids, Cloudflare account or VM address. Each literal is written with a
   # character class so this file does not match its own pattern.
   # ---------------------------------------------------------------------------
   separation-guard:
@@ -37,7 +37,7 @@ jobs:
 
       - name: No references to the previous deployment
         env:
-          PATTERN: 'kryonprotocol[.]live|client-eight-mu-7[1]|kryon-client[.]kryon[.]workers[.]dev|kryonprotocol[.]vercel[.]app|prj_[A-Za-z0-9]{20,}|team_[A-Za-z0-9]{20,}'
+          PATTERN: 'kryonprotocol[.]live|client-eight-mu-7[1]|kryon-client[.]kryon[.]workers[.]dev|kryonprotocol[.]vercel[.]app|prj_[A-Za-z0-9]{20,}|team_[A-Za-z0-9]{20,}|samyadebs-project[s]|b8a23edf0ffbfe1137d1d672b001723[8]|92[.]4[.]91[.]3[0]'
         run: |
           if git grep -nE "$PATTERN"; then
             echo "::error::Tracked files reference the previous deployment (see matches above)."
