@@ -5,7 +5,7 @@ Source of truth: [`PROTOCOL_PLAN.md`](PROTOCOL_PLAN.md).
 | Step | Status |
 |---|---|
 | 0. Setup (Appendix B, git init, arc-facts) | ✅ done |
-| 1. Contracts (Phase A + fee contracts) | ✅ done, plus the 2026-09-17 decisions (below) |
+| 1. Contracts (Phase A + fee contracts) | ✅ done, plus the 2026-09-17 decisions and the Phase 1 freeze (below) |
 | 7. Remove legacy chain code (safe first pass) | 🟡 partial: legacy contracts and legacy-only scripts removed; the rest follows Steps 2–6 |
 | 2. Chain layer + TxSender | ✅ done |
 | 3. Services | not started |
@@ -13,6 +13,56 @@ Source of truth: [`PROTOCOL_PLAN.md`](PROTOCOL_PLAN.md).
 | 5. Frontend + API + agent docs | not started |
 | 6. Infra, CI, runbooks | not started |
 | 8. Testnet readiness | not started |
+
+---
+
+## Phase 1 freeze (2026-09-17)
+
+Branch `phase1/audit-freeze`. Audit package: `kryon-protocol/infra/audit/`. Tag: `audit-v1` (pending).
+
+### Decisions
+
+| # | Decision | Value |
+|---|---|---|
+| 2 | Fee schedule | taker 350 / maker 50 millionths (3.5 / 0.5 bps), net floor 100, rebates off (unchanged) |
+| 3 | Fee split | 70 treasury / 20 insurance / 10 referral; referral share to treasury while referrals are off; liquidation remainder 50/50 (unchanged) |
+| 4 | Liquidation reward | `max_reward_bps` **25 → 15** (BTC: 15 reward / 10 remainder; ETH: 15 / 20) |
+| 5 | Launch markets | BTC-PERP, ETH-PERP active; SOL/XRP/BNB/TRX listed inactive; **XLM (id 1) and ADA (id 6) removed** from the Arc mainnet/testnet TOMLs (no Arc Chainlink reference feed). Other market ids unchanged |
+| 5b | Caps | $250k total / $10k per account, deposits closed at deploy, OI BTC 5 / ETH 100 (testnet 25 / 400), OI policy 0 (unchanged) |
+| 5c | Min fill notional | $40 (unchanged) |
+| 5d | Batch cap | 40 (on-chain `MAX_BATCH`) |
+| — | Freeze date | 2026-10-01 |
+| — | Formatting | `arc-forge fmt` not applied before `audit-v1`; planned as a whitespace-only `audit-v1.1` |
+
+### What changed
+
+- `infra/deploy/environments/arc-{mainnet,testnet}.toml`: the values above. `arc-local.toml`
+  unchanged.
+- New `test/upgrade/EnvironmentConfig.t.sol`: loads both TOMLs through `ConfigLoader`, deploys
+  them with local stand-ins for Arc-only addresses, and requires zero verifier failures and
+  warnings, BTC/ETH as the only active markets, no XLM/ADA, and `liquidationFeeBps > maxRewardBps`
+  on every active market. Shown failing with `max_reward_bps = 25`.
+- No Solidity change under `src/` or `script/`. `src/`, `script/` and `crates/` are identical to
+  `49b79f2`.
+- Audit package: README, SCOPE (nSLOC), SYSTEM_OVERVIEW, INVARIANTS, TRUST_MODEL, KNOWN_ISSUES,
+  RESULTS, CONFIG.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `arc-forge test` | **259 passed**, 0 failed (258 + `EnvironmentConfigTest`) |
+| `cargo test --workspace` | 19 passed |
+| Differential | 9 × 5,000, 0 mismatches |
+| Fork (`--network arc`, Arc testnet) | 8/8 |
+| Gas | identical to the review-fix figures (40 fills 15,204,808; existing positions 280,887/fill; liquidation 276,456) |
+| Coverage | **97.67% lines** (1506/1542), **95.22% branches** (319/335) |
+| Slither (High/Medium) | 0 |
+| Storage layout | unchanged |
+| Sizes | all under 24,576 B (Engine 22,821, margin 1,755) |
+| Dry run: `DeployAll` + `99_VerifyDeployment` with the mainnet parameters on a local arc-anvil fork of Arc mainnet | `99_VerifyDeployment: OK`, **no WARN** |
+| Nightly (`49b79f2`, 1M fuzz, 2048×256 invariants) | in progress at branch time; see `infra/audit/RESULTS.md` |
+| In-scope nSLOC (`src/`) | 3,339 |
 
 ---
 
@@ -311,19 +361,24 @@ default doesn't cover gas for opening fills. See Open decisions.
 
 ### Open questions / decisions for you
 
-1. **Confirm the liquidation-sizing fix** to the Rust reference model (bug 2 above).
+1. **Confirm the liquidation-sizing fix** to the Rust reference model (bug 2 above). **Decided
+   2026-09-17:** kept, flagged for the audit.
 2. **`minFillNotional` vs measured gas.** Opening fills cost ~558k gas, so $20 doesn't break even
    (~$28 at 20 gwei, ~$39 at 28 gwei). Options: raise it to ~$40, optimize settlement gas (cold
    storage writes dominate), or accept below-cost small fills. I haven't changed the $20 default.
+   **Decided 2026-09-17:** $40 at launch, plus the gas pass.
 3. **Batch size.** 40 fills measured at 22.3M gas, versus the plan's ~14M estimate. The matcher
    cap should be sized from simulation (the plan says the same). I suggest ≤ 40 for now.
+   **Decided:** 40, enforced on-chain as `OrderGateway.MAX_BATCH`.
 4. **Backstop unwinding.** Liquidated positions now sit with Insurance. ADL can reduce them when
    there is bad debt, but there is no general unwind path when there isn't. Options: a
    KEEPER-driven backstop order via ERC-1271 on Insurance, or governance-timelocked unwinds.
-   Needs a decision before mainnet. It isn't in the plan.
+   Needs a decision before mainnet. It isn't in the plan. **Decided 2026-09-17:** ERC-1271
+   backstop unwind (plan §4.4).
 5. **Blocklist semantics in-contract** (G4) stay open. Settlement moves no tokens, so a
    blocklisted trader can't block a batch. Withdrawals to or from them revert (tested with a mock;
-   the Arc blocklist controller is unknown).
+   the Arc blocklist controller is unknown). **Accepted for `audit-v1`** as a known limitation
+   (`infra/audit/KNOWN_ISSUES.md`).
 6. Items still open from Step 0: explorer verification on mainnet, RPC archive/trace, Safe{Wallet}
    support (affects ops-refill design), RedStone/Chronicle.
 7. **BTC liquidation penalty is all reward (added 2026-09-17 review).** In `arc-mainnet.toml`,
@@ -334,6 +389,7 @@ default doesn't cover gas for opening fills. See Open decisions.
    Options:
    (a) lower `max_reward_bps` to ~15 for all markets;
    (b) raise the BTC fee (e.g. 35–50 bps).
+   **Decided 2026-09-17: (a), `max_reward_bps = 15`** (see Phase 1 freeze).
 
 ### How to reproduce
 

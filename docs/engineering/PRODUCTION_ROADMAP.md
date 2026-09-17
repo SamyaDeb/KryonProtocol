@@ -14,7 +14,7 @@ This roadmap treats Kryon as a **standalone product**: its own brand surface, do
 
 | # | Workstream | Done | Evidence |
 |---|---|---|---|
-| A | **Smart contracts** (Solidity, `kryon-protocol/evm`) | **~90%** | 8 contracts + timelock, UUPS/ERC-7201, deploy scripts 00–05/99, 258 tests, invariants, differential fuzz vs Rust, Arc fork tests, Slither 0 High/Medium, gas pass done, ERC-1271 backstop unwind. **Review fixes FIX 1–9 applied and merged** (`18ed19d`): bounded guardian veto/pause, oracle re-anchor, insurance mark-to-market, batch gas reserve + bounded ERC-1271 gas, referrer allowlist, exact role verification, liquidation-reward warning. **Open:** fee/liquidation parameter decisions, `audit-v1` freeze, external audit |
+| A | **Smart contracts** (Solidity, `kryon-protocol/evm`) | **~90%** | 8 contracts + timelock, UUPS/ERC-7201, deploy scripts 00–05/99, 258 tests, invariants, differential fuzz vs Rust, Arc fork tests, Slither 0 High/Medium, gas pass done, ERC-1271 backstop unwind. **Review fixes FIX 1–9 applied and merged** (`18ed19d`): bounded guardian veto/pause, oracle re-anchor, insurance mark-to-market, batch gas reserve + bounded ERC-1271 gas, referrer allowlist, exact role verification, liquidation-reward warning. **Phase 1 decisions applied** (fees, split, `max_reward_bps` 15, BTC+ETH launch, XLM/ADA removed) with `EnvironmentConfigTest`; audit package `infra/audit/` (3,339 nSLOC in scope). **Open:** nightly result, `audit-v1` tag, external audit |
 | B | **Chain SDK** (`client/lib/chain`, `lib/market/eip712.ts`) | **~95%** | viem clients with RPC fallback, generated ABIs (regenerated after the fixes, `380eb89`), EIP-712 parity with the contracts, TxSender (nonce, 20 gwei floor, rebroadcast/replace), settlement encoding, Multicall3 health reads, Chainlink reader, **Postgres `PgTxJobStore`** with a shared contract test suite. Only the indexer consumes it so far |
 | C | **Off-chain services** (matcher, oracle, indexer, reconciler, liquidation, funding, monitor, WS, stats) | **~15%** | **Indexer ported** (`da5f8db`, `49b79f2`): `lib/indexer` (decode, projections, replay) + `scripts/state-indexer.ts`, ~1.3k lines with tests. Matching algorithm (`lib/market/matcher.ts`) and WS/stats logic are reusable. **The other chain-facing services still run on the legacy SDK:** 19 of 26 scripts in `client/scripts` import it (matcher, oracle keeper, liquidation keeper, funding keeper, reconciler, monitor, deploy/upgrade/gate scripts). `ws-server` and `stats-aggregator` have no chain imports but read the legacy data model |
 | D | **Database** | **~80%** | **Arc baseline committed** (`b86dfbe`): legacy migrations squashed into `20260917000000_arc_baseline`; log-keyed event projections (fills, positions, oracle, funding, liquidation/ADL, backstop unwinds, fee accrual/claim/tier), EVM `TxJob`, `GasSpend`, `DeploymentArtifact`, `GovernanceOperation`, 1e6 analytics; `NUMERIC(78,0)` integers; 98 CHECK constraints. **Open:** provider/project, PITR backups + restore drill, read replica, separate local/staging/prod DBs |
@@ -114,7 +114,7 @@ Every phase ends with an **exit gate**. Nothing moves forward until its gate pas
 
 ### Phase 1: Contract hardening (weeks 1–2)
 
-> **Status (2026-09-17):** step 1 **done** (FIX 1–9 merged in `18ed19d`, 258 tests green). Steps 2–4 open.
+> **Status (2026-09-17):** steps 1, 2 and 4 **done**. FIX 1–9 merged in `18ed19d`; Decisions 2–5 applied to the Arc configs with a regression test; audit package in `kryon-protocol/infra/audit/`; 259 tests, coverage 97.67/95.22, Slither 0 High/Medium, dry-run `99_VerifyDeployment: OK` with no warnings. Step 3 (nightly) running on `49b79f2`; `audit-v1` is tagged once it passes.
 
 1. Apply `docs/engineering/prompts/CONTRACT_FIXES_PROMPT.md` FIX 1–9:
    - bounded guardian veto and pause;
@@ -325,10 +325,10 @@ Delete all legacy service code as each replacement lands.
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | 1 | Product name and domain | Keep "Kryon" only with a clearly distinct domain and brand; otherwise rebrand before any public staging | Phase 0 |
-| 2 | Fee schedule | 3.5 bps taker / 0.5 bps maker, rebates off | Phase 1 freeze |
-| 3 | Fee split | 70 treasury / 20 insurance / 10 referral | Phase 1 freeze |
-| 4 | Liquidation reward vs penalty (BTC reward currently = penalty) | `max_reward_bps` 15, so insurance/treasury get a share | Phase 1 freeze |
-| 5 | Launch markets | BTC-PERP, ETH-PERP | Phase 1 config |
+| 2 | Fee schedule | ✅ **Decided 2026-09-17:** 3.5 bps taker / 0.5 bps maker, 1 bps net floor, rebates off | Phase 1 freeze |
+| 3 | Fee split | ✅ **Decided 2026-09-17:** 70 treasury / 20 insurance / 10 referral (to treasury while referrals are off); liquidation remainder 50/50 insurance/treasury | Phase 1 freeze |
+| 4 | Liquidation reward vs penalty | ✅ **Decided 2026-09-17:** `max_reward_bps` 25 → 15 (BTC 15/10, ETH 15/20 reward/remainder), guarded by `EnvironmentConfigTest` | Phase 1 freeze |
+| 5 | Launch markets | ✅ **Decided 2026-09-17:** BTC-PERP, ETH-PERP; SOL/XRP/BNB/TRX listed inactive; XLM/ADA removed. Caps $250k / $10k, OI BTC 5 / ETH 100, min fill $40, batch 40 | Phase 1 config |
 | 6 | Safe signers and thresholds (governance / guardian / treasury) | 3-of-5 / 2-of-3 / 2-of-3, hardware wallets, distinct people | Phase 5 |
 | 7 | Hosting | Web on Vercel (new project) or a dedicated host; services on 2 dedicated hosts | Phase 5 |
 | 8 | Database provider | Managed Postgres with PITR and a read replica, a new project | Phase 2 |
@@ -343,7 +343,7 @@ Delete all legacy service code as each replacement lands.
 
 1. ✅ **Done:** planning docs committed under `docs/engineering/`; the auditor RFQ draft and superseded prompts archived outside the repository.
 2. ✅ **Done:** repository published, ties to the old deployment cut, and the two working copies integrated into one `main`. Remaining Phase 0: branch protection, accounts, secrets vault, brand decision.
-3. Decide #2–#5 (fees, split, liquidation reward, launch markets), run the nightly fuzz profile, and tag `audit-v1`.
+3. ✅ **Done:** #2–#5 decided and applied, audit package built. Remaining: nightly result, then tag `audit-v1`.
 4. Send the auditor RFQ email (recount nSLOC at the tag) and book auditors: the audit calendar is the long pole.
 5. Continue Phase 3 with the matcher + order intake, then the reconciler and keepers, on `lib/chain` + `PgTxJobStore`.
 6. ✅ Client tests and `tsc` re-verified after the integration (see the scan line at the top).

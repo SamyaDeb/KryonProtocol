@@ -268,7 +268,7 @@ capped, transparent to traders, and accounted for exactly.
 | Funding | peer-to-peer. The protocol takes nothing |
 | Deposit / withdraw | no protocol fee (gas only) |
 
-### 5.2 Launch schedule (proposal)
+### 5.2 Launch schedule (decided 2026-09-17)
 
 | | Taker | Maker |
 |---|---|---|
@@ -276,7 +276,8 @@ capped, transparent to traders, and accounted for exactly.
 | Hard caps in code | ≤ 25 bps | −2 bps … 25 bps |
 | Net-fee floor | `taker + maker ≥ 1 bps` | |
 
-Benchmark against edgeX, Hibachi, and major perp venues before launch, and adjust via the timelock.
+Rebates are off at launch (`rebates_enabled = false`). Benchmark against edgeX, Hibachi, and major perp
+venues before launch, and adjust via the timelock.
 
 ### 5.3 Settlement flow per fill
 
@@ -297,7 +298,7 @@ OrderGateway.settleOne(fill)
   recipient. Anyone can call it, but funds go only to the configured recipient.
 - Invariant #5 (§3) is fuzzed in tests and checked continuously by the monitor.
 
-### 5.4 Fee split (proposal)
+### 5.4 Fee split (decided 2026-09-17)
 
 | Bucket | Share | Recipient |
 |---|---|---|
@@ -307,6 +308,10 @@ OrderGateway.settleOne(fill)
 
 Shares sum to 10,000 bps (enforced) and are individually bounded, e.g. insurance ≥ 10% while
 insurance/OI is below target.
+
+Liquidation penalties: the liquidator reward is capped at `max_reward_bps = 15`, below every
+active market's liquidation fee (BTC 25, ETH 35 bps), and the remainder is split 50% insurance /
+50% treasury (`liquidation_insurance_bps = 5000`). `EnvironmentConfigTest` guards the ordering.
 
 ### 5.5 Tiers
 
@@ -656,14 +661,16 @@ The repository becomes Arc-only. All legacy chain code is removed:
 
 ## 15. Open decisions
 
-1. Fee schedule: taker/maker bps (proposed 3.5 / 0.5), hard caps, rebates at launch?
-2. Fee split (proposed 70 treasury / 20 insurance / 10 referral).
+1. Fee schedule: **decided 2026-09-17: 3.5 / 0.5 bps, rebates off** (§5.2).
+2. Fee split: **decided 2026-09-17: 70 treasury / 20 insurance / 10 referral**, referral share to
+   treasury while referrals are off (§5.4).
 3. `minFillNotional`: **decided 2026-09-17: $40 at launch**, lowered to $20 by the timelock
    after the gas pass (§5.6).
 4. Signers and thresholds for the governance, guardian, and treasury Safes.
 5. Upgradeability: UUPS + 48h timelock (recommended) vs immutable.
 6. External oracle provider once Arc mainnet feeds are published.
-7. Launch markets (proposed BTC-PERP + ETH-PERP, then SOL/XRP/ADA/BNB/TRX/XLM).
+7. Launch markets: **decided 2026-09-17: BTC-PERP + ETH-PERP**. SOL/XRP/BNB/TRX listed inactive;
+   XLM and ADA removed from the Arc configs (no Arc Chainlink reference feed).
 8. Collateral: USDC only at launch (recommended). EURC later?
 9. Compliance: geofenced jurisdictions, screening vendor, ToS.
 10. Wallet stack (RainbowKit recommended). Smart-wallet onboarding at launch?
