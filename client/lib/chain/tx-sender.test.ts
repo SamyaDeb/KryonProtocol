@@ -41,6 +41,9 @@ class FakeChain {
   extraPending = 0; // simulates another process using the key
 
   api(): TxChain {
+    // The returned object's methods are not arrow functions, so they need a stable
+    // handle on the fake's mutable state.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     return {
       async getTransactionCount({ blockTag }: { blockTag?: string }) {
