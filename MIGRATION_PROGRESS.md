@@ -7,12 +7,75 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 | 0. Setup (Appendix B, git init, arc-facts) | ✅ done |
 | 1. Contracts (Phase A + fee contracts) | ✅ done, plus the 2026-09-17 decisions (below) |
 | 7. Remove Stellar (safe first pass) | 🟡 partial: Soroban contracts and Stellar-only scripts removed; the rest follows Steps 2–6 |
-| 2. Chain layer + TxSender | not started |
+| 2. Chain layer + TxSender | ✅ done |
 | 3. Services | not started |
 | 4. Database | not started |
 | 5. Frontend + API + agent docs | not started |
 | 6. Infra, CI, runbooks | not started |
 | 8. Testnet readiness | not started |
+
+---
+
+## Step 2: Chain layer and TxSender (2026-09-17)
+
+### What was built (`client/lib/`)
+
+| File | Contents |
+|---|---|
+| `chain/generated.ts` | ABIs for all eight protocol contracts, the timelock and `KryonErrors`, generated from `kryon-protocol/evm/out` by `@wagmi/cli` 2.10.0 (`client/wagmi.config.ts`, `npm run wagmi:generate`, needs `arc-forge build` first) |
+| `chain/networks.ts` | `arc-mainnet` / `arc-testnet` / `arc-local` registry. RPC, explorer, USDC, Permit2 and Multicall3 values all come from `docs/arc-facts.md`. Contract addresses come from `KRYON_DEPLOYMENT_FILE` (the deploy scripts' JSON, chain-id checked) or `CONTRACT_*` env vars. There are no baked defaults |
+| `chain/clients.ts` | viem `fallback` transport: `ARC_RPC_URLS` providers in order, then the public RPC. `assertChainId` for service startup. `serviceAccount(envVar)` loads one key per service |
+| `chain/contracts.ts` | Typed `getContract` bindings. `ALL_ERRORS_ABI` merges every custom error, deduplicated, for revert decoding |
+| `chain/tx-store.ts` | `TxJob` record (the §9 fields plus to/data/value/gasLimit/label/blockNumber/error), one row per broadcast attempt. `MemoryTxJobStore` |
+| `chain/tx-sender.ts` | §6.2 TxSender, described below |
+| `chain/settlement.ts` | `encodeSettleFills` (cap 40, rejects duplicate fill ids), `chunkFills`, `decodeBatchLogs` (FillSettled / FillRejected with the decoded error name), `unaccountedFills` |
+| `chain/oracle.ts` | `readOraclePrice(symbol)` (symbol required) and `encodePushPrices` |
+| `chain/collateral.ts` | Multicall3 `readAccountHealth` scans, account snapshot, deposit caps, and 1e18 ↔ 1e6 conversion (credits round down) |
+| `chain/refprice.ts` | Chainlink AggregatorV3 reader (scaled to 1e18; null when stale, non-positive or incomplete) and `divergenceBps`. Feed addresses are passed in from the environment TOML |
+| `market/eip712.ts` | Domain Kryon/1, Order/Cancel types, `hashOrder`, `hashCancel`, wallet-ready typed data, EOA signature pre-check |
+
+**TxSender**
+- **Nonces:** allocated locally, seeded from and re-checked against `getTransactionCount(pending)`. The lowest nonce with no open job gets filled first. The cursor never moves back.
+- **Fees:** `max(2×baseFee, 40 gwei)` with a 1 gwei tip. A base fee below 20 gwei, or a missing one, is priced at the 20 gwei floor, and nothing is ever signed below the floor.
+- **Persistence:** each attempt is inserted as `PENDING` before `sendRawTransaction`.
+- **Rebroadcast and replacement:** if a transaction is not in the mempool after 3s, the same bytes are rebroadcast. After 10s the sender replaces it at the same nonce with maxFee and tip each +15%. The old row becomes `REPLACED` with `replacedByHash` set. Replacements stop at `maxFeeCapWei` (default 1000 gwei), but rebroadcasts continue.
+- **Resolution:** every attempt at a nonce is watched. Whichever lands becomes `CONFIRMED`/`REVERTED` with gasUsed, effectiveGasPrice and block. Other open attempts become `DROPPED`.
+- **Errors:**
+  - A nonce mined with none of our attempts mined → `TxDroppedError`.
+  - "Nonce too low" on submit → resync and retry, up to 3 tries.
+  - Any other broadcast rejection → `FAILED`; the nonce is reused.
+- **Timeout:** `wait()` throws `TxTimeoutError` after 120s and leaves the job open for the reconciler, which can call `openJobs()` then `wait()`.
+
+### Acceptance results
+
+- **Golden digest:** `hashTypedData` equals the Solidity golden digest `0x3743…895e`, and both type hashes match `OrderLib`.
+- **Live parity against a fresh `DeployAll` on a local arc-anvil fork of Arc testnet:** `OrderGateway.hashOrder` and `hashCancel` equal the viem results. This check is env-gated in `eip712.test.ts` and skipped by default. To run it:
+  ```
+  KRYON_PARITY_RPC=http://127.0.0.1:8545 KRYON_DEPLOYMENT_FILE=../kryon-protocol/evm/deployments/arc-local.json npm test
+  ```
+- **TxSender tests:** 14, using a scripted chain and a fake clock. They cover:
+  - persisting before broadcast
+  - the fee rule and floor
+  - consecutive nonces under concurrency
+  - pending-count seeding
+  - gap filling
+  - rebroadcasting identical bytes
+  - +15% replacement and the replacement chain
+  - the original landing after a replacement
+  - the fee cap
+  - a foreign nonce
+  - nonce-too-low retry
+  - a rejected broadcast
+- **Client totals:** `npm test` runs 75 tests (74 pass, 1 skipped: the live parity check). The baseline was 43. `tsc --noEmit` reports 0 errors.
+
+### Deviations and notes
+
+- **Postgres `TxJobStore`:** not built yet. The table arrives with the Step 4 baseline schema, so services wire the Postgres store then. The interface is fixed now.
+- **Batch cap:** `MAX_FILLS_PER_BATCH = 40` comes from the gas pass (~15.1M gas); the contract allows 64.
+- **Row per attempt:** a replacement is a new `TxJob` row rather than a mutation of the original. This keeps the §9 `replacedByHash` field meaningful and records every raw transaction ever broadcast.
+- **viem chain defaults:** viem's `arcTestnet` defaults to `rpc.testnet.arc.network`, but the chain is defined from our registry using the docs-verified `*.arc.io` hosts.
+- **`lib/stellar/*`:** still present. The frontend and services that import it are replaced in Steps 3 and 5.
+- **Build speed:** builds are slow on this machine because iCloud (`cloudd`) is syncing `~/Desktop`, including `node_modules`. Moving the repo out of iCloud Drive would speed up `tsc` and `arc-forge build` a lot.
 
 ---
 
