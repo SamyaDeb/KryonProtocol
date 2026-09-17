@@ -261,6 +261,14 @@ default doesn't cover gas for opening fills. See Open decisions.
    the Arc blocklist controller is unknown).
 6. Items still open from Step 0: explorer verification on mainnet, RPC archive/trace, Safe{Wallet}
    support (affects ops-refill design), RedStone/Chronicle.
+7. **BTC liquidation penalty is all reward (added 2026-09-17 review).** In `arc-mainnet.toml`,
+   BTC-PERP `liquidation_fee_bps = 25` equals `[liquidation] max_reward_bps = 25`. The liquidator
+   takes the whole penalty, so insurance and treasury get nothing from BTC liquidations.
+   `99_VerifyDeployment` now prints a `WARN` line for every active market with
+   `liquidationFeeBps <= maxRewardBps`. The values are unchanged; this is your decision.
+   Options:
+   (a) lower `max_reward_bps` to ~15 for all markets;
+   (b) raise the BTC fee (e.g. 35–50 bps).
 
 ### How to reproduce
 

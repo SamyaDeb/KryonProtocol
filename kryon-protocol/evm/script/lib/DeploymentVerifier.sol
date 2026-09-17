@@ -38,6 +38,48 @@ library DeploymentVerifier {
         return out;
     }
 
+    /// @notice Findings that don't fail verification but need a human decision.
+    /// @dev Liquidation economics: with `liquidationFeeBps <= maxRewardBps` the
+    ///      liquidator takes the whole penalty and insurance and treasury get
+    ///      nothing from that market's liquidations.
+    function warnings(Deployment memory d, DeployConfig memory cfg)
+        internal
+        view
+        returns (string[] memory)
+    {
+        Report memory r = Report(new string[](cfg.markets.length), 0);
+        (uint16 maxReward,) = d.liquidation.params();
+        for (uint256 i = 0; i < cfg.markets.length; ++i) {
+            if (!d.risk.isListed(cfg.markets[i].id)) continue;
+            MarketParams memory m = d.risk.market(cfg.markets[i].id);
+            if (m.active && m.liquidationFeeBps <= maxReward) {
+                _fail(
+                    r,
+                    string.concat(
+                        cfg.markets[i].symbol,
+                        ": liquidation fee (",
+                        _u(m.liquidationFeeBps),
+                        " bps) <= max liquidator reward (",
+                        _u(maxReward),
+                        " bps); insurance and treasury receive nothing from its liquidations"
+                    )
+                );
+            }
+        }
+        string[] memory out = new string[](r.count);
+        for (uint256 i = 0; i < r.count; ++i) out[i] = r.failures[i];
+        return out;
+    }
+
+    function _u(uint256 v) private pure returns (string memory) {
+        if (v == 0) return "0";
+        uint256 len;
+        for (uint256 t = v; t != 0; t /= 10) ++len;
+        bytes memory b = new bytes(len);
+        for (; v != 0; v /= 10) b[--len] = bytes1(uint8(48 + v % 10));
+        return string(b);
+    }
+
     function _fail(Report memory r, string memory what) private pure {
         if (r.count < r.failures.length) r.failures[r.count++] = what;
     }

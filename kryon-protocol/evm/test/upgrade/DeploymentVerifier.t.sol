@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {DeploymentVerifier} from "../../script/lib/DeploymentVerifier.sol";
 import {DeployConfig} from "../../script/lib/KryonDeploy.sol";
 import {Roles} from "../../src/governance/Roles.sol";
+import {MarketParams} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
 contract DeploymentVerifierTest is KryonTest {
@@ -132,6 +133,30 @@ contract DeploymentVerifierTest is KryonTest {
         timelock.revokeRole(Roles.PAUSER_ROLE, makeAddr("rogueGuardian"));
         vm.stopPrank();
         assertEq(_failures().length, 0);
+    }
+
+    // ------------------------------------------- liquidation reward warning (fix 7)
+
+    function test_warns_when_the_reward_consumes_the_whole_penalty() public {
+        // Fixture: max reward 50 bps; BTC fee 50, ETH fee 35. Both active.
+        string[] memory w = DeploymentVerifier.warnings(d, baseConfig());
+        assertEq(w.length, 2);
+        assertEq(
+            w[0],
+            "BTC-PERP: liquidation fee (50 bps) <= max liquidator reward (50 bps); insurance and treasury receive nothing from its liquidations"
+        );
+        assertEq(_failures().length, 0, "a warning, not a failure");
+
+        vm.startPrank(address(timelock));
+        MarketParams memory eth = risk.market(ETH);
+        eth.active = false;
+        risk.setMarket(ETH, eth);
+        vm.stopPrank();
+        assertEq(DeploymentVerifier.warnings(d, baseConfig()).length, 1, "inactive markets are skipped");
+
+        asGov();
+        liquidation.setParams(15, 5000);
+        assertEq(DeploymentVerifier.warnings(d, baseConfig()).length, 0);
     }
 
     function console2_log(string memory) internal pure {}
