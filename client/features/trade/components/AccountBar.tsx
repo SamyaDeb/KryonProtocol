@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWalletStore } from "@/stores/wallet";
 import { getAccountHealth } from "@/lib/stellar/contracts";
-import { SETTLEMENT_ASSET } from "@/config";
+import { SETTLEMENT_ASSET } from "@/lib/stellar/legacy-config";
 import { amountToHuman } from "@/lib/format";
 import { DepositWithdrawDialog } from "./DepositWithdrawDialog";
 import { useCollateral } from "@/features/collateral/useCollateral";

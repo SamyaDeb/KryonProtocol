@@ -41,7 +41,7 @@ import {
   xdr,
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
-import { NETWORK } from "../config";
+import { NETWORK } from "@/lib/stellar/legacy-config";
 import { assertNoPublicSecretLeak, assertRequiredSecrets } from "../lib/secrets-check";
 import { contractExports, missingLifecycleExports } from "../lib/deploy-preflight";
 

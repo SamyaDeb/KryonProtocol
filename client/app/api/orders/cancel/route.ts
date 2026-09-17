@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, withRetry } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
-import { getNetworkConfig } from "@/config/networks";
+// LEGACY: the signature these routes verify is an old-chain signed message,
+// so its passphrase comes from the old chain's registry — which the Arc
+// network id cannot name. Step 3 replaces this with EIP-712 verification
+// against the OrderGateway domain and both lines go away together.
+import { getNetworkConfig } from "@/lib/stellar/legacy-config";
+import { legacyNetworkFromRequest } from "@/lib/stellar/legacy-network-server";
 import { StrKey } from "@stellar/stellar-sdk";
 import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
 import { assertU64, cancelSigningMessage } from "@/lib/market/signing-message";
@@ -41,7 +46,7 @@ export async function POST(req: NextRequest) {
   if (!(await rateLimit(requestKey(req, owner), 60))) {
     return NextResponse.json({ ok: false, error: "Too many cancel requests" }, { status: 429 });
   }
-  if (!verifySignedMessage(owner, cancelSigningMessage(owner, nonce, getNetworkConfig(network).passphrase), body.signature)) {
+  if (!verifySignedMessage(owner, cancelSigningMessage(owner, nonce, getNetworkConfig(legacyNetworkFromRequest(req)).passphrase), body.signature)) {
     return NextResponse.json({ ok: false, error: "Invalid cancel signature" }, { status: 401 });
   }
 

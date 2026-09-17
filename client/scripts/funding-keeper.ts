@@ -45,7 +45,7 @@ import {
   scValToNative,
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
-import { ACTIVE_MARKETS, CONTRACTS, NETWORK } from "../config";
+import { ACTIVE_MARKETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 import { assertNoPublicSecretLeak, assertRequiredSecrets } from "../lib/secrets-check";
 
 assertRequiredSecrets(["FUNDING_KEEPER_SECRET"]);

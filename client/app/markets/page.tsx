@@ -1,4 +1,4 @@
-import { ACTIVE_MARKETS } from "@/config";
+import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 import { TopNav } from "@/components/common/TopNav";
 import { MarketsTable } from "@/features/trade/components/MarketsTable";
 

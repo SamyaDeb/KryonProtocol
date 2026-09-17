@@ -55,7 +55,7 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { ACTIVE_MARKETS, MARKETS, CONTRACTS, NETWORK, type MarketConfig } from "../config";
+import { ACTIVE_MARKETS, MARKETS, CONTRACTS, NETWORK, type MarketConfig } from "@/lib/stellar/legacy-config";
 
 const PRECISION = BigInt("1000000000000000000"); // 1e18
 const FEE = "2000000"; // 0.2 XLM max inclusion

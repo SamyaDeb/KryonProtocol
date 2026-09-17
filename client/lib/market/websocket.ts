@@ -1,10 +1,10 @@
 "use client";
 
 import type { OrderBook, RecentTrade } from "@/lib/market/matcher";
-import { WS_URL } from "@/config";
+import { ACTIVE_NETWORK_ID, getWsUrl as wsUrlForNetwork } from "@/lib/network";
 
 // Realtime streaming is delivered by a dedicated WebSocket service, configured
-// via NEXT_PUBLIC_WS_URL (e.g. wss://stream.kryon.xyz). When unset — the
+// via NEXT_PUBLIC_WS_URL_ARC_* (e.g. wss://stream.kryon.xyz). When unset — the
 // default in this deployment — the client stays dormant and the app sources
 // realtime data from resilient REST polling in MarketDataProvider. This keeps
 // the WS layer fully pluggable without spamming reconnects at a non-existent
@@ -43,7 +43,7 @@ let onStatus: WsStatusHandler | null = null;
 function getWsUrl(): string | null {
   // Only connect when an explicit streaming URL is configured. No fallback to
   // the REST origin — that endpoint does not speak WebSocket.
-  return WS_URL || null;
+  return wsUrlForNetwork(ACTIVE_NETWORK_ID) || null;
 }
 
 function send(payload: object) {

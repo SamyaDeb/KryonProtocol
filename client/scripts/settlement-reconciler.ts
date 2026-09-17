@@ -28,7 +28,7 @@ import {
   xdr,
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
-import { NETWORK } from "../config";
+import { NETWORK } from "@/lib/stellar/legacy-config";
 import { assertRequiredSecrets, assertNoPublicSecretLeak } from "../lib/secrets-check";
 assertRequiredSecrets(["DATABASE_URL", "MATCHER_OPERATOR_SECRET"]);
 assertNoPublicSecretLeak();

@@ -13,7 +13,7 @@
 // path writes financial rows on every fill, so it is a deliberate change, not
 // a cleanup.
 
-import { NETWORK, PRICE_PRECISION } from "@/config";
+import { NETWORK, PRICE_PRECISION } from "@/lib/stellar/legacy-config";
 
 export interface RawPos {
   marketId: number;

@@ -29,7 +29,7 @@ import { neon } from "../lib/sql";
 import { checkProtocolActivity } from "../lib/oracle-activity";
 import { WebSocket } from "ws";
 import { Contract, TransactionBuilder, Keypair, Account, rpc as sorobanRpc, nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
-import { CONTRACTS, NETWORK, ACTIVE_MARKETS } from "../config";
+import { CONTRACTS, NETWORK, ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 
 const CHECK_INTERVAL_MS = 30_000;
 const APP_URL = process.env.MONITOR_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";

@@ -17,11 +17,9 @@
  * notion of our networks.
  */
 
-import { ACTIVE_NETWORK_ID } from "@/config";
-import { NETWORK_PARAM } from "@/lib/network-resolve";
-import type { NetworkId } from "@/config/networks";
+import { ACTIVE_NETWORK_ID, NETWORK_PARAM, type ArcNetworkId } from "@/lib/network";
 
-function withNetwork(path: string, network: NetworkId = ACTIVE_NETWORK_ID): string {
+function withNetwork(path: string, network: ArcNetworkId = ACTIVE_NETWORK_ID): string {
   // Relative paths only; `URL` needs a base, and callers pass "/api/...".
   const [pathname, query = ""] = path.split("?");
   const params = new URLSearchParams(query);
@@ -32,7 +30,7 @@ function withNetwork(path: string, network: NetworkId = ACTIVE_NETWORK_ID): stri
 export function apiFetch(
   path: string,
   init?: RequestInit,
-  network: NetworkId = ACTIVE_NETWORK_ID
+  network: ArcNetworkId = ACTIVE_NETWORK_ID
 ): Promise<Response> {
   return fetch(withNetwork(path, network), init);
 }

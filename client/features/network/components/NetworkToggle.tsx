@@ -1,23 +1,30 @@
 "use client";
 
-import { NETWORK_IDS, getNetworkConfig, type NetworkId } from "@/config";
-import { useNetwork } from "@/features/network/NetworkContext";
+import type { ArcNetworkId } from "@/lib/network";
+import { networkView, useNetwork } from "@/features/network/NetworkContext";
 
 /**
  * Navbar segmented control for switching venue.
  *
- * Colour carries the safety signal: mainnet green (real funds), testnet amber
- * (play money) — matching the long/warning hues already used on the order
- * ticket, so the cue is one the user has already learned elsewhere in the app.
+ * Colour carries the safety signal: mainnet green (real funds), testnet and
+ * local amber (play money) — matching the long/warning hues already used on
+ * the order ticket, so the cue is one the user has already learned elsewhere.
+ *
+ * Renders nothing when the deployment offers a single venue: a production build
+ * sets `NEXT_PUBLIC_KRYON_NETWORKS=arc-mainnet`, and a one-button "toggle"
+ * invites a click that does nothing.
  */
 
-const ACCENT: Record<NetworkId, { dot: string; text: string; bg: string; ring: string }> = {
-  mainnet: { dot: "#46d985", text: "#46d985", bg: "rgba(70,217,133,0.12)", ring: "rgba(70,217,133,0.35)" },
-  testnet: { dot: "#ff9440", text: "#ff9440", bg: "rgba(255,148,64,0.12)", ring: "rgba(255,148,64,0.35)" },
+const ACCENT: Record<ArcNetworkId, { dot: string; text: string; bg: string; ring: string }> = {
+  "arc-mainnet": { dot: "#46d985", text: "#46d985", bg: "rgba(70,217,133,0.12)", ring: "rgba(70,217,133,0.35)" },
+  "arc-testnet": { dot: "#ff9440", text: "#ff9440", bg: "rgba(255,148,64,0.12)", ring: "rgba(255,148,64,0.35)" },
+  "arc-local": { dot: "#ff9440", text: "#ff9440", bg: "rgba(255,148,64,0.12)", ring: "rgba(255,148,64,0.35)" },
 };
 
 export function NetworkToggle({ className = "" }: { className?: string }) {
-  const { network, switching, switchNetwork } = useNetwork();
+  const { network, available, switching, switchNetwork } = useNetwork();
+
+  if (available.length < 2) return null;
 
   return (
     <div
@@ -25,10 +32,10 @@ export function NetworkToggle({ className = "" }: { className?: string }) {
       aria-label="Network"
       className={`flex items-center gap-[2px] rounded-[7px] border border-[#2A2A31] bg-[#19191A] p-[2px] ${className}`}
     >
-      {NETWORK_IDS.map((id) => {
+      {available.map((id) => {
         const active = id === network;
         const accent = ACCENT[id];
-        const cfg = getNetworkConfig(id);
+        const cfg = networkView(id);
         return (
           <button
             key={id}

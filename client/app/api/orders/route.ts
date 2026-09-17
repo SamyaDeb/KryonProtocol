@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, withRetry } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
-import { getNetworkConfig } from "@/config/networks";
+// LEGACY: the signature these routes verify is an old-chain signed message,
+// so its passphrase comes from the old chain's registry — which the Arc
+// network id cannot name. Step 3 replaces this with EIP-712 verification
+// against the OrderGateway domain and both lines go away together.
+import { getNetworkConfig } from "@/lib/stellar/legacy-config";
+import { legacyNetworkFromRequest } from "@/lib/stellar/legacy-network-server";
 import { validateOrderIntent } from "@/lib/validation";
 import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
 
@@ -32,7 +37,10 @@ export async function POST(req: NextRequest) {
   // Validate before touching the DB — keeps malformed/abusive intents out of
   // the orderbook and the matcher.
   const network = networkFromRequest(req);
-  const result = validateOrderIntent(body, getNetworkConfig(network).passphrase);
+  const result = validateOrderIntent(
+    body,
+    getNetworkConfig(legacyNetworkFromRequest(req)).passphrase
+  );
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }

@@ -25,7 +25,7 @@ import {
   rpc as sorobanRpc,
   xdr,
 } from "@stellar/stellar-sdk";
-import { CONTRACTS, NETWORK } from "../config";
+import { CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 
 const FEE = "1000000";
 

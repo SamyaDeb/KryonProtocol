@@ -23,7 +23,7 @@ import {
   scValToNative,
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
-import { ASSETS, CONTRACTS, NETWORK } from "../config";
+import { ASSETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 
 type NeonSql = (strings: TemplateStringsArray, ...params: unknown[]) => Promise<Record<string, unknown>[]>;
 

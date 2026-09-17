@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, withRetry } from "@/lib/db";
-import { getWsUrl } from "@/config";
+import { getWsUrl } from "@/lib/network";
+import { listActiveMarkets } from "@/lib/queries/markets";
 import { networkFromRequest } from "@/lib/network-server";
 
 export async function GET(req: NextRequest) {
@@ -8,26 +9,25 @@ export async function GET(req: NextRequest) {
   try {
     const sql = db(network);
 
-    // `markets` is read from the database, NOT from ACTIVE_MARKET_SYMBOLS.
+    // `markets` is read from the database, never from a config list.
     //
-    // The config list is resolved at module scope from ACTIVE_NETWORK_ID,
-    // which on the server is the deployment's PRIMARY network — so it ignored
-    // the caller's `?network=` entirely — and it describes the markets the
-    // deployment *intends* to list rather than the ones actually registered.
-    // Together that made mainnet advertise all 8 symbols while only XLM-PERP
-    // was registered, so anything enumerating markets from this endpoint got
-    // a 404 on the other seven. A readiness probe that reports markets which
-    // do not exist is worse than one that reports none.
-    const rows = await withRetry(
-      () => sql`SELECT symbol FROM "Market" WHERE active = true ORDER BY id ASC`,
-      2
-    );
+    // A config list is resolved at module scope from the deployment's PRIMARY
+    // network — so it ignores the caller's `?network=` entirely — and it
+    // describes the markets the deployment *intends* to list rather than the
+    // ones actually registered. Together that made mainnet advertise all 8
+    // symbols while only one was registered, so anything enumerating markets
+    // from this endpoint got a 404 on the other seven. A readiness probe that
+    // reports markets which do not exist is worse than one reporting none.
+    //
+    // The query is network-scoped: every Arc table is keyed by network, and an
+    // unfiltered read here would list the other venue's markets.
+    const markets = await withRetry(() => listActiveMarkets(sql, network), 2);
 
     return NextResponse.json(
       {
         ok: true,
         network,
-        markets: rows.map((r) => String(r.symbol)),
+        markets: markets.map((m) => m.symbol),
         websocketConfigured: Boolean(getWsUrl(network)),
         timestamp: new Date().toISOString(),
       },

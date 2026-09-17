@@ -2,7 +2,7 @@
 // payloads out of the DB and the matcher. Pure functions — no I/O.
 
 import { StrKey } from "@stellar/stellar-sdk";
-import { ACTIVE_MARKETS, AMOUNT_PRECISION, PRICE_PRECISION } from "@/config";
+import { ACTIVE_MARKETS, AMOUNT_PRECISION, PRICE_PRECISION } from "@/lib/stellar/legacy-config";
 import { assertU64, orderSettlementMessage, pubkeyHexFromAddress } from "@/lib/market/signing-message";
 import { verifySignedMessage } from "@/lib/market/signed-intent";
 

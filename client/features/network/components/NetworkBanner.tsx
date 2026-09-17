@@ -1,7 +1,6 @@
 "use client";
 
-import { getNetworkConfig } from "@/config";
-import { useNetwork } from "@/features/network/NetworkContext";
+import { networkView, useNetwork } from "@/features/network/NetworkContext";
 
 /**
  * Warns when the selected venue has no keepers behind it.
@@ -11,20 +10,21 @@ import { useNetwork } from "@/features/network/NetworkContext";
  * quiet market. A trader could place an order and wait indefinitely for a match
  * that nothing is running to produce. Say so explicitly instead.
  *
- * Driven by `NEXT_PUBLIC_{MAINNET,TESTNET}_KEEPERS_LIVE`; see config/networks.ts.
+ * Driven by `NEXT_PUBLIC_ARC_{MAINNET,TESTNET,LOCAL}_KEEPERS_LIVE`; see lib/network.ts.
  */
 export function NetworkBanner() {
-  // From context (server-seeded), never the module-scope `KEEPERS_EXPECTED`:
-  // that const is the deployment's own network during SSR, which would render
-  // the banner for the wrong venue and hydrate-mismatch.
-  const { config, switchNetwork } = useNetwork();
+  // From context (server-seeded), never a module-scope constant: that would be
+  // the deployment's own network during SSR, which would render the banner for
+  // the wrong venue and hydrate-mismatch.
+  const { config, available, switchNetwork } = useNetwork();
   if (config.keepersExpected) return null;
 
-  // Never hardcode the destination: whichever venue is dead, the live one is
-  // the *other* one. Writing "switch to Mainnet" into the copy made the banner
-  // tell a mainnet user to switch to mainnet.
-  const other = getNetworkConfig(config.id === "mainnet" ? "testnet" : "mainnet");
-  const otherIsLive = other.keepersExpected;
+  // Never hardcode the destination: whichever venue is dead, a live one is some
+  // *other* one. Writing "switch to Mainnet" into the copy made the banner tell
+  // a mainnet user to switch to mainnet. With three possible ids the
+  // destination has to be searched for, not derived from a two-way flip.
+  const other = available.map(networkView).find((n) => n.id !== config.id && n.keepersExpected);
+  const otherIsLive = other !== undefined;
 
   return (
     <div
@@ -48,7 +48,7 @@ export function NetworkBanner() {
             to trade.
           </>
         ) : (
-          "Trading is unavailable on both networks right now."
+          "Trading is unavailable on every venue this deployment offers right now."
         )}
       </span>
     </div>

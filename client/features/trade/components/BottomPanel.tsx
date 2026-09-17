@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocalOrders } from "@/stores/orders";
 import { getPositions } from "@/lib/stellar/contracts";
-import { ACTIVE_MARKETS } from "@/config";
+import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 import { useOrderReconciliation } from "@/features/trade/hooks/useOrderReconciliation";
 import { PositionsTable } from "./PositionsTable";
 import { OpenOrdersTable } from "./OpenOrdersTable";

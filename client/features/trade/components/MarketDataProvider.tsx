@@ -11,7 +11,7 @@ import {
   wsDisconnect,
   wsReset,
 } from "@/lib/market/websocket";
-import { ACTIVE_MARKETS, MARKETS, PRICE_PRECISION, type MarketConfig } from "@/config";
+import { ACTIVE_MARKETS, MARKETS, PRICE_PRECISION, type MarketConfig } from "@/lib/stellar/legacy-config";
 import type { OrderBook, RecentTrade } from "@/lib/market/matcher";
 import { apiFetch } from "@/lib/api";
 

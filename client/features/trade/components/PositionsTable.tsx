@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWalletStore } from "@/stores/wallet";
 import { useMarketStore } from "@/stores/market";
 import { getPositions, getAccountHealth, RawPosition } from "@/lib/stellar/contracts";
-import { MARKETS } from "@/config";
+import { MARKETS } from "@/lib/stellar/legacy-config";
 import { priceToHuman, amountToHuman, formatMarketUsd, formatMarketSize } from "@/lib/format";
 import { buildOrderIntent } from "@/lib/market/order-intent";
 import { submitOrder } from "@/lib/market/matcher";

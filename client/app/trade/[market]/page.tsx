@@ -1,4 +1,4 @@
-import { ACTIVE_MARKETS, DEFAULT_MARKET_SYMBOL } from "@/config";
+import { ACTIVE_MARKETS, DEFAULT_MARKET_SYMBOL } from "@/lib/stellar/legacy-config";
 import { redirect } from "next/navigation";
 import { MarketDataProvider } from "@/features/trade/components/MarketDataProvider";
 import { SettlementModal } from "@/features/trade/components/SettlementModal";

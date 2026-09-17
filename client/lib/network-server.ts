@@ -4,13 +4,26 @@
  * Module-scope constants cannot carry a per-request value on the server — the
  * Node process is shared across every caller — so server code must resolve the
  * network from the request itself and thread it through explicitly. That is why
- * `NETWORK` / `CONTRACTS` from `@/config` are the *deployment's* network on the
+ * `ACTIVE_NETWORK_ID` from `@/lib/network` is the *deployment's* network on the
  * server and must not be used to answer a request.
+ *
+ * Server-side only: this module reads the filesystem and `next/headers`.
  */
 
+import { readFileSync } from "node:fs";
 import type { NextRequest } from "next/server";
-import { getNetworkConfig, PRIMARY_NETWORK, type NetworkConfig, type NetworkId } from "@/config/networks";
-import { coerceNetwork, NETWORK_COOKIE, NETWORK_PARAM } from "@/lib/network-resolve";
+
+import {
+  arcNetwork,
+  coerceNetwork,
+  NETWORK_COOKIE,
+  NETWORK_PARAM,
+  PRIMARY_NETWORK,
+  type ArcNetwork,
+  type ArcNetworkId,
+} from "@/lib/network";
+import { contractsFromDeploymentJson, type ProtocolContracts } from "@/lib/chain/networks";
+import { serverContracts } from "@/lib/chain/contracts-env";
 
 /**
  * Resolve the caller's network.
@@ -18,9 +31,11 @@ import { coerceNetwork, NETWORK_COOKIE, NETWORK_PARAM } from "@/lib/network-reso
  * Precedence matches the client: explicit `?network=` (what `apiFetch` sends on
  * every call) → the `kryon_network` cookie → the deployment default. An
  * unrecognised value falls back rather than erroring, so a stale bookmark
- * degrades to the default venue instead of a 500.
+ * degrades to the default venue instead of a 500 — and a network this
+ * deployment does not offer is unrecognised, because `coerceNetwork` applies
+ * the allowlist.
  */
-export function networkFromRequest(req: NextRequest): NetworkId {
+export function networkFromRequest(req: NextRequest): ArcNetworkId {
   const fromQuery = req.nextUrl.searchParams.get(NETWORK_PARAM);
   if (fromQuery) return coerceNetwork(fromQuery);
   return coerceNetwork(req.cookies.get(NETWORK_COOKIE)?.value);
@@ -50,36 +65,10 @@ export function networkAwareCacheControl(req: NextRequest, sharedValue: string):
   return networkIsExplicit(req) ? sharedValue : "private, no-store";
 }
 
-/** The resolved network's full config (contracts, RPC, passphrase, explorer). */
-export function networkConfigFromRequest(req: NextRequest): NetworkConfig {
-  return getNetworkConfig(networkFromRequest(req));
+/** The resolved network's registry entry (chain id, RPC, explorer, USDC). */
+export function arcNetworkFromRequest(req: NextRequest): ArcNetwork {
+  return arcNetwork(networkFromRequest(req));
 }
-
-/**
- * The matcher operator secret for a network.
- *
- * Each network has its own funded operator account — the mainnet operator's key
- * is meaningless on testnet and vice versa — so the secret is per-network.
- * `MATCHER_OPERATOR_SECRET` (unsuffixed) is the legacy single-network var and
- * belongs to the deployment's primary network, so existing deployments are
- * unaffected.
- *
- * Returns undefined rather than throwing so the caller can answer with its own
- * 500 shape; it deliberately never falls back to the other network's key, which
- * would sign a settlement with an account that cannot pay on the target chain.
- */
-export function matcherOperatorSecret(network: NetworkId): string | undefined {
-  const explicit =
-    network === "mainnet"
-      ? process.env.MATCHER_OPERATOR_SECRET_MAINNET
-      : process.env.MATCHER_OPERATOR_SECRET_TESTNET;
-  if (explicit) return explicit;
-  if (network === PRIMARY_NETWORK) return process.env.MATCHER_OPERATOR_SECRET;
-  return undefined;
-}
-
-export { PRIMARY_NETWORK };
-export type { NetworkId, NetworkConfig };
 
 /**
  * The network for a Server Component render, from the request cookie.
@@ -91,8 +80,65 @@ export type { NetworkId, NetworkConfig };
  * degraded-venue banner) renders identically on server and client and never
  * hydrate-mismatches.
  */
-export async function networkFromCookies(): Promise<NetworkId> {
+export async function networkFromCookies(): Promise<ArcNetworkId> {
   const { cookies } = await import("next/headers");
   const store = await cookies();
   return coerceNetwork(store.get(NETWORK_COOKIE)?.value);
 }
+
+// ─── Contracts ───────────────────────────────────────────────────────────────
+
+/**
+ * Deployment records are per network, because the addresses are. A deployment
+ * serving two venues points each at its own record; `KRYON_DEPLOYMENT_FILE`
+ * (unsuffixed) belongs to the primary network, mirroring `DATABASE_URL`.
+ *
+ * There is no baked default and no cross-network fallback: answering a testnet
+ * request with mainnet addresses would have the UI quote real vault state
+ * against a venue the caller is not trading on, and would have any signed
+ * payload carry the wrong `verifyingContract`.
+ */
+function deploymentFileFor(network: ArcNetworkId): string | undefined {
+  const explicit =
+    network === "arc-mainnet"
+      ? process.env.KRYON_DEPLOYMENT_FILE_ARC_MAINNET
+      : network === "arc-testnet"
+        ? process.env.KRYON_DEPLOYMENT_FILE_ARC_TESTNET
+        : process.env.KRYON_DEPLOYMENT_FILE_ARC_LOCAL;
+  if (explicit) return explicit;
+  return network === PRIMARY_NETWORK ? process.env.KRYON_DEPLOYMENT_FILE : undefined;
+}
+
+const contractCache = new Map<ArcNetworkId, ProtocolContracts>();
+
+/**
+ * Protocol contract addresses for a network.
+ *
+ * Cached per network: reading and parsing a deployment record on every request
+ * is wasted work, and the file cannot change under a running process without a
+ * redeploy. `contractsFromDeploymentJson` asserts the record's chain id matches,
+ * so a record for the wrong chain fails here rather than at signing time.
+ */
+export function contractsForNetwork(network: ArcNetworkId): ProtocolContracts {
+  const cached = contractCache.get(network);
+  if (cached) return cached;
+
+  const chain = arcNetwork(network);
+  const file = deploymentFileFor(network);
+  const contracts = file
+    ? contractsFromDeploymentJson(readFileSync(file, "utf8"), chain.chainId)
+    : // No per-network record: fall back to the CONTRACT_* variables, which are
+      // single-network by construction and therefore only valid for the network
+      // this process was configured for.
+      serverContracts(chain);
+
+  contractCache.set(network, contracts);
+  return contracts;
+}
+
+export function contractsFromRequest(req: NextRequest): ProtocolContracts {
+  return contractsForNetwork(networkFromRequest(req));
+}
+
+export { PRIMARY_NETWORK };
+export type { ArcNetworkId, ArcNetwork, ProtocolContracts };

@@ -66,7 +66,7 @@ import {
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
 import { createHash } from "node:crypto";
-import { CONTRACTS, NETWORK } from "../config";
+import { CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 import { assertNoPublicSecretLeak, assertRequiredSecrets } from "../lib/secrets-check";
 
 assertRequiredSecrets(["GOVERNANCE_ADMIN_SECRET"]);

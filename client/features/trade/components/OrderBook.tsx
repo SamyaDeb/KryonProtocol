@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMarketStore } from "@/stores/market";
 import type { OrderBookLevel } from "@/lib/market/matcher";
 import { UsdcLogo, logoFor } from "@/components/common/AssetLogos";
-import type { MarketConfig } from "@/config";
+import type { MarketConfig } from "@/lib/stellar/legacy-config";
 import { Shuffle } from "lucide-react";
 const CaretIcon = () => (
   <svg width={9} height={9} viewBox="0 0 12 12" fill="currentColor">

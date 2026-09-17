@@ -8,7 +8,7 @@ import { Menu, X } from "lucide-react";
 import { WalletConnect } from "@/features/wallet/components/WalletConnect";
 import { NotificationBell } from "@/features/navbar/components/NotificationBell";
 import { SettingsMenu } from "@/features/navbar/components/SettingsMenu";
-import { DEFAULT_MARKET_SYMBOL } from "@/config";
+import { DEFAULT_MARKET_SYMBOL } from "@/lib/stellar/legacy-config";
 import { NetworkToggle } from "@/features/network/components/NetworkToggle";
 import { NetworkBanner } from "@/features/network/components/NetworkBanner";
 

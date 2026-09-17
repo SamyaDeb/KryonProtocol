@@ -9,7 +9,7 @@ import { getBalance, getTokenBalance } from "@/lib/stellar/contracts";
 import { getOraclePrice } from "@/lib/stellar/oracle";
 import { listVaultCollateral, type ListedCollateral } from "@/lib/stellar/collateral";
 import { amountToHuman } from "@/lib/format";
-import { PRICE_PRECISION } from "@/config";
+import { PRICE_PRECISION } from "@/lib/stellar/legacy-config";
 
 export interface CollateralPosition extends ListedCollateral {
   /** Vault balance in contract units. Negative means the vault is owed. */

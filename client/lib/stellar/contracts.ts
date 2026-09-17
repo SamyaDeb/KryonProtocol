@@ -1,6 +1,6 @@
 "use client";
 
-import { CONTRACTS, ASSETS } from "@/config";
+import { CONTRACTS, ASSETS } from "./legacy-config";
 import { simulateRead, invokeContract } from "./invoke";
 import { addressToScVal, u32ToScVal, i128ToScVal, scValToI128 } from "./scval";
 import { rpc } from "@stellar/stellar-sdk";

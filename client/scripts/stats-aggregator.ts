@@ -13,7 +13,7 @@
  */
 
 import { neon, type NeonQueryFunction } from "../lib/sql";
-import { NETWORK } from "../config";
+import { NETWORK } from "@/lib/stellar/legacy-config";
 
 type Sql = NeonQueryFunction<false, false>;
 const PERIODS = [

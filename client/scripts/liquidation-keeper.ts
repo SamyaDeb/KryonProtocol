@@ -34,7 +34,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { StrKey } from "@stellar/stellar-sdk";
 import { neon, type NeonQueryFunction } from "../lib/sql";
-import { ACTIVE_MARKETS, ASSETS, CONTRACTS, NETWORK } from "../config";
+import { ACTIVE_MARKETS, ASSETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 import { closeSizeLadder } from "../lib/market/liquidation-sizing";
 import { assertNoPublicSecretLeak, assertRequiredSecrets } from "../lib/secrets-check";
 

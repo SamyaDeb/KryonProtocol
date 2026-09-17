@@ -1,4 +1,5 @@
-// Registry invariants over MARKETS. Run: npm run test:config
+// LEGACY — registry invariants over the old chain's MARKETS table.
+// The Arc equivalent is lib/markets.test.ts, over MARKET_DISPLAY.
 //
 // On `max_leverage_bps`: the contracts do NOT enforce its relationship to
 // `initial_margin_bps`. validate_engine_market (perp-engine/src/lib.rs) never
@@ -14,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MARKETS, type MarketConfig } from "./index";
+import { MARKETS, type MarketConfig } from "./legacy-config";
 
 const entries = Object.entries(MARKETS);
 

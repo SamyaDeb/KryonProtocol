@@ -8,9 +8,13 @@
  * viem ships `arc` / `arcTestnet` chain definitions, but their default RPC
  * hosts (`*.arc.network`) differ from the ones Arc documents (`*.arc.io`), so
  * we define the chains from this registry rather than trusting those defaults.
+ *
+ * This module is BROWSER-SAFE and must stay that way: the UI resolves chain ids
+ * and explorer URLs through `@/lib/network`, which re-exports from here. The
+ * one function that read a deployment file lives in `./contracts-env.ts`, since
+ * a `node:fs` import anywhere in this graph fails the client build outright.
  */
 
-import { readFileSync } from "node:fs";
 import { getAddress, type Address } from "viem";
 
 /** Environment lookup; `process.env` in services, a plain object in tests. */
@@ -109,7 +113,8 @@ export interface ProtocolContracts {
   timelock: Address;
 }
 
-const CONTRACT_KEYS: Record<keyof ProtocolContracts, { env: string; json: string }> = {
+/** Exported for `./contracts-env.ts`; not part of the public surface. */
+export const CONTRACT_KEYS: Record<keyof ProtocolContracts, { env: string; json: string }> = {
   vault: { env: "CONTRACT_VAULT", json: "vault" },
   engine: { env: "CONTRACT_ENGINE", json: "engine" },
   orderGateway: { env: "CONTRACT_ORDER_GATEWAY", json: "gateway" },
@@ -141,36 +146,6 @@ export function contractsFromDeploymentJson(json: string, expectedChainId: numbe
     const raw = key === "timelock" ? record.timelock : record.proxies?.[names.json];
     if (!raw) throw new Error(`deployment record is missing "${names.json}"`);
     out[key] = getAddress(raw);
-  }
-  return out;
-}
-
-/**
- * Server-side contract addresses. `KRYON_DEPLOYMENT_FILE` (a deployment
- * record) wins; otherwise every `CONTRACT_*` variable must be set. There is no
- * baked default: pointing a keeper at the wrong vault is worse than not starting.
- */
-export function serverContracts(
-  network: ArcNetwork,
-  env: Env = process.env
-): ProtocolContracts {
-  if (env.KRYON_DEPLOYMENT_FILE) {
-    return contractsFromDeploymentJson(readFileSync(env.KRYON_DEPLOYMENT_FILE, "utf8"), network.chainId);
-  }
-  const out = {} as ProtocolContracts;
-  const missing: string[] = [];
-  for (const [key, names] of Object.entries(CONTRACT_KEYS) as [keyof ProtocolContracts, { env: string }][]) {
-    const raw = env[names.env];
-    if (!raw) {
-      missing.push(names.env);
-      continue;
-    }
-    out[key] = getAddress(raw);
-  }
-  if (missing.length > 0) {
-    throw new Error(
-      `Contract addresses for ${network.id} are not configured. Set KRYON_DEPLOYMENT_FILE or: ${missing.join(", ")}`
-    );
   }
   return out;
 }

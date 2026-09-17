@@ -18,7 +18,7 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import { neon } from "../lib/sql";
-import { ACTIVE_MARKETS } from "../config";
+import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 
 const PORT = parseInt(process.env.PORT ?? "8080", 10);
 const BROADCAST_INTERVAL_MS = 1_000;

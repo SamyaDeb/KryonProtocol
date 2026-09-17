@@ -1,4 +1,4 @@
-import { MARKETS, type MarketConfig } from "@/config";
+import { MARKETS, type MarketConfig } from "@/lib/stellar/legacy-config";
 import { logoFor } from "@/components/common/AssetLogos";
 
 /**

@@ -8,7 +8,7 @@ type CheckResult = {
 // On testnet the WS server runs locally — allow ws: as well as wss:
 const IS_TESTNET = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "testnet";
 
-import { ACTIVE_MARKETS } from "../config";
+import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 
 const APP_URL = requiredUrl("NEXT_PUBLIC_APP_URL", process.env.NEXT_PUBLIC_APP_URL);
 const WS_URL = requiredWsUrl("NEXT_PUBLIC_WS_URL", process.env.NEXT_PUBLIC_WS_URL);

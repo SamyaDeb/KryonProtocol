@@ -4,7 +4,7 @@
 // tested — the keeper module asserts on secrets at import time and cannot be
 // loaded from a test.
 
-import { PRICE_PRECISION } from "@/config";
+import { PRICE_PRECISION } from "@/lib/stellar/legacy-config";
 
 /**
  * Extra margin over the bare shortfall arithmetic.
