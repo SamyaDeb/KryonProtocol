@@ -68,3 +68,21 @@ vercel --yes --prod --scope <VERCEL_TEAM>
 - Oracle keeper publishes every 8s; contract guard max_age is 60s — 7x headroom
 - Monitor alerts at 60s staleness (1 missed publish cycle headroom)
 - Ensure oracle keeper Railway service has auto-restart on failure enabled
+
+## Arc: stale feeds block withdrawals (hard requirement)
+
+On Arc, `Engine` values every position an account holds at the oracle index. If **any** market the
+account holds has a stale, too-uncertain or inactive feed, that account can't withdraw, trade, or be
+liquidated. This fail-closed behaviour is intended.
+
+- **The oracle keeper must publish every feed whose market has open interest > 0, including
+  inactive markets.** Deactivating a market in `RiskParams` doesn't stop the keeper's obligation.
+- **Monitor:** alert when any feed with OI > 0 is older than `maxAge / 2` (7.5s on mainnet).
+- **Delisting a market:** first reduce its OI to 0 (reduce-only trading, liquidations, backstop
+  unwind). Only then deactivate its feed with `OracleAdapter.setFeed(id, active = false)`.
+  Never deactivate a feed while any position is open.
+- **Recovery after an outage:** once publishers are back, the first update that passes quorum,
+  spread and the reference check re-anchors the feed (`PriceReanchored` event), even if the price
+  moved more than `maxJumpBps` during the outage. Check the re-anchored price against the
+  reference before re-opening the matcher.
+- `99_VerifyDeployment` fails if any configured market's feed isn't listed and active.

@@ -163,3 +163,67 @@ so that database should be rotated or retired.
 | `<HOSTING_PROVIDER>`, `<DB_PROVIDER>`, `<VERCEL_TEAM>` | runbooks |
 | `<SECURITY_CONTACT>` | root README |
 | Service key variable names | env examples, as services are ported |
+
+## Integration (2026-09-17)
+
+### Why there were two copies
+
+The repository setup above was done in a fresh workspace from commit
+`43a7063`. Meanwhile the former local checkout kept going and gained 16 more
+commits on its `master`: the contract review fixes FIX 1–9 (merge `18ed19d`),
+the Arc Prisma baseline and `PgTxJobStore` (`b86dfbe`), the protocol indexer
+(`da5f8db`, `49b79f2`) and regenerated ABIs (`380eb89`). Each copy had work the
+other lacked.
+
+### Merge
+
+Those commits were fetched as `import/arc-work` and merged into
+`integrate/arc-work` with `--no-ff` (merge commit `eeadae1`), keeping every
+commit from both lines. Nothing published was rebased or squashed.
+
+| Path | Result |
+|---|---|
+| `.gitignore` | Conflict. Union: the `docs/engineering/PROTOCOL_PLAN.md` reference from this repo, and the fuller `/lib/` comment from the fixes |
+| `kryon-protocol/prisma/README.md` | Conflict. The Arc baseline README (databases per environment, conventions, migrations, tests), plus the placeholder connection-string setup step. No real hosts |
+| `ARC_MIGRATION_PLAN.md` → `docs/engineering/PROTOCOL_PLAN.md`, `MIGRATION_PROGRESS.md` → `docs/engineering/BUILD_LOG.md` | Rename detected, merged cleanly. All 49 and 60 added lines are present; no root copies. One absolute path to the old checkout in BUILD_LOG was made neutral |
+| `Gas.t.sol`, `Invariants.t.sol`, `FeeRouter.t.sol`, `client/lib/chain/tx-sender.test.ts` | Merged cleanly; the renamed doc references and the scoped `no-this-alias` disable are kept |
+| `kryon-protocol/prisma/migrations/` | The four legacy migrations are deleted; only `20260917000000_arc_baseline` remains |
+| Legacy deploy records, workflows, budget/rpc docs, `.mailmap`, `ARC_MIGRATION_PROMPT.md` | Stay deleted (the fixes line did not touch them) |
+| `kryon-protocol/evm/src/**`, `script/**`, `storage-layout/**`, `client/lib/chain/**`, `client/lib/indexer/**` | Taken from the fixes line (no competing edits) |
+| Env templates | Arc-only templates kept; added `INDEXER_START_BLOCK`, `INDEXER_POLL_MS`, `INDEXER_MAX_WINDOW` (local, testnet, mainnet) and `KRYON_TEST_DATABASE_URL` (local). Names only |
+
+### Moved and archived
+
+| What | Where |
+|---|---|
+| `git bundle --all` of the former checkout at `49b79f2` (verified) | `~/Kryon-archive/kryon-arc-downloads-49b79f2.bundle` |
+| The now-stale Phase 1 hardening prompt (FIX 1–9 already applied) | `~/Kryon-archive/stale-prompts/` |
+| Auditor RFQ email draft (private outreach) | `~/Kryon-archive/private/` |
+| `PRODUCTION_ROADMAP.md` (newest status) | `docs/engineering/PRODUCTION_ROADMAP.md`, with Phase 0 corrected (§1.1 rows F and I, §2, Phase 0 status, §7) |
+| `ARC_FIXES_PROMPT.md` | Not committed: it differs from `docs/engineering/prompts/CONTRACT_FIXES_PROMPT.md` only in pre-move paths. Two absolute paths in the committed prompt were made repo-relative |
+| `REPO_SETUP_PROMPT.md` | Not committed: identical to the archived copy |
+
+### Verification
+
+Run on `integrate/arc-work` after the merge.
+
+| Check | Result |
+|---|---|
+| Separation guard pattern (exact `ci.yml` PATTERN over tracked files) | no matches |
+| Tracked files named like secrets/keys/env/tarballs | only `*.example` and `client/lib/secrets-check.ts` |
+| PEM private keys, legacy-format secret seeds | none |
+| New 64-hex constants from the merge | one ERC-7201 storage slot (`KryonUpgradeable.sol`) |
+| gitleaks | not installed |
+| `arc-forge build --sizes` | ok; largest runtime is Engine at 22,821 B (1,755 B margin) |
+| `arc-forge test` | 258 passed, 0 failed, 0 skipped (was 224 before the merge) |
+| `script/storage-layout.sh --check` | storage layouts unchanged |
+| `cargo test --workspace --locked` | 19 passed |
+| Differential fuzz vs `kryon-ref` | 9 passed (5,000 runs each) |
+| Slither 0.11.6 (arc-forge build, High/Medium) | 0 results, 76 contracts |
+| `npm ci`, `npx tsc --noEmit` | ok |
+| `npm test` without a database | 81 tests: 80 pass, 1 skipped, 0 fail |
+| `npm test` with `KRYON_TEST_DATABASE_URL` | 92 tests: 91 pass, 1 skipped, 0 fail. The database was a throwaway local Postgres 16 cluster (baseline SQL applied with `psql`, deleted afterwards). The skip is the arc-anvil EIP-712 parity test |
+| `npm run lint` | 0 errors, 5 warnings |
+| `npm run build` | ok |
+| `prisma validate` (6.8.2) | valid |
+| Coverage | not re-run |

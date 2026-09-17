@@ -1,4 +1,4 @@
-You are fixing review findings in **Kryon**, a perpetual-futures DEX being built on **Arc** (Circle's EVM L1: chain ID 5042 on mainnet, 5042002 on testnet; USDC is the gas token). The repo is at `/Users/samya/Desktop/Kryon`.
+You are fixing review findings in **Kryon**, a perpetual-futures DEX being built on **Arc** (Circle's EVM L1: chain ID 5042 on mainnet, 5042002 on testnet; USDC is the gas token). Paths below are relative to the repository root.
 
 **Nothing is deployed.** Storage layouts, ABIs and config can still change freely. When they do, update the storage-layout snapshots and deploy config in the same commit.
 
@@ -253,7 +253,7 @@ This fail-closed behaviour is intended. Record it as a hard ops requirement in t
 
 ### FIX 9 (Housekeeping)
 
-`/Users/samya/Desktop/Kryon/lib/openzeppelin-contracts-upgradeable` at the **repo root** is a stray copy; the real dependency is `kryon-protocol/evm/lib/openzeppelin-contracts-upgradeable`.
+`lib/openzeppelin-contracts-upgradeable` at the **repo root** is a stray copy; the real dependency is `kryon-protocol/evm/lib/openzeppelin-contracts-upgradeable`.
 1. Confirm nothing references the root copy: `grep -rn "\.\./\.\./lib\|^lib/" --include=*.toml --include=*.txt --include=*.json .` and check the remappings.
 2. Delete it, and add `/lib/` to the root `.gitignore`.
 

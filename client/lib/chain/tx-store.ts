@@ -7,8 +7,8 @@
  * broadcast, so after a crash the reconciler can find and finish every
  * transaction that might be in flight.
  *
- * The Postgres implementation arrives with the Step 4 schema; services
- * use `MemoryTxJobStore` until then, and tests always do.
+ * Production services use `PgTxJobStore` (tx-store-pg.ts) over the `TxJob`
+ * table; `MemoryTxJobStore` is for tests.
  */
 
 import type { Address, Hex } from "viem";

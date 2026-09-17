@@ -1,58 +1,69 @@
 # Prisma / Postgres Persistence
 
-This schema is the production persistence boundary for the matcher, indexer,
-keepers, deployment registry, transaction queue, and audit package.
+The persistence boundary for the matcher, indexer, keepers, TxSender,
+deployment registry and analytics of Kryon on Arc (plan §9, roadmap Phase 2).
 
-Amounts use strings instead of JavaScript `number` or database floats. That is
-intentional: protocol values are signed fixed-point integers and must round-trip
-exactly with 18-decimal precision.
+## Databases
 
-## Database Setup
+One database per environment, never shared:
 
-1. Copy `.env.example` to `.env`.
-2. Set `DATABASE_URL` and `DIRECT_URL` to your Postgres connection strings, e.g.
-   `postgresql://USER:PASSWORD@HOST:5432/kryon?sslmode=require`.
-3. Run:
+| Environment | Database | `network` value |
+|---|---|---|
+| local (arc-anvil) | `kryon_local` | `arc-local` |
+| staging (Arc testnet) | `kryon_staging` | `arc-testnet` |
+| production (Arc mainnet) | `kryon_prod` | `arc-mainnet` |
+
+## Conventions
+
+- **Integers** from the chain are stored exactly, as `NUMERIC(78,0)` (fits every
+  uint256/int256). Each column comments its unit: `1e18` (internal ledger,
+  prices, sizes, funding indices), `1e6` (USDC token units) or wei (18-decimal
+  native USDC gas). The analytics tables (`TraderStat`, `PortfolioSnapshot`,
+  `AccountAnalytics`, `LeaderboardSnapshot`) use 1e6 and can be truncated and
+  rebuilt.
+- **Addresses** are lowercase `0x` + 40 hex; **hashes / bytes32** are lowercase
+  `0x` + 64 hex. CHECK constraints in the baseline migration reject anything
+  else, so writers must lowercase first.
+- **Log-derived rows** carry `(blockNumber, txHash, logIndex)` and are unique on
+  `(network, txHash, logIndex)`. `BalanceChange` and `PnlEvent` add
+  `(address, kind)` because one log can yield several rows.
+- **Cursor**: `BlockCursor` is updated in the same database transaction as the
+  rows derived from that block range. Arc finality is deterministic on
+  inclusion, so there is no reorg handling.
+- `TxJob` is one row per broadcast attempt (see `client/lib/chain/tx-store.ts`,
+  Postgres implementation `tx-store-pg.ts`).
+- Never store private keys, seeds, KMS plaintext or bearer tokens.
+
+## Migrations
+
+`20260917000000_arc_baseline` is a squashed baseline with no legacy history.
+The CHECK constraints appended to it are not expressible in `schema.prisma`, so
+Prisma's drift check does not see them. Keep them in hand-written SQL in future
+migrations too.
+
+Copy `.env.example` to `.env` and set `DATABASE_URL` and `DIRECT_URL`, e.g.
+`postgresql://USER:PASSWORD@HOST:5432/kryon?sslmode=require`. Then:
 
 ```bash
-npm install
+npm ci
 npm run db:generate
-npm run db:migrate:deploy
+DATABASE_URL=... DIRECT_URL=... npm run db:migrate:deploy
 ```
 
-For local schema iteration, use `npm run db:migrate:dev`. For early testnet
-without migrations, `npm run db:push` is acceptable, but do not use `db push`
-for mainnet schema changes.
+- `prisma migrate deploy` from CI is the only way staging and production
+  schemas change. No `db push`, no ad-hoc SQL.
+- New change: edit `schema.prisma`, run `npx prisma migrate dev --name <change>`
+  against a local database, commit the generated migration.
+- CI replays the migrations into an empty Postgres and diffs against
+  `schema.prisma`; any drift fails the build.
 
-## Operational Rules
+## Tests
 
-- `ProtocolEvent.replayKey` must be deterministic and unique per
-  `(network, ledger, tx_hash, topic, event_index)`.
-- `LedgerCursor` updates must happen in the same database transaction as event
-  inserts.
-- `TxJob` rows are idempotent by `(network, kind, payloadHash)`.
-- Do not store private keys, seeds, KMS plaintext material, or bearer tokens.
-
-## Production Migrations (single path)
-
-`prisma migrate deploy` is the ONLY sanctioned way to change the production
-schema. Never run ad-hoc SQL or one-off scripts against prod again — the
-2026-06 `signature` column was added that way and caused schema drift until
-the `20260705120000_add_order_signature` repair migration re-baselined it.
+The `TxJobStore` contract tests run against Postgres when given a migrated,
+disposable database (its `TxJob` table is truncated):
 
 ```bash
-# from kryon-protocol/, with prod credentials in the environment:
-DATABASE_URL=<pooled-url> DIRECT_URL=<direct-url> \
-  npx prisma migrate deploy
+createdb kryon_test
+(cd kryon-protocol && DATABASE_URL=postgresql://localhost:5432/kryon_test DIRECT_URL=$DATABASE_URL npx prisma migrate deploy)
+(cd client && KRYON_TEST_DATABASE_URL="postgresql://localhost:5432/kryon_test?sslmode=disable" npm test)
 ```
-
-- Pending as of 2026-07-05: run the command above once to record
-  `20260705120000_add_order_signature` on the production DB (its `ALTER TABLE
-  ... IF NOT EXISTS` is a no-op there — the column already exists).
-- Verify afterwards with `npx prisma migrate status` (expects "Database schema
-  is up to date").
-- CI (`.github/workflows/ci.yml`, prisma job) replays the migrations into an
-  empty postgres service container and diffs against `schema.prisma` — any
-  drift fails the build.
-- New schema changes: edit `schema.prisma`, run `npx prisma migrate dev
-  --name <change>` against a dev database, commit the generated migration.

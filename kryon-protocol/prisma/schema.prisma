@@ -1,3 +1,17 @@
+// Kryon on Arc: persistence baseline (plan §9, roadmap Phase 2).
+//
+// Conventions (enforced by CHECK constraints in the baseline migration, which
+// Prisma cannot express):
+//   - network is "arc-mainnet" | "arc-testnet" | "arc-local".
+//   - Addresses are lowercase 0x + 40 hex; bytes32 values are lowercase 0x + 64 hex.
+//   - On-chain integers are stored exactly as emitted, in NUMERIC(78,0), which
+//     holds every uint256/int256. Each column documents its unit:
+//       1e18 = protocol internal ledger / price / size / funding index
+//       1e6  = USDC token units (ERC-20 interface)
+//   - Every row derived from a log carries (blockNumber, txHash, logIndex).
+//     Arc finality is deterministic on inclusion, so there is no reorg handling;
+//     blockHash is kept on the cursor as a consistency check only.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,11 +22,36 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-enum TxStatus {
-  QUEUED
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Mirrors `TxJobStatus` in client/lib/chain/tx-store.ts.
+enum TxJobStatus {
+  PENDING
   SUBMITTED
+  REPLACED
   CONFIRMED
+  REVERTED
+  DROPPED
   FAILED
+}
+
+enum OrderStatus {
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  EXPIRED
+}
+
+enum FillStatus {
+  /// Matched off-chain, batch not yet confirmed.
+  PENDING
+  /// `FillSettled` observed.
+  SETTLED
+  /// `FillRejected` observed, or the batch reverted.
+  REJECTED
 }
 
 enum KeeperActionStatus {
@@ -23,12 +62,10 @@ enum KeeperActionStatus {
   SKIPPED
 }
 
-enum AuditSeverity {
-  CRITICAL
-  HIGH
-  MEDIUM
-  LOW
-  INFO
+enum GovernanceOperationStatus {
+  SCHEDULED
+  EXECUTED
+  CANCELLED
 }
 
 enum StatsPeriod {
@@ -42,6 +79,8 @@ enum PnlEventKind {
   REALIZED_TRADE
   FUNDING
   LIQUIDATION
+  LIQUIDATION_PENALTY
+  DELEVERAGE
   FEE
 }
 
@@ -52,202 +91,410 @@ enum BalanceChangeKind {
   TRANSFER_OUT
 }
 
-model LedgerCursor {
-  id          String   @id
-  network    String
-  contractId String?
-  ledger     Int
-  cursor     String
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
+// ─────────────────────────────────────────────────────────────────────────────
+//  INDEXING
+// ─────────────────────────────────────────────────────────────────────────────
 
-  @@unique([network, contractId])
-  @@index([network, ledger])
+/// Last fully processed block per indexed stream. Updated in the same database
+/// transaction as the rows derived from that block range.
+model BlockCursor {
+  network     String
+  /// Contract address, or a named stream such as "all".
+  stream      String
+  blockNumber BigInt
+  blockHash   String
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@id([network, stream])
 }
 
+/// Every decoded log from a Kryon contract, verbatim. Typed tables below are
+/// projections of this one and can be rebuilt from it.
 model ProtocolEvent {
-  id        BigInt   @id @default(autoincrement())
-  network   String
-  ledger    Int
-  txHash    String
-  topic     String
-  payload   Json
-  replayKey String   @unique
-  createdAt DateTime @default(now())
+  id             BigInt   @id @default(autoincrement())
+  network        String
+  blockNumber    BigInt
+  blockHash      String
+  blockTimestamp DateTime
+  txHash         String
+  logIndex       Int
+  contract       String
+  eventName      String
+  topic0         String
+  /// Decoded arguments; bigint values are encoded as decimal strings.
+  args           Json
+  createdAt      DateTime @default(now())
 
-  @@index([network, ledger])
-  @@index([txHash])
-  @@index([topic])
+  @@unique([network, txHash, logIndex])
+  @@index([network, blockNumber, logIndex])
+  @@index([network, eventName, blockNumber])
+  @@index([contract])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MARKETS, ACCOUNTS, ORDERS, FILLS, POSITIONS
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Market {
-  id                     Int      @id
-  symbol                 String   @unique
-  settlementAsset        String
-  active                 Boolean  @default(false)
-  lastPrice              String   @default("0")
-  volume                 String   @default("0")
-  longOpenInterest       String   @default("0")
-  shortOpenInterest      String   @default("0")
-  fundingLongIndex       String   @default("0")
-  fundingShortIndex      String   @default("0")
-  lastOraclePrice        String   @default("0")
-  lastOracleLedger       Int      @default(0)
-  updatedAt              DateTime @updatedAt
-  createdAt              DateTime @default(now())
+  network           String
+  /// On-chain uint32 marketId.
+  id                Int
+  symbol            String
+  /// bytes32 OracleAdapter feed id.
+  oracleId          String
+  active            Boolean  @default(false)
+  /// Last `MarketParamsSet` payload, decoded.
+  params            Json     @default("{}")
+  /// Per-market fee rates as emitted by `MarketFeesSet` (signed, rate units).
+  makerRate         Int      @default(0)
+  takerRate         Int      @default(0)
+  lastMark          Decimal  @default(0) @db.Decimal(78, 0) // 1e18
+  lastIndex         Decimal  @default(0) @db.Decimal(78, 0) // 1e18
+  longFundingIndex  Decimal  @default(0) @db.Decimal(78, 0) // 1e18
+  shortFundingIndex Decimal  @default(0) @db.Decimal(78, 0) // 1e18
+  fundingRatePerHour Decimal @default(0) @db.Decimal(78, 0) // 1e18
+  longOpenInterest  Decimal  @default(0) @db.Decimal(78, 0) // 1e18 size
+  shortOpenInterest Decimal  @default(0) @db.Decimal(78, 0) // 1e18 size
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
 
-  positions              Position[]
-  fills                  Fill[]
-  orders                 Order[]
-  oracleSnapshots        OracleSnapshot[]
-  fundingUpdates         FundingUpdate[]
-  keeperActions          KeeperAction[]
+  orders         Order[]
+  fills          Fill[]
+  positions      Position[]
+  fundingUpdates FundingUpdate[]
+
+  @@id([network, id])
+  @@unique([network, symbol])
 }
 
 model Account {
-  address          String    @id
-  collateral       Json      @default("{}")
-  cancelledNonces  BigInt[]  @default([])
-  filledByNonce    Json      @default("{}")
-  updatedAt         DateTime  @updatedAt
-  createdAt         DateTime  @default(now())
+  network         String
+  address         String
+  /// Current tier from the latest `FeeTierSet`.
+  feeTier         Int      @default(0)
+  /// Orders with nonce below this are cancelled (`NoncesCancelledUpTo`).
+  minValidNonce   Decimal  @default(0) @db.Decimal(78, 0)
+  /// Vault ledger balance after the latest indexed change (1e18).
+  ledgerBalance   Decimal  @default(0) @db.Decimal(78, 0)
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
 
-  orders            Order[]
-  positions         Position[]
-  makerFills        Fill[]    @relation("MakerFills")
-  takerFills        Fill[]    @relation("TakerFills")
+  orders    Order[]
+  positions Position[]
+
+  @@id([network, address])
 }
 
+/// A signed EIP-712 order accepted by the intake API.
 model Order {
-  id          String   @id
+  /// EIP-712 digest, unique across networks (the domain includes chainId).
+  orderHash   String      @id
+  network     String
   owner       String
   marketId    Int
   isLong      Boolean
-  size        String
-  limitPrice  String
+  size        Decimal     @db.Decimal(78, 0) // 1e18
+  limitPrice  Decimal     @db.Decimal(78, 0) // 1e18
   reduceOnly  Boolean
-  nonce       BigInt
-  expiryTs    BigInt
-  cancelled   Boolean  @default(false)
-  filledSize  String   @default("0")
-  /// Client settlement signature (hex/base64) for settle_fill_signed.
-  signature   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  nonce       Decimal     @db.Decimal(78, 0)
+  /// Unix seconds (uint64).
+  expiry      BigInt
+  /// null when the order's referrer is address(0).
+  referrer    String?
+  /// 0x-hex signature (65-byte ECDSA, or ERC-1271 bytes).
+  signature   String
+  status      OrderStatus @default(OPEN)
+  filledSize  Decimal     @default(0) @db.Decimal(78, 0) // 1e18
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
-  account     Account  @relation(fields: [owner], references: [address])
-  // RESTRICT, not CASCADE: de-listing a market must never delete the order
-  // history that settled against it.
-  market      Market   @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  account Account @relation(fields: [network, owner], references: [network, address])
+  // RESTRICT: de-listing a market must never delete order history.
+  market  Market  @relation(fields: [network, marketId], references: [network, id], onDelete: Restrict)
 
-  // Global per account, NOT per market — see lib/market/order-intent.ts.
-  @@unique([owner, nonce])
-  @@index([marketId, isLong, limitPrice])
-  @@index([expiryTs])
+  // Nonces are global per account, not per market.
+  @@unique([network, owner, nonce])
+  @@index([network, marketId, status, isLong, limitPrice])
+  @@index([network, status, expiry])
 }
 
+/// One matched fill. Created PENDING by the matcher, finalised by the indexer.
 model Fill {
-  id          BigInt   @id @default(autoincrement())
-  network     String
-  marketId    Int
-  maker        String
-  makerNonce   BigInt
-  taker        String
-  takerNonce   BigInt
-  fillSize     String
-  fillPrice    String
-  feeMaker     String   @default("0")
-  feeTaker     String   @default("0")
-  txHash       String
-  ledger       Int
-  createdAt    DateTime @default(now())
+  id             BigInt     @id @default(autoincrement())
+  network        String
+  /// bytes32 fill id committed in the batch.
+  fillId         String
+  status         FillStatus @default(PENDING)
+  /// Decoded revert reason from `FillRejected`.
+  rejectReason   String?
+  marketId       Int
+  maker          String
+  taker          String
+  makerOrderHash String
+  takerOrderHash String
+  takerIsBuy     Boolean
+  size           Decimal    @db.Decimal(78, 0) // 1e18
+  price          Decimal    @db.Decimal(78, 0) // 1e18
+  makerFee       Decimal    @default(0) @db.Decimal(78, 0) // 1e18, signed (negative = rebate)
+  takerFee       Decimal    @default(0) @db.Decimal(78, 0) // 1e18
+  makerTier      Int        @default(0)
+  takerTier      Int        @default(0)
+  /// The TxJob that carried the batch.
+  txJobId        String?
+  blockNumber    BigInt?
+  txHash         String?
+  logIndex       Int?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  market       Market   @relation(fields: [marketId], references: [id])
-  makerAccount Account  @relation("MakerFills", fields: [maker], references: [address])
-  takerAccount Account  @relation("TakerFills", fields: [taker], references: [address])
+  market Market @relation(fields: [network, marketId], references: [network, id])
 
-  @@unique([network, txHash, maker, makerNonce, taker, takerNonce])
-  @@index([marketId, ledger])
-  @@index([maker])
-  @@index([taker])
+  @@unique([network, fillId])
+  @@unique([network, txHash, logIndex])
+  @@index([network, marketId, blockNumber])
+  @@index([network, status, createdAt])
+  @@index([network, maker, createdAt])
+  @@index([network, taker, createdAt])
 }
 
+/// Current position, projected from `PositionChanged` (one per trader/market).
 model Position {
-  id               String   @id
-  owner            String
-  marketId         Int
-  positionId       BigInt
-  size             String
-  entryPrice       String
-  margin           String   @default("0")
-  isLong           Boolean
-  lastFundingIndex String
-  mode             String
-  updatedAt        DateTime @updatedAt
-  createdAt        DateTime @default(now())
+  network         String
+  trader          String
+  marketId        Int
+  size            Decimal  @db.Decimal(78, 0) // 1e18, signed (negative = short)
+  openNotional    Decimal  @db.Decimal(78, 0) // 1e18
+  lastPrice       Decimal  @db.Decimal(78, 0) // 1e18
+  realizedPnlCum  Decimal  @default(0) @db.Decimal(78, 0) // 1e18
+  /// Ordering key of the last applied event, so replays are idempotent.
+  lastBlockNumber BigInt
+  lastLogIndex    Int
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
 
-  account          Account  @relation(fields: [owner], references: [address])
-  market           Market   @relation(fields: [marketId], references: [id])
+  account Account @relation(fields: [network, trader], references: [network, address])
+  market  Market  @relation(fields: [network, marketId], references: [network, id])
 
-  @@unique([owner, positionId])
-  @@index([marketId, isLong])
+  @@id([network, trader, marketId])
+  @@index([network, marketId])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  ORACLE, FUNDING, LIQUIDATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `PriceUpdated` from OracleAdapter.
 model OracleSnapshot {
   id          BigInt   @id @default(autoincrement())
   network     String
-  marketId    Int
-  asset       String
-  source      String
-  price       String
-  confidence  String
+  oracleId    String
+  price       Decimal  @db.Decimal(78, 0) // 1e18
+  confidence  Decimal  @db.Decimal(78, 0) // 1e18
   publishTime BigInt
   writeTime   BigInt
-  ledger      Int
+  sourceCount Int
+  blockNumber BigInt
   txHash      String
+  logIndex    Int
   createdAt   DateTime @default(now())
 
-  market      Market   @relation(fields: [marketId], references: [id])
-
-  @@unique([network, asset, publishTime, source])
-  @@index([marketId, ledger])
-  @@index([asset, publishTime])
+  @@unique([network, txHash, logIndex])
+  @@index([network, oracleId, publishTime])
 }
 
+/// `FundingUpdated` from Engine.
 model FundingUpdate {
   id          BigInt   @id @default(autoincrement())
   network     String
   marketId    Int
-  longIndex   String
-  shortIndex  String
-  ledger      Int
+  longIndex   Decimal  @db.Decimal(78, 0) // 1e18
+  shortIndex  Decimal  @db.Decimal(78, 0) // 1e18
+  ratePerHour Decimal  @db.Decimal(78, 0) // 1e18
+  premium     Decimal  @db.Decimal(78, 0) // 1e18
+  mark        Decimal  @db.Decimal(78, 0) // 1e18
+  index       Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber BigInt
   txHash      String
+  logIndex    Int
   createdAt   DateTime @default(now())
 
-  market      Market   @relation(fields: [marketId], references: [id])
+  market Market @relation(fields: [network, marketId], references: [network, id])
 
-  @@unique([network, marketId, ledger, txHash])
-  @@index([marketId, ledger])
+  @@unique([network, txHash, logIndex])
+  @@index([network, marketId, blockNumber])
 }
 
-model TxJob {
+/// `FundingSettled` from Engine: one account's payment.
+model FundingPayment {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  address     String
+  marketId    Int
+  amount      Decimal  @db.Decimal(78, 0) // 1e18, signed (positive = received)
+  blockNumber BigInt
+  txHash      String
+  logIndex    Int
+  createdAt   DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, address, createdAt])
+}
+
+/// `Liquidated` from Liquidation.
+model LiquidationEvent {
+  id           BigInt   @id @default(autoincrement())
+  network      String
+  trader       String
+  liquidator   String
+  marketId     Int
+  closeSize    Decimal  @db.Decimal(78, 0) // 1e18
+  price        Decimal  @db.Decimal(78, 0) // 1e18
+  realizedPnl  Decimal  @db.Decimal(78, 0) // 1e18
+  penalty      Decimal  @db.Decimal(78, 0) // 1e18
+  reward       Decimal  @db.Decimal(78, 0) // 1e18
+  equityBefore Decimal  @db.Decimal(78, 0) // 1e18
+  equityAfter  Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber  BigInt
+  txHash       String
+  logIndex     Int
+  createdAt    DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, trader, createdAt])
+  @@index([network, marketId, blockNumber])
+}
+
+/// `Deleveraged` (ADL) from Liquidation.
+model DeleverageEvent {
+  id           BigInt   @id @default(autoincrement())
+  network      String
+  counterparty String
+  keeper       String
+  marketId     Int
+  closeSize    Decimal  @db.Decimal(78, 0) // 1e18
+  price        Decimal  @db.Decimal(78, 0) // 1e18
+  realizedPnl  Decimal  @db.Decimal(78, 0) // 1e18
+  haircut      Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber  BigInt
+  txHash       String
+  logIndex     Int
+  createdAt    DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, counterparty, createdAt])
+}
+
+/// `BackstopUnwound` from Insurance.
+model BackstopUnwind {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  marketId    Int
+  size        Decimal  @db.Decimal(78, 0) // 1e18
+  price       Decimal  @db.Decimal(78, 0) // 1e18
+  notional    Decimal  @db.Decimal(78, 0) // 1e18
+  dayTotal    Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber BigInt
+  txHash      String
+  logIndex    Int
+  createdAt   DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, marketId, blockNumber])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FEES (plan §5.7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `FeeAccrued` from FeeRouter.
+model FeeAccrual {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  marketId    Int
+  payer       String
+  referrer    String?
+  amount      Decimal  @db.Decimal(78, 0) // 1e18
+  toTreasury  Decimal  @db.Decimal(78, 0) // 1e18
+  toInsurance Decimal  @db.Decimal(78, 0) // 1e18
+  toReferral  Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber BigInt
+  txHash      String
+  logIndex    Int
+  createdAt   DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, payer, createdAt])
+  @@index([network, referrer, createdAt])
+  @@index([network, marketId, blockNumber])
+}
+
+/// `FeeClaimed` from FeeRouter.
+model FeeClaim {
   id             BigInt   @id @default(autoincrement())
   network        String
-  kind           String
-  payloadHash    String
-  unsignedXdr    String?
-  signedXdr      String?
-  attempts       Int      @default(0)
-  status         TxStatus @default(QUEUED)
-  lastError      String?
-  submittedHash  String?
-  nextAttemptAt  DateTime @default(now())
+  /// bytes32 bucket id.
+  bucket         String
+  recipient      String
+  amount         Decimal  @db.Decimal(78, 0) // 1e6 token
+  internalAmount Decimal  @db.Decimal(78, 0) // 1e18
+  blockNumber    BigInt
+  txHash         String
+  logIndex       Int
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
 
-  @@unique([network, kind, payloadHash])
-  @@index([status, nextAttemptAt])
-  @@index([submittedHash])
+  @@unique([network, txHash, logIndex])
+  @@index([network, bucket, createdAt])
+}
+
+/// `FeeTierSet` history; `Account.feeTier` holds the current value.
+model FeeTierAssignment {
+  id          BigInt   @id @default(autoincrement())
+  network     String
+  address     String
+  tier        Int
+  blockNumber BigInt
+  txHash      String
+  logIndex    Int
+  createdAt   DateTime @default(now())
+
+  @@unique([network, txHash, logIndex])
+  @@index([network, address, blockNumber])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TRANSACTIONS, KEEPERS, GAS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One row per broadcast attempt; see client/lib/chain/tx-store.ts.
+model TxJob {
+  /// Generated by the TxSender.
+  id                   String      @id
+  network              String
+  service              String
+  label                String
+  fromAddress          String
+  toAddress            String
+  nonce                Int
+  data                 String
+  value                Decimal     @db.Decimal(78, 0) // wei (18-dec native USDC)
+  gasLimit             Decimal     @db.Decimal(78, 0)
+  maxFeePerGas         Decimal     @db.Decimal(78, 0)
+  maxPriorityFeePerGas Decimal     @db.Decimal(78, 0)
+  rawTx                String
+  submittedHash        String
+  replacedByHash       String?
+  status               TxJobStatus
+  gasUsed              Decimal?    @db.Decimal(78, 0)
+  effectiveGasPrice    Decimal?    @db.Decimal(78, 0)
+  blockNumber          BigInt?
+  error                String?
+  createdAt            DateTime
+  updatedAt            DateTime
+
+  @@unique([network, submittedHash])
+  @@index([network, fromAddress, nonce, createdAt])
+  @@index([network, status, fromAddress])
 }
 
 model KeeperAction {
@@ -258,230 +505,212 @@ model KeeperAction {
   account     String?
   payload     Json
   status      KeeperActionStatus @default(PLANNED)
-  txJobId     BigInt?
-  ledger      Int?
+  txJobId     String?
+  blockNumber BigInt?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  market      Market?            @relation(fields: [marketId], references: [id])
-
   @@index([network, kind, status])
-  @@index([marketId])
+  @@index([network, marketId])
 }
 
-model DeploymentArtifact {
-  id           String   @id
-  network      String
-  contractName String
-  contractId   String
-  wasmHash     String
-  gitCommit    String
-  manifest     Json
-  createdAt    DateTime @default(now())
-
-  @@unique([network, contractName])
-  @@index([wasmHash])
-}
-
-model GovernanceProposal {
-  id          BigInt   @id
+/// Daily gas spend per service key (monitor: revenue vs gas).
+model GasSpend {
   network     String
-  target      String
-  action      String
-  wasmHash    String
-  eta         BigInt
-  executed    Boolean  @default(false)
-  cancelled   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  day         DateTime @db.Date
+  service     String
+  fromAddress String
+  txCount     Int      @default(0)
+  gasUsed     Decimal  @default(0) @db.Decimal(78, 0)
+  /// Sum of gasUsed × effectiveGasPrice, in wei of 18-decimal native USDC.
+  costWei     Decimal  @default(0) @db.Decimal(78, 0)
   updatedAt   DateTime @updatedAt
 
-  @@index([network, eta])
-}
-
-model AuditFinding {
-  id          String        @id
-  severity    AuditSeverity
-  title       String
-  component   String
-  status      String
-  description String
-  evidence    Json
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@index([severity, status])
-  @@index([component])
+  @@id([network, day, service, fromAddress])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  LEADERBOARD
+//  DEPLOYMENT AND GOVERNANCE
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Rolling aggregated trading stats per trader per period. One row per
-/// (network, address, period); the indexer upserts these as fills/funding/
-/// liquidations are processed. All monetary values are USDC at 1e7 precision
-/// stored as decimal strings to preserve precision.
-model TraderStat {
-  id                 String      @id @default(cuid())
-  network            String
-  address            String
-  period             StatsPeriod
-  /// Inclusive start of the rolling window (UTC). For ALL this is the epoch.
-  periodStart        DateTime
-  realizedPnl        String      @default("0") // 1e7
-  volume             String      @default("0") // notional traded, 1e7
-  tradeCount         Int         @default(0)
-  winningTrades      Int         @default(0)
-  losingTrades       Int         @default(0)
-  /// winRate = winningTrades / max(1, winningTrades+losingTrades), 0..1 (4dp string)
-  winRate            String      @default("0")
-  /// roi = realizedPnl / max(1, peakCollateral), signed ratio (4dp string)
-  roi                String      @default("0")
-  feesPaid           String      @default("0") // 1e7
-  fundingPaid        String      @default("0") // 1e7 (signed)
-  liquidationCount   Int         @default(0)
-  liquidatedVolume   String      @default("0") // 1e7
-  peakCollateral     String      @default("0") // 1e7 — denominator for ROI
-  referralCount      Int         @default(0)
-  referralVolume     String      @default("0") // 1e7
-  lastTradeAt        DateTime?
-  updatedAt          DateTime    @default(now()) @updatedAt
-  createdAt          DateTime    @default(now())
+/// One row per implementation a proxy has pointed at.
+model DeploymentArtifact {
+  id              BigInt   @id @default(autoincrement())
+  network         String
+  contractName    String
+  proxy           String
+  implementation  String
+  /// keccak256 of the implementation runtime bytecode.
+  codeHash        String
+  gitCommit       String
+  arcForgeVersion String
+  deployBlock     BigInt
+  txHash          String
+  /// Full deployment JSON entry.
+  manifest        Json
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
 
-  @@unique([network, address, period])
-  // Composite indexes power the ranked leaderboard queries (ORDER BY metric DESC)
-  @@index([network, period, realizedPnl])
-  @@index([network, period, volume])
-  @@index([network, period, roi])
-  @@index([address])
+  @@unique([network, contractName, implementation])
+  @@index([network, proxy])
 }
 
-/// Point-in-time ranked leaderboard, produced by periodic snapshot jobs so the
-/// FE can render historical boards and rank deltas without recomputing.
-model LeaderboardSnapshot {
-  id          BigInt      @id @default(autoincrement())
-  network     String
-  period      StatsPeriod
-  /// Metric this snapshot was ranked by (e.g. "pnl", "volume", "roi").
-  metric      String
-  capturedAt  DateTime    @default(now())
-  /// Ordered array of { rank, address, value, pnl, volume, roi, winRate }.
-  rankings    Json
-  traderCount Int         @default(0)
+/// A KryonTimelock operation (`CallScheduled` / `CallExecuted` / `Cancelled`).
+model GovernanceOperation {
+  network         String
+  /// bytes32 operation id (hashOperation / hashOperationBatch).
+  operationId     String
+  predecessor     String
+  salt            String
+  /// [{ target, value, data }] in batch order.
+  calls           Json
+  delaySeconds    BigInt
+  readyAt         DateTime
+  status          GovernanceOperationStatus @default(SCHEDULED)
+  description     String?
+  scheduledTxHash String
+  executedTxHash  String?
+  cancelledTxHash String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
 
-  @@index([network, period, metric, capturedAt], map: "LeaderboardSnapshot_lookup_idx")
+  @@id([network, operationId])
+  @@index([network, status, readyAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  PORTFOLIO
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Collateral deposits / withdrawals / transfers, sourced from vault events.
-/// Drives the portfolio "Deposits & Withdrawals" tab and ROI denominators.
+/// Vault `Deposited` / `Withdrawn` / `InternalTransfer`. An internal transfer
+/// produces two rows from one log (TRANSFER_OUT and TRANSFER_IN).
 model BalanceChange {
-  id         BigInt            @id @default(autoincrement())
-  network    String
-  address    String
-  asset      String
-  kind       BalanceChangeKind
-  amount     String            // 1e7, always positive
-  /// Resulting vault balance after this change (1e7), if known.
-  balanceAfter String?
-  ledger     Int
-  txHash     String
-  createdAt  DateTime          @default(now())
+  id             BigInt            @id @default(autoincrement())
+  network        String
+  address        String
+  kind           BalanceChangeKind
+  /// Payer (deposit), recipient (withdrawal) or the other side of a transfer.
+  counterparty   String?
+  /// Token amount for deposits and withdrawals, 1e6; null for transfers.
+  amount         Decimal?          @db.Decimal(78, 0)
+  internalAmount Decimal           @db.Decimal(78, 0) // 1e18, always positive
+  /// bytes32 reason for internal transfers.
+  reason         String?
+  blockNumber    BigInt
+  txHash         String
+  logIndex       Int
+  createdAt      DateTime          @default(now())
 
-  @@unique([network, txHash, address, kind], map: "BalanceChange_unique_idx")
-  @@index([network, address, createdAt], map: "BalanceChange_acct_time_idx")
-  @@index([address])
+  @@unique([network, txHash, logIndex, address, kind])
+  @@index([network, address, createdAt])
 }
 
-/// Discrete realized-pnl events: trade close, funding settlement, liquidation,
-/// fee. Summing these reconstructs an account's realized-pnl curve over time.
+/// Realized-pnl events. Summing them reconstructs an account's realized curve.
+/// One log can produce several rows (e.g. a liquidation's pnl and penalty).
 model PnlEvent {
   id          BigInt       @id @default(autoincrement())
   network     String
   address     String
   marketId    Int
   kind        PnlEventKind
-  /// Signed value, 1e7. Positive = credit to the account.
-  amount      String
-  /// Size involved (1e7) for trade/liquidation events; 0 for funding/fee.
-  size        String       @default("0")
-  price       String       @default("0") // 1e18, execution/mark price if relevant
-  ledger      Int
+  amount      Decimal      @db.Decimal(78, 0) // 1e18, signed (positive = credit)
+  size        Decimal      @default(0) @db.Decimal(78, 0) // 1e18
+  price       Decimal      @default(0) @db.Decimal(78, 0) // 1e18
+  blockNumber BigInt
   txHash      String
-  /// Free-form linkage (e.g. fill id or funding index) to avoid double counting.
-  refKey      String
+  logIndex    Int
   createdAt   DateTime     @default(now())
 
-  @@unique([network, address, kind, refKey], map: "PnlEvent_unique_idx")
-  @@index([network, address, createdAt], map: "PnlEvent_acct_time_idx")
-  @@index([marketId, kind], map: "PnlEvent_market_kind_idx")
+  @@unique([network, txHash, logIndex, address, kind])
+  @@index([network, address, createdAt])
+  @@index([network, marketId, kind])
 }
 
-/// Per-account funding payments (debits/credits) split out from the
-/// market-level FundingUpdate so the portfolio can show a funding ledger.
-model FundingPayment {
-  id          BigInt   @id @default(autoincrement())
+// ─────────────────────────────────────────────────────────────────────────────
+//  ANALYTICS (1e6 USDC units, derived; safe to truncate and rebuild)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model TraderStat {
+  network          String
+  address          String
+  period           StatsPeriod
+  /// Inclusive start of the rolling window (UTC). For ALL this is the epoch.
+  periodStart      DateTime
+  realizedPnl      Decimal     @default(0) @db.Decimal(78, 0) // 1e6 signed
+  volume           Decimal     @default(0) @db.Decimal(78, 0) // 1e6 notional
+  tradeCount       Int         @default(0)
+  winningTrades    Int         @default(0)
+  losingTrades     Int         @default(0)
+  winRate          Decimal     @default(0) @db.Decimal(10, 4) // 0..1
+  roi              Decimal     @default(0) @db.Decimal(20, 4) // signed ratio
+  feesPaid         Decimal     @default(0) @db.Decimal(78, 0) // 1e6
+  fundingPaid      Decimal     @default(0) @db.Decimal(78, 0) // 1e6 signed
+  liquidationCount Int         @default(0)
+  liquidatedVolume Decimal     @default(0) @db.Decimal(78, 0) // 1e6
+  peakEquity       Decimal     @default(0) @db.Decimal(78, 0) // 1e6, ROI denominator
+  referralCount    Int         @default(0)
+  referralVolume   Decimal     @default(0) @db.Decimal(78, 0) // 1e6
+  lastTradeAt      DateTime?
+  updatedAt        DateTime    @default(now()) @updatedAt
+  createdAt        DateTime    @default(now())
+
+  @@id([network, address, period])
+  @@index([network, period, realizedPnl])
+  @@index([network, period, volume])
+  @@index([network, period, roi])
+}
+
+/// Point-in-time ranked leaderboard.
+model LeaderboardSnapshot {
+  id          BigInt      @id @default(autoincrement())
   network     String
-  address     String
-  marketId    Int
-  /// Signed payment 1e7. Positive = received funding.
-  amount      String
-  fundingIndex String  // 1e18 index applied
-  ledger      Int
-  txHash      String
-  createdAt   DateTime @default(now())
+  period      StatsPeriod
+  metric      String
+  capturedAt  DateTime    @default(now())
+  /// Ordered [{ rank, address, value, pnl, volume, roi, winRate }], 1e6 strings.
+  rankings    Json
+  traderCount Int         @default(0)
 
-  @@unique([network, address, marketId, fundingIndex], map: "FundingPayment_unique_idx")
-  @@index([network, address, createdAt], map: "FundingPayment_acct_time_idx")
+  @@index([network, period, metric, capturedAt])
 }
 
-/// Periodic snapshot of an account's full portfolio state for historical
-/// charts (equity curve, exposure, margin usage). Written by the indexer on a
-/// fixed cadence and on material state changes.
 model PortfolioSnapshot {
-  id                 BigInt   @id @default(autoincrement())
-  network            String
-  address            String
-  collateralValue    String   @default("0") // 1e7
-  equity             String   @default("0") // 1e7 (collateral + unrealized)
-  unrealizedPnl      String   @default("0") // 1e7 (signed)
-  realizedPnlCum     String   @default("0") // 1e7 cumulative realized to date
-  freeCollateral     String   @default("0") // 1e7
-  usedMargin         String   @default("0") // 1e7
-  maintenanceMargin  String   @default("0") // 1e7
-  marginRatio        String   @default("0") // 1e18 (equity/maintenance)
-  openPositionCount  Int      @default(0)
-  longExposure       String   @default("0") // notional 1e7
-  shortExposure      String   @default("0") // notional 1e7
-  liquidatable       Boolean  @default(false)
-  capturedAt         DateTime @default(now())
-
-  @@index([network, address, capturedAt], map: "PortfolioSnapshot_acct_time_idx")
-}
-
-/// Cached, denormalized per-account analytics for instant portfolio header
-/// rendering (avoids recomputing aggregates on every page load). Upserted by
-/// the indexer alongside snapshots.
-model AccountAnalytics {
+  id                BigInt   @id @default(autoincrement())
   network           String
   address           String
-  realizedPnlAll    String   @default("0") // 1e7
-  volumeAll         String   @default("0") // 1e7
-  tradeCountAll     Int      @default(0)
-  winRateAll        String   @default("0") // 0..1 (4dp)
-  totalDeposited    String   @default("0") // 1e7
-  totalWithdrawn    String   @default("0") // 1e7
-  totalFundingPaid  String   @default("0") // 1e7 signed
-  totalFeesPaid     String   @default("0") // 1e7
-  liquidationCount  Int      @default(0)
-  maxDrawdown       String   @default("0") // 1e7 (worst equity dip)
-  firstTradeAt      DateTime?
-  lastTradeAt       DateTime?
-  updatedAt         DateTime @default(now()) @updatedAt
+  equity            Decimal  @default(0) @db.Decimal(78, 0) // 1e6
+  collateral        Decimal  @default(0) @db.Decimal(78, 0) // 1e6
+  unrealizedPnl     Decimal  @default(0) @db.Decimal(78, 0) // 1e6 signed
+  realizedPnlCum    Decimal  @default(0) @db.Decimal(78, 0) // 1e6 signed
+  freeCollateral    Decimal  @default(0) @db.Decimal(78, 0) // 1e6
+  initialMargin     Decimal  @default(0) @db.Decimal(78, 0) // 1e6
+  maintenanceMargin Decimal  @default(0) @db.Decimal(78, 0) // 1e6
+  openPositionCount Int      @default(0)
+  longExposure      Decimal  @default(0) @db.Decimal(78, 0) // 1e6 notional
+  shortExposure     Decimal  @default(0) @db.Decimal(78, 0) // 1e6 notional
+  liquidatable      Boolean  @default(false)
+  capturedAt        DateTime @default(now())
+
+  @@index([network, address, capturedAt])
+}
+
+model AccountAnalytics {
+  network          String
+  address          String
+  realizedPnlAll   Decimal   @default(0) @db.Decimal(78, 0) // 1e6 signed
+  volumeAll        Decimal   @default(0) @db.Decimal(78, 0) // 1e6
+  volume30d        Decimal   @default(0) @db.Decimal(78, 0) // 1e6, drives fee tiers
+  tradeCountAll    Int       @default(0)
+  winRateAll       Decimal   @default(0) @db.Decimal(10, 4)
+  totalDeposited   Decimal   @default(0) @db.Decimal(78, 0) // 1e6
+  totalWithdrawn   Decimal   @default(0) @db.Decimal(78, 0) // 1e6
+  totalFundingPaid Decimal   @default(0) @db.Decimal(78, 0) // 1e6 signed
+  totalFeesPaid    Decimal   @default(0) @db.Decimal(78, 0) // 1e6
+  liquidationCount Int       @default(0)
+  maxDrawdown      Decimal   @default(0) @db.Decimal(78, 0) // 1e6
+  firstTradeAt     DateTime?
+  lastTradeAt      DateTime?
+  updatedAt        DateTime  @default(now()) @updatedAt
 
   @@id([network, address])
-  @@index([network])
 }

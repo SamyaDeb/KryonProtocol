@@ -9,6 +9,7 @@ import {Roles} from "../../src/governance/Roles.sol";
 import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {Cancel, Fill, Order, OrderLib} from "../../src/libraries/OrderLib.sol";
 import {FundingConfig, FundingState, MarketParams} from "../../src/libraries/Types.sol";
+import {GasBurning1271Wallet} from "../mocks/GasBurning1271Wallet.sol";
 import {MockERC1271Wallet} from "../mocks/MockERC1271Wallet.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
@@ -439,7 +440,8 @@ contract OrderGatewayTest is KryonTest {
         gateway.settleFillsSigned(new Fill[](0));
         vm.prank(operator);
         vm.expectRevert(Errors.BatchTooLarge.selector);
-        gateway.settleFillsSigned(new Fill[](65));
+        gateway.settleFillsSigned(new Fill[](41));
+        assertEq(gateway.MAX_BATCH(), 40);
     }
 
     function test_starved_batch_reverts_instead_of_rejecting() public {
@@ -449,8 +451,86 @@ contract OrderGatewayTest is KryonTest {
         );
         fills[1] = fills[0];
         vm.prank(operator);
-        vm.expectRevert(Errors.InvalidConfig.selector);
+        vm.expectRevert(Errors.InsufficientBatchGas.selector);
         gateway.settleFillsSigned{gas: 400_000}(fills);
+    }
+
+    /// Enough gas for the first fill but not the reserve for the second: the
+    /// whole batch reverts, and the first fill is not settled either.
+    function test_under_gassed_batch_reverts_insufficient_batch_gas() public {
+        fund(alice, 1000e6);
+        fund(bob, 1000e6);
+        fund(carol, 1000e6);
+        Fill[] memory fills = new Fill[](2);
+        fills[0] = makeFill(
+            makeOrder(alice, BTC, false, P, 100 * P), makeOrder(bob, BTC, true, P, 100 * P), P, 100 * P
+        );
+        fills[1] = makeFill(
+            makeOrder(alice, BTC, false, P, 100 * P), makeOrder(carol, BTC, true, P, 100 * P), P, 100 * P
+        );
+        vm.prank(operator);
+        vm.expectRevert(Errors.InsufficientBatchGas.selector);
+        gateway.settleFillsSigned{gas: 1_300_000}(fills);
+        assertEq(pos(bob, BTC).size, 0);
+
+        vm.prank(operator);
+        assertEq(gateway.settleFillsSigned{gas: 3_000_000}(fills), 2);
+    }
+
+    /// A smart wallet that burns every unit of gas in isValidSignature gets
+    /// ERC1271_GAS_LIMIT at most: its fill is rejected and the rest settles.
+    function test_gas_burning_1271_wallet_cannot_starve_later_fills() public {
+        address griefer = address(new GasBurning1271Wallet(false, 0));
+        usdc.mint(griefer, 1000e6);
+        vm.startPrank(griefer);
+        usdc.approve(address(vault), 1000e6);
+        vault.deposit(1000e6);
+        vm.stopPrank();
+        fund(alice, 1000e6);
+        fund(bob, 1000e6);
+
+        Fill[] memory fills = new Fill[](2);
+        Order memory go = makeOrder(griefer, BTC, true, P, 100 * P);
+        Order memory mo = makeOrder(alice, BTC, false, P, 100 * P);
+        fills[0] = Fill({
+            fillId: bytes32("grief"),
+            maker: mo,
+            makerSignature: sign(mo),
+            taker: go,
+            takerSignature: hex"00",
+            size: uint256(P),
+            price: 100 * uint256(P)
+        });
+        fills[1] = makeFill(
+            makeOrder(alice, BTC, false, P, 100 * P), makeOrder(bob, BTC, true, P, 100 * P), P, 100 * P
+        );
+        vm.recordLogs();
+        vm.prank(operator);
+        assertEq(gateway.settleFillsSigned{gas: 2_500_000}(fills), 1);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool rejected;
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == keccak256("FillRejected(bytes32,bytes)")) {
+                assertEq(logs[i].topics[1], bytes32("grief"));
+                assertEq(bytes4(abi.decode(logs[i].data, (bytes))), Errors.InvalidSignature.selector);
+                rejected = true;
+            }
+        }
+        assertTrue(rejected);
+        assertEq(pos(bob, BTC).size, P);
+    }
+
+    /// ERC-1271 return data must be a full 32-byte word holding the magic value.
+    function test_erc1271_short_return_data_is_invalid() public {
+        // Returns the magic value as 4 bytes, then (control) as a 32-byte word.
+        bytes memory short_ = hex"631626ba7e60e01b60005260046000f3";
+        bytes memory full = hex"631626ba7e60e01b60005260206000f3";
+        address w = makeAddr("rawWallet");
+        vm.etch(w, short_);
+        bytes32 digest = keccak256("digest");
+        assertFalse(OrderLibHarness.check(w, digest, hex"00"));
+        vm.etch(w, full);
+        assertTrue(OrderLibHarness.check(w, digest, hex"00"));
     }
 
     // ------------------------------------------------------------ helpers
@@ -463,5 +543,11 @@ contract OrderGatewayTest is KryonTest {
     function _withMinFill(int256 minFill) internal view returns (MarketParams memory m) {
         m = risk.market(BTC);
         m.minFillNotional = minFill;
+    }
+}
+
+library OrderLibHarness {
+    function check(address signer, bytes32 digest, bytes memory sig) internal view returns (bool) {
+        return OrderLib.isValidSignature(signer, digest, sig);
     }
 }
