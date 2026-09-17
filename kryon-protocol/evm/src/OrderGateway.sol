@@ -21,14 +21,22 @@ import {MarketParams} from "./libraries/Types.sol";
 ///
 ///      `settleFillsSigned` isolates each fill: a fill that reverts (bad
 ///      signature, blocklisted trader, insufficient margin...) emits
-///      `FillRejected` and the rest of the batch settles.
+///      `FillRejected` and the rest of the batch settles. Running short of
+///      gas is not a rejection: the whole batch reverts `InsufficientBatchGas`.
 contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
     /// Longest lifetime of a signed order, matching the off-chain intake.
     uint64 public constant MAX_ORDER_TTL = 7 days;
-    uint256 public constant MAX_BATCH = 64;
-    /// Gas held back per remaining fill so the operator cannot starve one
-    /// fill into a spurious rejection.
-    uint256 public constant MIN_GAS_PER_FILL = 250_000;
+    /// Plan §5.6: 40 fills measured at ~15.2M gas, well inside Arc's fixed 30M block.
+    uint256 public constant MAX_BATCH = 40;
+    /// Gas every fill must be able to start with, so the operator cannot
+    /// starve a fill into a spurious rejection. Derivation: the worst fill
+    /// measured by test/gas (`test_gas_worst_single_fill`: first trade in a
+    /// market, two brand-new smart wallets whose ERC-1271 checks use ~97k of
+    /// ERC1271_GAS_LIMIT each, OI policy on so the backstop is marked to
+    /// market) is 729,201 gas; x1.2 = 875k, rounded up to 900k.
+    uint256 public constant MIN_GAS_PER_FILL = 900_000;
+    /// Slack over the 1/64 an out-of-gas call leaves behind (EIP-150).
+    uint256 private constant OOG_SLACK = 10_000;
 
     /// @custom:storage-location erc7201:kryon.storage.OrderGateway
     struct GatewayStorage {
@@ -101,10 +109,17 @@ contract OrderGateway is KryonUpgradeable, EIP712Upgradeable {
     {
         if (fills.length == 0 || fills.length > MAX_BATCH) revert Errors.BatchTooLarge();
         for (uint256 i = 0; i < fills.length; ++i) {
-            if (gasleft() < MIN_GAS_PER_FILL * (fills.length - i)) revert Errors.InvalidConfig();
+            // An operator gas shortfall reverts the whole batch (resize and
+            // resubmit); it is never recorded as a trader's rejection.
+            uint256 before = gasleft();
+            if (before < MIN_GAS_PER_FILL) revert Errors.InsufficientBatchGas();
             try this.settleOne(fills[i]) {
                 ++settled;
             } catch (bytes memory reason) {
+                // The fill ran out of gas if it used all it was forwarded
+                // (63/64 of `before`). No trader-controlled code can burn that
+                // much: ERC-1271 checks are capped.
+                if (gasleft() < before / 64 + OOG_SLACK) revert Errors.InsufficientBatchGas();
                 emit FillRejected(fills[i].fillId, reason);
             }
         }

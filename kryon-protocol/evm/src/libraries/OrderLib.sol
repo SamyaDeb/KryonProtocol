@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 /// @notice A trader's signed intent. Signed once with EIP-712; every fill of
 ///         it is checked against these exact terms on-chain.
@@ -66,6 +66,11 @@ library OrderLib {
         return keccak256(abi.encode(CANCEL_TYPEHASH, c.owner, c.nonce, c.deadline));
     }
 
+    /// Gas forwarded to a smart-wallet `isValidSignature`. A wallet that needs
+    /// more is treated as an invalid signature; one that burns it can't starve
+    /// the rest of a settlement batch.
+    uint256 internal constant ERC1271_GAS_LIMIT = 100_000;
+
     /// @notice EOA, EIP-7702-delegated EOA, or ERC-1271 contract signature.
     /// @dev OZ's SignatureChecker only tries ERC-1271 once the signer has code,
     ///      which rejects a 7702-delegated EOA signing with its own key. Try
@@ -79,6 +84,29 @@ library OrderLib {
         (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, signature);
         if (err == ECDSA.RecoverError.NoError && recovered == signer) return true;
         if (signer.code.length == 0) return false;
-        return SignatureChecker.isValidERC1271SignatureNow(signer, digest, signature);
+        return isValidERC1271Signature(signer, digest, signature);
+    }
+
+    /// @dev Bounded-gas staticcall. A revert, out-of-gas, short return data or
+    ///      any value other than the magic word is invalid. Only the first
+    ///      32 bytes of return data are copied, so an oversized return can't
+    ///      cost the caller memory.
+    function isValidERC1271Signature(address signer, bytes32 digest, bytes memory signature)
+        internal
+        view
+        returns (bool valid)
+    {
+        bytes memory data = abi.encodeCall(IERC1271.isValidSignature, (digest, signature));
+        bool ok;
+        bytes32 word;
+        // slither-disable-next-line assembly
+        assembly ("memory-safe") {
+            ok := staticcall(ERC1271_GAS_LIMIT, signer, add(data, 32), mload(data), 0, 0)
+            if and(ok, gt(returndatasize(), 31)) {
+                returndatacopy(0, 0, 32)
+                word := mload(0)
+            }
+        }
+        valid = ok && word == bytes32(IERC1271.isValidSignature.selector);
     }
 }

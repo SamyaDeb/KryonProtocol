@@ -110,5 +110,6 @@ kryon-protocol/evm/broadcast/
 kryon-protocol/evm/deployments/arc-local*.json
 kryon-protocol/evm/out/invariant-coverage.log
 
-# Stray root copy of a submodule dependency (never tracked)
+# Stray dependency checkout at the repo root. The real Solidity deps are the
+# kryon-protocol/evm/lib submodules; nothing references /lib.
 /lib/

@@ -322,6 +322,19 @@ contract Engine is KryonUpgradeable {
         return _accountHealth(trader);
     }
 
+    /// @notice Mark-to-market account value: collateral + unrealized PnL +
+    ///         pending funding, on the same RiskLib path as `accountHealth`.
+    /// @dev Never reverts. If any held market cannot be priced (stale, wide or
+    ///      inactive oracle) or the health computation fails for any other
+    ///      reason, returns `(0, false)`; callers must fail closed on it.
+    function accountValue(address trader) external view returns (int256 equity, bool priced) {
+        try this.accountHealth(trader) returns (AccountHealth memory h) {
+            return (h.equity, true);
+        } catch {
+            return (0, false);
+        }
+    }
+
     /// @notice Reverts with InsufficientCollateral unless equity after removing
     ///         `withdrawalValue` still covers initial margin.
     function validateWithdrawal(address trader, int256 withdrawalValue)

@@ -6,6 +6,8 @@ import {IAccessControlEnumerable} from
 
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
+import {KryonTimelock} from "../../src/governance/KryonTimelock.sol";
+import {KryonUpgradeable} from "../../src/governance/KryonUpgradeable.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {FundingConfig, MarketParams} from "../../src/libraries/Types.sol";
 import {DeployConfig, Deployment, KryonDeploy, MarketConfig} from "./KryonDeploy.sol";
@@ -36,6 +38,48 @@ library DeploymentVerifier {
         return out;
     }
 
+    /// @notice Findings that don't fail verification but need a human decision.
+    /// @dev Liquidation economics: with `liquidationFeeBps <= maxRewardBps` the
+    ///      liquidator takes the whole penalty and insurance and treasury get
+    ///      nothing from that market's liquidations.
+    function warnings(Deployment memory d, DeployConfig memory cfg)
+        internal
+        view
+        returns (string[] memory)
+    {
+        Report memory r = Report(new string[](cfg.markets.length), 0);
+        (uint16 maxReward,) = d.liquidation.params();
+        for (uint256 i = 0; i < cfg.markets.length; ++i) {
+            if (!d.risk.isListed(cfg.markets[i].id)) continue;
+            MarketParams memory m = d.risk.market(cfg.markets[i].id);
+            if (m.active && m.liquidationFeeBps <= maxReward) {
+                _fail(
+                    r,
+                    string.concat(
+                        cfg.markets[i].symbol,
+                        ": liquidation fee (",
+                        _u(m.liquidationFeeBps),
+                        " bps) <= max liquidator reward (",
+                        _u(maxReward),
+                        " bps); insurance and treasury receive nothing from its liquidations"
+                    )
+                );
+            }
+        }
+        string[] memory out = new string[](r.count);
+        for (uint256 i = 0; i < r.count; ++i) out[i] = r.failures[i];
+        return out;
+    }
+
+    function _u(uint256 v) private pure returns (string memory) {
+        if (v == 0) return "0";
+        uint256 len;
+        for (uint256 t = v; t != 0; t /= 10) ++len;
+        bytes memory b = new bytes(len);
+        for (; v != 0; v /= 10) b[--len] = bytes1(uint8(48 + v % 10));
+        return string(b);
+    }
+
     function _fail(Report memory r, string memory what) private pure {
         if (r.count < r.failures.length) r.failures[r.count++] = what;
     }
@@ -55,7 +99,7 @@ library DeploymentVerifier {
             ["Vault", "Engine", "OrderGateway", "OracleAdapter", "Liquidation", "Insurance", "RiskParams", "FeeRouter"];
         for (uint256 i = 0; i < all.length; ++i) {
             _adminRoles(r, IAccessControlEnumerable(all[i]), names[i], address(d.timelock));
-            _pauser(r, IAccessControlEnumerable(all[i]), names[i], cfg.guardian, deployer);
+            _pauser(r, all[i], names[i], cfg.guardian, deployer, d.timelock.getMinDelay());
         }
 
         _exactMembers(r, IAccessControlEnumerable(address(d.gateway)), Roles.OPERATOR_ROLE, cfg.operators, "OPERATOR_ROLE");
@@ -96,17 +140,28 @@ library DeploymentVerifier {
 
     function _pauser(
         Report memory r,
-        IAccessControlEnumerable c,
+        address target,
         string memory name,
         address guardian,
-        address deployer
+        address deployer,
+        uint256 timelockDelay
     ) private view {
+        IAccessControlEnumerable c = IAccessControlEnumerable(target);
         _check(r, !c.hasRole(Roles.PAUSER_ROLE, deployer), string.concat(name, ": deployer is a pauser"));
         _check(
             r,
             c.getRoleMemberCount(Roles.PAUSER_ROLE) == 1 && c.hasRole(Roles.PAUSER_ROLE, guardian),
             string.concat(name, ": guardian must be the sole PAUSER_ROLE")
         );
+        KryonUpgradeable k = KryonUpgradeable(target);
+        (, bool indefinite, uint64 cooldownEndsAt) = k.pauseState();
+        if (k.paused()) {
+            _fail(r, string.concat(name, indefinite ? ": paused indefinitely" : ": guardian pause active"));
+        } else if (block.timestamp < cooldownEndsAt) {
+            _fail(r, string.concat(name, ": guardian pause cooldown active"));
+        }
+        // Governance must be able to schedule a longer pause before a guardian pause lapses.
+        _check(r, k.GUARDIAN_PAUSE_DURATION() > timelockDelay, string.concat(name, ": guardian pause shorter than the timelock delay"));
     }
 
     function _exactMembers(
@@ -133,16 +188,42 @@ library DeploymentVerifier {
     {
         _check(r, d.timelock.getMinDelay() >= 48 hours, "Timelock: delay below 48h");
         _check(r, d.timelock.getMinDelay() == cfg.timelockDelay, "Timelock: delay differs from config");
-        for (uint256 i = 0; i < cfg.proposers.length; ++i) {
-            _check(r, d.timelock.hasRole(d.timelock.PROPOSER_ROLE(), cfg.proposers[i]), "Timelock: proposer missing");
-        }
-        for (uint256 i = 0; i < cfg.executors.length; ++i) {
-            _check(r, d.timelock.hasRole(d.timelock.EXECUTOR_ROLE(), cfg.executors[i]), "Timelock: executor missing");
-        }
-        _check(r, d.timelock.hasRole(Roles.PAUSER_ROLE, cfg.guardian), "Timelock: guardian cannot veto");
+        // Exact sets: nobody outside the config may propose, execute, cancel,
+        // administer the timelock or veto.
+        KryonTimelock tl = d.timelock;
+        _exactTimelock(r, tl, tl.PROPOSER_ROLE(), cfg.proposers, "PROPOSER_ROLE");
+        _exactTimelock(r, tl, tl.EXECUTOR_ROLE(), cfg.executors, "EXECUTOR_ROLE");
+        // OZ grants CANCELLER_ROLE to every proposer.
+        _exactTimelock(r, tl, tl.CANCELLER_ROLE(), cfg.proposers, "CANCELLER_ROLE");
+        address[] memory self = new address[](1);
+        self[0] = address(tl);
+        _exactTimelock(r, tl, tl.DEFAULT_ADMIN_ROLE(), self, "DEFAULT_ADMIN_ROLE");
+        address[] memory guardian = new address[](1);
+        guardian[0] = cfg.guardian;
+        _exactTimelock(r, tl, Roles.PAUSER_ROLE, guardian, "PAUSER_ROLE");
         _check(r, !d.timelock.hasRole(d.timelock.DEFAULT_ADMIN_ROLE(), deployer), "Timelock: deployer is admin");
         _check(r, !d.timelock.hasRole(d.timelock.PROPOSER_ROLE(), deployer), "Timelock: deployer is proposer");
-        _check(r, !d.timelock.executionPaused(), "Timelock: execution is vetoed");
+        if (d.timelock.executionPaused()) {
+            _fail(r, "Timelock: execution is vetoed");
+        } else if (block.timestamp < d.timelock.vetoCooldownEndsAt()) {
+            _fail(r, "Timelock: guardian veto cooldown active");
+        }
+        // Operations scheduled during a veto must fit inside the cooldown that follows it.
+        _check(r, d.timelock.VETO_COOLDOWN() > d.timelock.getMinDelay(), "Timelock: veto cooldown not longer than the delay");
+    }
+
+    function _exactTimelock(
+        Report memory r,
+        KryonTimelock tl,
+        bytes32 role,
+        address[] memory expected,
+        string memory name
+    ) private view {
+        bool ok = tl.getRoleMemberCount(role) == expected.length;
+        for (uint256 i = 0; ok && i < expected.length; ++i) {
+            ok = tl.hasRole(role, expected[i]);
+        }
+        _check(r, ok, string.concat("Timelock: ", name, " holders differ from config"));
     }
 
     // ----------------------------------------------------------------- wiring
@@ -236,6 +317,10 @@ library DeploymentVerifier {
             _check(r, d.risk.oiPolicyBps(want.id) == want.oiPolicyBps, string.concat("RiskParams: OI policy for ", sym));
 
             OracleAdapter.FeedConfig memory feed = d.oracle.feed(want.params.oracleId);
+            // Every market, active or not, must have a live feed: a trader holding
+            // a position in a market whose feed is stale or inactive can't
+            // withdraw (plan §6.4, runbooks/oracle-failure.md).
+            _check(r, feed.listed && feed.active, string.concat("OracleAdapter: feed not listed and active for ", sym));
             _check(r, keccak256(abi.encode(feed)) == keccak256(abi.encode(want.feed)), string.concat("OracleAdapter: feed differs for ", sym));
             OracleAdapter.ReferenceFeed memory ref = d.oracle.referenceFeed(want.params.oracleId);
             _check(r, keccak256(abi.encode(ref)) == keccak256(abi.encode(want.ref)), string.concat("OracleAdapter: reference differs for ", sym));

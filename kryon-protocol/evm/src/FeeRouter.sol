@@ -66,6 +66,8 @@ contract FeeRouter is KryonUpgradeable {
         int256 treasuryAccrued;
         mapping(address => int256) referralAccrued;
         int256 totalReferralAccrued;
+        /// Referral partners approved by governance. Only they earn a share.
+        mapping(address => bool) approvedReferrer;
     }
 
     // keccak256(abi.encode(uint256(keccak256("kryon.storage.FeeRouter")) - 1)) & ~bytes32(uint256(0xff))
@@ -81,6 +83,7 @@ contract FeeRouter is KryonUpgradeable {
     event SplitSet(uint16 treasuryBps, uint16 insuranceBps, uint16 referralBps);
     event LiquidationSplitSet(uint16 insuranceBps);
     event RecipientsSet(address treasury, address insurance);
+    event ReferrerApprovalSet(address indexed referrer, bool approved);
     event FeeAccrued(
         uint32 indexed marketId,
         address indexed payer,
@@ -165,6 +168,18 @@ contract FeeRouter is KryonUpgradeable {
     function setReferralsEnabled(bool enabled) external onlyRole(Roles.FEE_ADMIN_ROLE) {
         _s().referralsEnabled = enabled;
         emit ReferralsEnabledSet(enabled);
+    }
+
+    /// @notice Approve or remove a referral partner. A governance decision:
+    ///         an open referral field would let a trader refer their own
+    ///         second wallet and recover the referral share of their fees.
+    function setReferrerApproved(address referrer, bool approved)
+        external
+        onlyRole(Roles.FEE_ADMIN_ROLE)
+    {
+        if (referrer == address(0)) revert Errors.ZeroAddress();
+        _s().approvedReferrer[referrer] = approved;
+        emit ReferrerApprovalSet(referrer, approved);
     }
 
     function setSplit(uint16 treasuryBps, uint16 insuranceBps, uint16 referralBps)
@@ -300,12 +315,13 @@ contract FeeRouter is KryonUpgradeable {
         int256 toTreasury = amount - toInsurance - toReferral;
 
         address creditedReferrer = address(0);
-        if ($.referralsEnabled && referrer != address(0) && referrer != payer) {
+        if ($.referralsEnabled && $.approvedReferrer[referrer] && referrer != payer) {
             creditedReferrer = referrer;
             $.referralAccrued[referrer] += toReferral;
             $.totalReferralAccrued += toReferral;
         } else {
-            // Referral share accrues to treasury until the program is live.
+            // Referral share accrues to treasury until the program is live,
+            // and whenever the referrer is unapproved or the payer themself.
             toTreasury += toReferral;
             toReferral = 0;
         }
@@ -405,6 +421,10 @@ contract FeeRouter is KryonUpgradeable {
 
     function referralAccrued(address referrer) external view returns (int256) {
         return _s().referralAccrued[referrer];
+    }
+
+    function isApprovedReferrer(address referrer) external view returns (bool) {
+        return _s().approvedReferrer[referrer];
     }
 
     function totalReferralAccrued() external view returns (int256) {

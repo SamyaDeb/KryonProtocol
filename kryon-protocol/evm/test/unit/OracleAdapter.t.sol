@@ -239,6 +239,113 @@ contract OracleAdapterTest is KryonTest {
         assertEq(oracle.getPrice(BTC_ID, 0, 0).price, 109 * P);
     }
 
+    // ------------------------------------------- re-anchor after an outage
+
+    function _reanchored(Vm.Log[] memory logs)
+        internal
+        pure
+        returns (bool found, int256 prev, int256 next, uint256 staleFor)
+    {
+        bytes32 sig = keccak256("PriceReanchored(bytes32,int256,int256,uint256)");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == sig) {
+                (prev, next, staleFor) = abi.decode(logs[i].data, (int256, int256, uint256));
+                return (true, prev, next, staleFor);
+            }
+        }
+    }
+
+    function _jumpGuard(uint16 bps) internal {
+        OracleAdapter.FeedConfig memory f = oracle.feed(BTC_ID);
+        f.maxJumpBps = bps;
+        asGov();
+        oracle.setFeed(BTC_ID, f);
+    }
+
+    /// Regression for the 2026-09-17 review PoC: a >maxJumpBps move during an
+    /// outage used to skip every later update, halting the market for good.
+    function test_stale_feed_reanchors_past_the_jump_guard_and_withdrawals_resume() public {
+        address a = newTrader("a", 100_000e6);
+        address b = newTrader("b", 100_000e6);
+        int256 p0 = oracle.latest(BTC_ID).price;
+        trade(a, b, BTC, true, P / 10, p0);
+        _jumpGuard(2000);
+        uint256 lastWrite = oracle.latest(BTC_ID).writeTime;
+        vm.warp(_now() + 600); // outage longer than maxAge
+
+        vm.prank(a);
+        vm.expectRevert(Errors.StaleOracle.selector);
+        vault.withdraw(1e6);
+
+        vm.recordLogs();
+        push(BTC_ID, p0 * 75 / 100);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (bool skipped,) = _skipReason(logs);
+        assertFalse(skipped);
+        (bool found, int256 prev, int256 next, uint256 staleFor) = _reanchored(logs);
+        assertTrue(found);
+        assertEq(prev, p0);
+        assertEq(next, p0 * 75 / 100);
+        assertEq(staleFor, _now() - lastWrite);
+
+        for (uint256 i = 0; i < 4; ++i) push(BTC_ID, p0 * 75 / 100);
+        assertEq(engine.indexPrice(BTC), p0 * 75 / 100);
+        vm.prank(a);
+        vault.withdraw(1e6);
+    }
+
+    function test_jump_guard_still_applies_while_the_previous_price_is_fresh() public {
+        _jumpGuard(2000);
+        int256 p0 = oracle.latest(BTC_ID).price;
+        vm.warp(_now() + 60); // exactly maxAge: still fresh
+        vm.recordLogs();
+        _pushAs(publisher, BTC_ID, p0 * 75 / 100, P / 100, uint64(_now()));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (bool skipped, uint8 reason) = _skipReason(logs);
+        assertTrue(skipped);
+        assertEq(reason, uint8(OracleAdapter.SkipReason.JumpTooLarge));
+        (bool found,,,) = _reanchored(logs);
+        assertFalse(found);
+        assertEq(oracle.latest(BTC_ID).price, p0);
+    }
+
+    function test_reanchor_still_checks_the_reference_feed() public {
+        MockAggregator agg = new MockAggregator(8);
+        agg.set(100e8, _now());
+        _ref(agg, false);
+        _jumpGuard(2000);
+        vm.warp(_now() + 600);
+        agg.set(100e8, _now());
+
+        vm.recordLogs();
+        _pushAs(publisher, BTC_ID, 75 * P, P / 100, uint64(_now()));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (bool skipped, uint8 reason) = _skipReason(logs);
+        assertTrue(skipped);
+        assertEq(reason, uint8(OracleAdapter.SkipReason.ReferenceDiverged));
+        (bool found,,,) = _reanchored(logs);
+        assertFalse(found);
+        vm.expectRevert(Errors.StaleOracle.selector);
+        oracle.getPrice(BTC_ID, 0, 0);
+
+        // A required reference that can't be read also blocks the re-anchor.
+        _ref(agg, true);
+        agg.setBroken(true);
+        vm.warp(_now() + 1);
+        vm.recordLogs();
+        _pushAs(publisher, BTC_ID, 75 * P, P / 100, uint64(_now()));
+        (skipped, reason) = _skipReason(vm.getRecordedLogs());
+        assertTrue(skipped);
+        assertEq(reason, uint8(OracleAdapter.SkipReason.ReferenceUnavailable));
+
+        // Once the reference agrees, the feed re-anchors.
+        agg.setBroken(false);
+        agg.set(76e8, _now());
+        vm.warp(_now() + 1);
+        _pushAs(publisher, BTC_ID, 75 * P, P / 100, uint64(_now()));
+        assertEq(oracle.getPrice(BTC_ID, 0, 0).price, 75 * P);
+    }
+
     function test_feed_config_bounds() public {
         vm.startPrank(address(timelock));
         vm.expectRevert(Errors.InvalidConfig.selector);

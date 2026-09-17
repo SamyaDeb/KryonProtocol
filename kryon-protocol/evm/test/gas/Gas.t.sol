@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
 import {Fill, Order} from "../../src/libraries/OrderLib.sol";
 import {MarketParams} from "../../src/libraries/Types.sol";
+import {GasBurning1271Wallet} from "../mocks/GasBurning1271Wallet.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
 /// @notice Gas for the docs/engineering/PROTOCOL_PLAN.md §5.6 unit-economics table.
@@ -48,6 +49,53 @@ contract GasTest is KryonTest {
         uint256 g40 = _settleGas(again);
         emit log_named_uint("settle 40 fills, existing positions", g40);
         emit log_named_uint("  per fill", g40 / 40);
+    }
+
+    function _wallet(uint256 keep, uint256 amount6) internal returns (address w) {
+        w = address(new GasBurning1271Wallet(true, keep));
+        usdc.mint(w, amount6);
+        vm.startPrank(w);
+        usdc.approve(address(vault), amount6);
+        vault.deposit(amount6);
+        vm.stopPrank();
+    }
+
+    /// Worst single fill that can legitimately settle, used to size
+    /// OrderGateway.MIN_GAS_PER_FILL: the first trade in a market, between two
+    /// brand-new smart wallets whose ERC-1271 checks spend almost the whole
+    /// ERC1271_GAS_LIMIT, with the OI policy on (so the backstop, holding a
+    /// position in the other market, is marked to market).
+    function test_gas_worst_single_fill() public {
+        fund(alice, 100_000e6);
+        fund(bob, 1100e6);
+        trade(alice, bob, BTC, true, 100 * P, 100 * P);
+        vm.warp(_now() + 1);
+        push(BTC_ID, 10 * P);
+        push(ETH_ID, 2000 * P);
+        vm.prank(liquidator);
+        liquidation.liquidate(bob, BTC, type(uint256).max);
+        usdc.mint(address(this), 1_000_000e6);
+        usdc.approve(address(insurance), 1_000_000e6);
+        insurance.donate(1_000_000e6);
+        asGov();
+        risk.setOiPolicy(ETH, 10_000);
+
+        // Smart wallets keep ~3k for the return: each check uses ~97k of 100k.
+        address maker = _wallet(3000, 10_000e6);
+        address taker = _wallet(3000, 10_000e6);
+        Order memory mo = makeOrder(maker, ETH, false, P, 2000 * P);
+        Order memory to = makeOrder(taker, ETH, true, P, 2000 * P);
+        Fill[] memory fills = new Fill[](1);
+        fills[0] = Fill({
+            fillId: bytes32(uint256(1)),
+            maker: mo,
+            makerSignature: hex"01",
+            taker: to,
+            takerSignature: hex"02",
+            size: uint256(P),
+            price: 2000 * uint256(P)
+        });
+        emit log_named_uint("worst single fill (2x 1271 at limit, fresh market, OI policy)", _settleGas(fills));
     }
 
     function test_gas_oracle_push_8_markets() public {

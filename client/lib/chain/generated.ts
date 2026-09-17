@@ -14,6 +14,20 @@ export const engineAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'MAX_POSITIONS_PER_ACCOUNT',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
@@ -81,6 +95,16 @@ export const engineAbi = [
           { name: 'liquidatable', internalType: 'bool', type: 'bool' },
         ],
       },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'trader', internalType: 'address', type: 'address' }],
+    name: 'accountValue',
+    outputs: [
+      { name: 'equity', internalType: 'int256', type: 'int256' },
+      { name: 'priced', internalType: 'bool', type: 'bool' },
     ],
     stateMutability: 'view',
   },
@@ -301,6 +325,28 @@ export const engineAbi = [
     name: 'pause',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -591,6 +637,31 @@ export const engineAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -611,6 +682,14 @@ export const engineAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
   },
   {
     type: 'event',
@@ -799,6 +878,7 @@ export const engineAbi = [
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
   { type: 'error', inputs: [], name: 'OpenInterestExceeded' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'PositionNotFound' },
   { type: 'error', inputs: [], name: 'PriceOutsideBand' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
@@ -829,6 +909,20 @@ export const feeRouterAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -1063,6 +1157,13 @@ export const feeRouterAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'referrer', internalType: 'address', type: 'address' }],
+    name: 'isApprovedReferrer',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'liquidationInsuranceBps',
     outputs: [{ name: '', internalType: 'uint16', type: 'uint16' }],
@@ -1099,6 +1200,28 @@ export const feeRouterAbi = [
     name: 'pause',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -1228,6 +1351,16 @@ export const feeRouterAbi = [
     type: 'function',
     inputs: [{ name: 'enabled', internalType: 'bool', type: 'bool' }],
     name: 'setReferralsEnabled',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'referrer', internalType: 'address', type: 'address' },
+      { name: 'approved', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setReferrerApproved',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -1449,6 +1582,31 @@ export const feeRouterAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -1520,6 +1678,14 @@ export const feeRouterAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
       { name: 'enabled', internalType: 'bool', type: 'bool', indexed: false },
     ],
     name: 'RebatesEnabledSet',
@@ -1550,6 +1716,20 @@ export const feeRouterAbi = [
       { name: 'enabled', internalType: 'bool', type: 'bool', indexed: false },
     ],
     name: 'ReferralsEnabledSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'referrer',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      { name: 'approved', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'ReferrerApprovalSet',
   },
   {
     type: 'event',
@@ -1696,6 +1876,7 @@ export const feeRouterAbi = [
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NetFeeBelowFloor' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   { type: 'error', inputs: [], name: 'UUPSUnauthorizedCallContext' },
   {
@@ -1727,6 +1908,20 @@ export const insuranceAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -1887,6 +2082,16 @@ export const insuranceAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'markedOperatingBalance',
+    outputs: [
+      { name: 'marked', internalType: 'int256', type: 'int256' },
+      { name: 'priced', internalType: 'bool', type: 'bool' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'marketId', internalType: 'uint32', type: 'uint32' },
       { name: 'size', internalType: 'uint256', type: 'uint256' },
@@ -1909,6 +2114,28 @@ export const insuranceAbi = [
     name: 'pause',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -1946,6 +2173,13 @@ export const insuranceAbi = [
     type: 'function',
     inputs: [{ name: 'trader', internalType: 'address', type: 'address' }],
     name: 'recordedDebt',
+    outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'redeemableStake',
     outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
     stateMutability: 'view',
   },
@@ -2236,6 +2470,31 @@ export const insuranceAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -2256,6 +2515,14 @@ export const insuranceAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
   },
   {
     type: 'event',
@@ -2517,6 +2784,7 @@ export const insuranceAbi = [
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NoPendingUnstake' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'PriceOutsideBand' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   {
@@ -2524,6 +2792,7 @@ export const insuranceAbi = [
     inputs: [{ name: 'token', internalType: 'address', type: 'address' }],
     name: 'SafeERC20FailedOperation',
   },
+  { type: 'error', inputs: [], name: 'StaleOracle' },
   { type: 'error', inputs: [], name: 'UUPSUnauthorizedCallContext' },
   {
     type: 'error',
@@ -2561,6 +2830,7 @@ export const kryonErrorsAbi = [
   { type: 'error', inputs: [], name: 'FeeRateOutOfBounds' },
   { type: 'error', inputs: [], name: 'FillBelowMinNotional' },
   { type: 'error', inputs: [], name: 'HasOpenPositions' },
+  { type: 'error', inputs: [], name: 'InsufficientBatchGas' },
   { type: 'error', inputs: [], name: 'InsufficientCollateral' },
   { type: 'error', inputs: [], name: 'InsuranceAccount' },
   { type: 'error', inputs: [], name: 'InsuranceFundInsufficient' },
@@ -2599,6 +2869,7 @@ export const kryonErrorsAbi = [
     ],
     name: 'ParameterOutOfBounds',
   },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'PositionNotFound' },
   { type: 'error', inputs: [], name: 'PositionNotInProfit' },
   { type: 'error', inputs: [], name: 'PriceOutsideBand' },
@@ -2622,6 +2893,7 @@ export const kryonErrorsAbi = [
     name: 'UnknownMarket',
   },
   { type: 'error', inputs: [], name: 'UnstakePending' },
+  { type: 'error', inputs: [], name: 'VetoCooldownActive' },
   { type: 'error', inputs: [], name: 'ZeroAddress' },
 ] as const
 
@@ -2674,6 +2946,20 @@ export const kryonTimelockAbi = [
     inputs: [],
     name: 'PROPOSER_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'VETO_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'VETO_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -2741,6 +3027,30 @@ export const kryonTimelockAbi = [
     inputs: [{ name: 'role', internalType: 'bytes32', type: 'bytes32' }],
     name: 'getRoleAdmin',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'role', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'getRoleMember',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'role', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'getRoleMemberCount',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'role', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'getRoleMembers',
+    outputs: [{ name: '', internalType: 'address[]', type: 'address[]' }],
     stateMutability: 'view',
   },
   {
@@ -2939,6 +3249,20 @@ export const kryonTimelockAbi = [
     stateMutability: 'nonpayable',
   },
   {
+    type: 'function',
+    inputs: [],
+    name: 'vetoCooldownEndsAt',
+    outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'vetoUntil',
+    outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
+    stateMutability: 'view',
+  },
+  {
     type: 'event',
     anonymous: false,
     inputs: [
@@ -3036,10 +3360,40 @@ export const kryonTimelockAbi = [
         type: 'address',
         indexed: true,
       },
+      {
+        name: 'vetoUntil',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
     ],
     name: 'ExecutionPaused',
   },
-  { type: 'event', anonymous: false, inputs: [], name: 'ExecutionUnpaused' },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'endedAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'ExecutionUnpaused',
+  },
   {
     type: 'event',
     anonymous: false,
@@ -3169,6 +3523,7 @@ export const kryonTimelockAbi = [
     name: 'TimelockUnexpectedOperationState',
   },
   { type: 'error', inputs: [], name: 'Unauthorized' },
+  { type: 'error', inputs: [], name: 'VetoCooldownActive' },
   { type: 'error', inputs: [], name: 'ZeroAddress' },
 ] as const
 
@@ -3183,6 +3538,20 @@ export const liquidationAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -3336,6 +3705,28 @@ export const liquidationAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'paused',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
@@ -3463,6 +3854,31 @@ export const liquidationAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -3564,6 +3980,14 @@ export const liquidationAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
   },
   {
     type: 'event',
@@ -3687,6 +4111,7 @@ export const liquidationAbi = [
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NoBadDebtToOffset' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'PositionNotFound' },
   { type: 'error', inputs: [], name: 'PositionNotInProfit' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
@@ -3711,6 +4136,20 @@ export const oracleAdapterAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -3919,6 +4358,28 @@ export const oracleAdapterAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'paused',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
@@ -4102,6 +4563,31 @@ export const oracleAdapterAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -4149,6 +4635,40 @@ export const oracleAdapterAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'id', internalType: 'bytes32', type: 'bytes32', indexed: true },
+      {
+        name: 'prevPrice',
+        internalType: 'int256',
+        type: 'int256',
+        indexed: false,
+      },
+      {
+        name: 'newPrice',
+        internalType: 'int256',
+        type: 'int256',
+        indexed: false,
+      },
+      {
+        name: 'staleFor',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'PriceReanchored',
   },
   {
     type: 'event',
@@ -4357,6 +4877,7 @@ export const oracleAdapterAbi = [
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
   { type: 'error', inputs: [], name: 'OracleConfidenceTooWide' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   { type: 'error', inputs: [], name: 'StaleOracle' },
   { type: 'error', inputs: [], name: 'UUPSUnauthorizedCallContext' },
@@ -4384,6 +4905,20 @@ export const orderGatewayAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -4631,6 +5166,28 @@ export const orderGatewayAbi = [
     name: 'pause',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -4917,6 +5474,31 @@ export const orderGatewayAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -4975,6 +5557,14 @@ export const orderGatewayAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
   },
   {
     type: 'event',
@@ -5105,6 +5695,7 @@ export const orderGatewayAbi = [
   { type: 'error', inputs: [], name: 'ExpectedPause' },
   { type: 'error', inputs: [], name: 'FailedCall' },
   { type: 'error', inputs: [], name: 'FillBelowMinNotional' },
+  { type: 'error', inputs: [], name: 'InsufficientBatchGas' },
   { type: 'error', inputs: [], name: 'InvalidAmount' },
   { type: 'error', inputs: [], name: 'InvalidConfig' },
   { type: 'error', inputs: [], name: 'InvalidInitialization' },
@@ -5117,6 +5708,7 @@ export const orderGatewayAbi = [
   { type: 'error', inputs: [], name: 'OrderCancelled' },
   { type: 'error', inputs: [], name: 'OrderExpired' },
   { type: 'error', inputs: [], name: 'OrderOverfilled' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'PriceOutsideBand' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   { type: 'error', inputs: [], name: 'SelfTrade' },
@@ -5140,6 +5732,20 @@ export const riskParamsAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -5399,6 +6005,28 @@ export const riskParamsAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'paused',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
@@ -5576,6 +6204,31 @@ export const riskParamsAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -5707,6 +6360,14 @@ export const riskParamsAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
       { name: 'role', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
         name: 'previousAdminRole',
@@ -5827,6 +6488,7 @@ export const riskParamsAbi = [
     ],
     name: 'ParameterOutOfBounds',
   },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   { type: 'error', inputs: [], name: 'UUPSUnauthorizedCallContext' },
   {
@@ -5853,6 +6515,20 @@ export const vaultAbi = [
     inputs: [],
     name: 'DEFAULT_ADMIN_ROLE',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_COOLDOWN',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'GUARDIAN_PAUSE_DURATION',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -6066,6 +6742,28 @@ export const vaultAbi = [
     name: 'pause',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseIndefinitely',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pauseState',
+    outputs: [
+      { name: 'guardianPauseExpiry', internalType: 'uint64', type: 'uint64' },
+      { name: 'indefinite', internalType: 'bool', type: 'bool' },
+      {
+        name: 'guardianCooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -6339,6 +7037,31 @@ export const vaultAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'guardian',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'expiry',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'cooldownEndsAt',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'GuardianPaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'version',
         internalType: 'uint64',
         type: 'uint64',
@@ -6393,6 +7116,14 @@ export const vaultAbi = [
       },
     ],
     name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'by', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'PausedIndefinitely',
   },
   {
     type: 'event',
@@ -6569,6 +7300,7 @@ export const vaultAbi = [
   { type: 'error', inputs: [], name: 'MathOverflow' },
   { type: 'error', inputs: [], name: 'NativeValueRejected' },
   { type: 'error', inputs: [], name: 'NotInitializing' },
+  { type: 'error', inputs: [], name: 'PauseCooldownActive' },
   { type: 'error', inputs: [], name: 'ReentrancyGuardReentrantCall' },
   {
     type: 'error',

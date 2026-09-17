@@ -187,7 +187,7 @@ kryon-protocol/
 | **Insurance** | Backstop fund. Stake / request-unstake / withdraw with cooldown. `payLiquidator`, `coverDeficit`, bad-debt ledger. Shares retired when a loss wipes the staked pool. Receives a fee share. |
 | **RiskParams** | Per-market IM/MM/liquidation fee/OI caps/min fill notional, with hard bounds. Timelock-only. |
 | **FeeRouter** | Fee schedule, caps, tiers, split, accrual, and claim (§5). |
-| **Governance** | Safe N-of-M → OZ `TimelockController` (48h). Guardian Safe holds `PAUSER_ROLE`. `unpause` goes through the timelock. |
+| **Governance** | Safe N-of-M → OZ `TimelockController` (48h). Guardian Safe holds `PAUSER_ROLE`. `unpause` goes through the timelock. **Guardian powers are time-bounded (2026-09-17 review):** a timelock veto lasts at most 7 days, and after it ends (expiry or timelocked lift) the guardian can't veto again for 3 days, so operations scheduled during the veto (e.g. revoking the guardian) execute in that window. A guardian `pause()` lasts 72h, with a 24h cooldown after it ends. A longer stop is `pauseIndefinitely()` (timelock only), which ends only with `unpause()`. |
 
 ### 4.3 Design rules
 
@@ -195,13 +195,18 @@ kryon-protocol/
    roles to the timelock and renounces the deployer in the same run.
    `99_VerifyDeployment` fails if any EOA holds `DEFAULT_ADMIN_ROLE`, `UPGRADER_ROLE`,
    `FEE_ADMIN_ROLE`, or `RISK_ADMIN_ROLE`. The vault starts with `depositCap = 0` until this passes.
-2. **Role separation:** `OPERATOR_ROLE` (settle), `PUBLISHER_ROLE` (oracle), `KEEPER_ROLE`
+2. **Bounded emergency powers.** The guardian can halt governance execution for ≤ 7 days and any
+   protocol contract for ≤ 72h, with cooldowns (3 days / 24h) that outlast the 48h delay. So a
+   compromised guardian can delay governance and user withdrawals, but can't freeze them.
+   Pause state lives in the `kryon.storage.KryonUpgradeable` ERC-7201 namespace.
+   `99_VerifyDeployment` fails on an active veto, pause or cooldown.
+3. **Role separation:** `OPERATOR_ROLE` (settle), `PUBLISHER_ROLE` (oracle), `KEEPER_ROLE`
    (funding), `PAUSER_ROLE` (guardian), `FEE_TIER_ROLE` (bounded tier assignment).
-3. **Single decimals boundary**, fuzzed.
-4. **Checks-effects-interactions + `nonReentrant`** on every vault and insurance entry point.
-5. **Storage-layout snapshots** diffed in CI for every upgradeable contract.
-6. **Complete events.** The database is rebuildable from logs alone.
-7. **Bounded setters:** hard min/max constants that even the timelock can't exceed.
+4. **Single decimals boundary**, fuzzed.
+5. **Checks-effects-interactions + `nonReentrant`** on every vault and insurance entry point.
+6. **Storage-layout snapshots** diffed in CI for every upgradeable contract.
+7. **Complete events.** The database is rebuildable from logs alone.
+8. **Bounded setters:** hard min/max constants that even the timelock can't exceed.
 
 ---
 
@@ -217,6 +222,19 @@ kryon-protocol/
   restores maintenance. The change is flagged in the audit package (G7).
 - **ADL** closes backstop positions against in-profit counterparties and haircuts their realized
   gain by the unfunded shortfall (recorded bad debt that operating capital can't cover).
+- **Backstop marked to market (2026-09-17 review).** `Engine.accountValue` returns the backstop
+  account's equity (cash + unrealized PnL + pending funding) and never reverts; `priced = false`
+  if a held market can't be priced. Insurance uses
+  `markedOperatingBalance = equity − stakedBalance` for:
+  - OI capacity: `effectiveBalance = max(0, marked − badDebt)`, and 0 when unpriced (fail closed);
+  - the ADL trigger: `unfundedShortfall = max(0, badDebt − max(marked, 0))`, which reverts
+    `StaleOracle` when unpriced;
+  - unstake payouts: `shares × max(0, staked + min(0, marked)) / totalShares`, so stakers absorb
+    an under-water backstop pro rata instead of exiting at full NAV. Reverts `StaleOracle` when
+    unpriced.
+
+  `operatingBalance()` stays cash, because `settleBadDebt` moves real ledger balance.
+  Invariant #5 is unchanged.
 - **Backstop unwind.** Insurance implements ERC-1271 so the backstop can close its positions
   through the normal order book:
   - Orders are signed by a governance-revocable `BACKSTOP_SIGNER_ROLE` key.
@@ -244,7 +262,7 @@ capped, transparent to traders, and accounted for exactly.
 | Per-market schedule | `FeeRouter.setMarketFees(marketId, makerBps, takerBps)` (timelock) |
 | Maker rebate (optional) | signed `makerBps`. Allowed only if `takerBps + makerBps ≥ minNetFeeBps` |
 | Volume tiers | on-chain tier table (timelock). Per-account assignment by `FEE_TIER_ROLE`, restricted to existing tiers |
-| Referrals | optional signed `referrer` in `Order`. Referral share is claimable by the referrer |
+| Referrals | optional signed `referrer` in `Order`. The share is credited only when referrals are enabled, the referrer is on the governance allowlist (`setReferrerApproved`, `FEE_ADMIN_ROLE`/timelock) and is not the payer. Otherwise it accrues to treasury. Claimable by the referrer |
 | Liquidation penalty | `liquidationFeeBps` split between liquidator reward and insurance/treasury |
 | Minimum fill notional | per market in RiskParams, also enforced by API/matcher |
 | Funding | peer-to-peer. The protocol takes nothing |
@@ -328,7 +346,11 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
   - At 20 gwei, break-even is ~$19 notional for opening fills and ~$14 for fills on existing
     positions. The ≤ 350k target is met for fills on existing positions only, so $40 stays the
     launch minimum; the timelock can lower it once testnet traffic confirms the mix.
-- Batch cap: ≤ 40 fills per `settleFillsSigned` (15.1M gas measured), sized from simulation.
+- Batch cap: ≤ 40 fills per `settleFillsSigned` (15.2M gas measured), enforced on-chain by
+  `OrderGateway.MAX_BATCH = 40` (2026-09-17 review). Each fill must start with
+  `MIN_GAS_PER_FILL = 900k` (worst measured fill 729k: two brand-new ERC-1271 wallets at their
+  100k verification cap, a fresh market and the OI policy on; ×1.2, rounded up). ERC-1271 checks
+  get at most 100k gas.
 - The oracle is the largest fixed cost, so use deviation-triggered pushes plus a heartbeat (§7).
 - The monitor reports **fees earned vs gas spent** per day, per service.
 
@@ -386,10 +408,13 @@ At the 20 gwei floor. Gas figures are estimates to replace with `arc-forge snaps
 market-order book walking) is kept as-is. Around it:
 
 - **Single writer per market.** Scale by sharding markets across processes, each with its own operator key.
-- 250–500ms tick. Each tick sends one `settleFillsSigned` batch per market (cap ~40 fills /
-  ~14M gas, under the 30M block limit), sized from simulation.
+- 250–500ms tick. Each tick sends one `settleFillsSigned` batch per market (cap 40 fills, enforced
+  on-chain / ~15M gas, under the 30M block limit), sized from simulation.
 - Optimistic book: fills show as *pending* over WS and are confirmed on receipt (≤1s). `FillRejected`
-  rolls back the off-chain fill and re-opens the remaining size.
+  rolls back the off-chain fill and re-opens the remaining size. `FillRejected` always carries
+  a real reason. Running out of gas is never reported as a rejection: a batch that can't give
+  every fill `MIN_GAS_PER_FILL` reverts with `InsufficientBatchGas`. When that happens,
+  resubmit with a higher gas limit, or split the batch. No fill in it was settled or rejected.
 - Pre-trade checks: signature, expiry, nonce, `minFillNotional`, cached margin estimate.
 - Real tx hashes and block numbers on every `Fill`.
 - Optional address screening (Chainalysis/TRM) at `POST /api/orders`, cached.
@@ -399,12 +424,12 @@ market-order book walking) is kept as-is. Around it:
 | Service | Behaviour on Arc |
 |---|---|
 | `matcher-service.ts` | §6.3 |
-| `oracle-keeper.ts` | CEX median + USDC de-peg guard. `pushPrices` batch. Deviation/heartbeat schedule. External reference guard |
+| `oracle-keeper.ts` | CEX median + USDC de-peg guard. `pushPrices` batch. Deviation/heartbeat schedule. External reference guard. **Hard requirement: publish every feed whose market has open interest > 0, including inactive markets**, because a stale price on any held market blocks that trader's withdrawals, trades and liquidation (fail-closed by design) |
 | `state-indexer.ts` | Block cursor. `getLogs` in ≤2,000-block windows. Idempotent on `(txHash, logIndex)`. Optional Goldsky/Envio as a reconciliation source |
 | `settlement-reconciler.ts` | Drives `TxJob` using TxSender rules. Re-simulates before resend. Records decoded revert reasons |
 | `liquidation-keeper.ts` | Multicall3 `accountHealth` scans over accounts with open positions |
 | `funding-keeper.ts` | Periodic `updateFunding`. Verifies on-chain state after each update |
-| `monitor.ts` | Oracle staleness, bad debt, settlement failures, liquidation backlog, signer USDC balances, dropped/replaced tx rate, RPC failover, proxy implementation drift, role drift, invariant #5, revenue vs gas, oracle divergence |
+| `monitor.ts` | Oracle staleness (**alert when any feed with open interest > 0 is older than `maxAge / 2`**, active or not), bad debt, settlement failures, liquidation backlog, signer USDC balances, dropped/replaced tx rate, RPC failover, proxy implementation drift, role drift, invariant #5, revenue vs gas, oracle divergence |
 | `ws-server.ts` | Orderbook deltas and trades, with pending/confirmed fill states |
 | `stats-aggregator.ts` | Leaderboard/portfolio in 1e6 units. Fees from events. 30-day volume for tiers |
 | `keeper-refill.ts` | USDC top-ups to service keys from an ops Safe allowance |
@@ -419,12 +444,22 @@ on one:
 1. **Mark/index = Kryon's pushed CEX median** (Binance, Coinbase, Kraken; ≥2 sources; USDC
    de-peg guard).
 2. **Push policy:** push on ≥5 bps move, else a 5s heartbeat. On-chain `maxAge` = 15s.
+   **Jump guard (`maxJumpBps`, 20% on mainnet)** applies only while the previous aggregate is
+   fresh. After an outage longer than `maxAge`, the first median that passes quorum, spread,
+   monotonicity and the reference check re-anchors the feed and emits `PriceReanchored`
+   (2026-09-17 review; before, a >20% move during an outage bricked the feed until governance
+   stepped in). The monitor alerts on every `PriceReanchored`.
 3. **Independent cross-check:** Chainlink Data Feeds → RedStone → Stork → Chronicle, whichever
    publishes Arc mainnet feeds for our assets first. It starts as an off-chain halt in the keeper and
    moves on-chain (`maxDivergenceBps`) once feeds are confirmed.
 4. **2–3 publisher keys on separate hosts**, so the quorum median is real.
 5. Markets without an external reference launch with lower OI caps.
-6. Later: evaluate Chainlink Data Streams as the primary mark once it is on Arc mainnet.
+6. **Ops requirement (2026-09-17 review):** withdrawals, trades and liquidations fail closed on a
+   stale oracle for *any* market the account holds. So the keeper publishes every feed with open
+   interest > 0, including inactive markets. The monitor alerts when such a feed is older than
+   `maxAge / 2`. A market can be delisted (feed deactivated) only once its OI is 0.
+   `99_VerifyDeployment` fails if any configured market's feed isn't listed and active.
+7. Later: evaluate Chainlink Data Streams as the primary mark once it is on Arc mainnet.
 
 ---
 

@@ -7,6 +7,7 @@ import {IAccessControlEnumerable} from
     "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import {KryonDeploy} from "../../script/lib/KryonDeploy.sol";
 import {Vault} from "../../src/Vault.sol";
@@ -118,6 +119,208 @@ contract GovernanceTest is KryonTest {
             )
         );
         timelock.pauseExecution();
+    }
+
+    // ------------------------------------- bounded guardian veto and pause
+
+    /// Regression for the 2026-09-17 review PoC: a hostile guardian could
+    /// re-veto after every lift and keep the vault paused forever.
+    function test_guardian_cannot_relock_governance_or_funds() public {
+        bytes memory lift = abi.encodeCall(KryonTimelock.unpauseExecution, ());
+        bytes memory revoke =
+            abi.encodeWithSignature("revokeRole(bytes32,address)", Roles.PAUSER_ROLE, guardian);
+        _schedule(address(timelock), lift, "lift");
+        _schedule(address(timelock), revoke, "revoke");
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        vm.prank(guardian);
+        vault.pause();
+        vm.warp(_now() + 48 hours);
+
+        vm.prank(governance);
+        vm.expectRevert(Errors.ExecutionPaused.selector);
+        timelock.execute(address(timelock), 0, revoke, bytes32(0), "revoke");
+        _execute(address(timelock), lift, "lift");
+
+        // The lift starts the cooldown: no immediate re-veto.
+        vm.prank(guardian);
+        vm.expectRevert(Errors.VetoCooldownActive.selector);
+        timelock.pauseExecution();
+        _execute(address(timelock), revoke, "revoke");
+        assertFalse(timelock.hasRole(Roles.PAUSER_ROLE, guardian));
+
+        // The guardian's vault pause lapses on its own after 72h.
+        assertTrue(vault.paused());
+        vm.warp(_now() + 24 hours);
+        assertFalse(vault.paused());
+    }
+
+    function test_veto_cannot_be_renewed_while_active_or_in_cooldown() public {
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        uint64 until = timelock.vetoUntil();
+        assertEq(until, _now() + 7 days);
+        assertEq(timelock.vetoCooldownEndsAt(), until + 3 days);
+
+        vm.prank(guardian);
+        vm.expectRevert(Errors.VetoCooldownActive.selector);
+        timelock.pauseExecution();
+
+        vm.warp(until);
+        assertFalse(timelock.executionPaused(), "the veto expires by itself");
+        vm.prank(guardian);
+        vm.expectRevert(Errors.VetoCooldownActive.selector);
+        timelock.pauseExecution();
+
+        vm.warp(until + 3 days);
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        assertTrue(timelock.executionPaused());
+    }
+
+    function test_execution_resumes_after_seven_days_without_a_lift() public {
+        bytes memory call = abi.encodeCall(Vault.setDepositCaps, (1, 1));
+        _schedule(address(vault), call, "caps");
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        vm.warp(_now() + 48 hours);
+        vm.prank(governance);
+        vm.expectRevert(Errors.ExecutionPaused.selector);
+        timelock.execute(address(vault), 0, call, bytes32(0), "caps");
+
+        vm.warp(_now() + 5 days);
+        _execute(address(vault), call, "caps");
+        (uint256 total,) = vault.depositCaps();
+        assertEq(total, 1);
+    }
+
+    function test_revoke_scheduled_during_the_veto_executes_in_the_cooldown_window() public {
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        vm.warp(_now() + 6 days);
+        bytes memory revoke =
+            abi.encodeWithSignature("revokeRole(bytes32,address)", Roles.PAUSER_ROLE, guardian);
+        _schedule(address(timelock), revoke, "revoke");
+        vm.warp(_now() + 1 days); // veto expired, cooldown running
+        vm.prank(guardian);
+        vm.expectRevert(Errors.VetoCooldownActive.selector);
+        timelock.pauseExecution();
+        vm.warp(_now() + 1 days); // 48h after scheduling, still inside the 3-day cooldown
+        _execute(address(timelock), revoke, "revoke");
+        assertFalse(timelock.hasRole(Roles.PAUSER_ROLE, guardian));
+    }
+
+    function test_lifting_without_an_active_veto_is_a_no_op() public {
+        bytes memory lift = abi.encodeCall(KryonTimelock.unpauseExecution, ());
+        _schedule(address(timelock), lift, "lift");
+        vm.warp(_now() + 48 hours);
+        _execute(address(timelock), lift, "lift");
+        assertEq(timelock.vetoUntil(), 0, "no cooldown starts without a veto");
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        assertTrue(timelock.executionPaused());
+    }
+
+    function test_guardian_pause_expires_and_withdrawals_resume() public {
+        fund(alice, 100e6);
+        vm.prank(guardian);
+        vault.pause();
+        (uint64 expiry, bool indefinite, uint64 cooldownEnds) = vault.pauseState();
+        assertEq(expiry, _now() + 72 hours);
+        assertFalse(indefinite);
+        assertEq(cooldownEnds, expiry + 24 hours);
+
+        vm.warp(_now() + 72 hours - 1);
+        vm.prank(alice);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.withdraw(1e6);
+        vm.warp(_now() + 1);
+        assertFalse(vault.paused());
+        vm.prank(alice);
+        vault.withdraw(1e6);
+    }
+
+    function test_guardian_cannot_repause_inside_the_cooldown() public {
+        vm.prank(guardian);
+        vault.pause();
+        vm.prank(guardian);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.pause();
+
+        vm.warp(_now() + 72 hours);
+        vm.prank(guardian);
+        vm.expectRevert(Errors.PauseCooldownActive.selector);
+        vault.pause();
+
+        // A timelock unpause ends the pause now; the cooldown runs from there.
+        vm.warp(_now() + 24 hours);
+        vm.prank(guardian);
+        vault.pause();
+        asGov();
+        vault.unpause();
+        assertFalse(vault.paused());
+        vm.prank(guardian);
+        vm.expectRevert(Errors.PauseCooldownActive.selector);
+        vault.pause();
+        vm.warp(_now() + 24 hours);
+        vm.prank(guardian);
+        vault.pause();
+        assertTrue(vault.paused());
+    }
+
+    function test_pause_indefinitely_persists_until_the_timelock_unpauses() public {
+        fund(alice, 100e6);
+        asGov();
+        vault.pauseIndefinitely();
+        vm.warp(_now() + 30 days);
+        assertTrue(vault.paused());
+        vm.prank(alice);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.withdraw(1e6);
+        vm.prank(guardian);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.pause();
+
+        asGov();
+        vault.unpause();
+        assertFalse(vault.paused());
+        vm.prank(alice);
+        vault.withdraw(1e6);
+        // Nothing to lift any more.
+        asGov();
+        vm.expectRevert(PausableUpgradeable.ExpectedPause.selector);
+        vault.unpause();
+    }
+
+    function test_indefinite_pause_outlives_a_guardian_pause() public {
+        vm.prank(guardian);
+        engine.pause();
+        asGov();
+        engine.pauseIndefinitely();
+        asGov();
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        engine.pauseIndefinitely();
+        vm.warp(_now() + 73 hours);
+        assertTrue(engine.paused());
+    }
+
+    function test_only_the_timelock_can_pause_indefinitely() public {
+        vm.prank(guardian);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                guardian,
+                Roles.DEFAULT_ADMIN_ROLE
+            )
+        );
+        vault.pauseIndefinitely();
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, Roles.DEFAULT_ADMIN_ROLE
+            )
+        );
+        gateway.pauseIndefinitely();
     }
 
     // ---------------------------------------------------------- handover
