@@ -4,11 +4,11 @@ import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
   title: "Kryon Protocol",
-  tagline: "Decentralised perpetual futures on Stellar / Soroban",
+  tagline: "Perpetual futures on Arc",
   favicon: "img/favicon.png",
 
-  // Served from the same deployment as the trading client, under /docs.
-  url: "https://client-eight-mu-71.vercel.app",
+  // Placeholder until the docs domain is chosen.
+  url: "https://docs.<APP_DOMAIN>",
   baseUrl: "/docs/",
   // Emit non-trailing-slash routes so they line up with Next's default
   // trailing-slash handling + the /docs rewrites in client/next.config.ts.

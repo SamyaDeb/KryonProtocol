@@ -13,9 +13,9 @@
 
 1. Run monitor: `cd client && npm run dev:monitor`
 2. Check Railway service logs for the failing service
-3. Check Vercel function logs at vercel.com/samyadebs-projects/client
-4. Check Neon DB status at console.neon.tech
-5. Confirm contracts are alive on testnet: `stellar contract invoke --network testnet --source-account kryon-deployer --id <CONTRACT> -- --help`
+3. Check the web tier logs in the hosting provider (`<HOSTING_PROVIDER>`)
+4. Check the database provider status page (`<DB_PROVIDER>`)
+5. Confirm contracts respond on the target Arc network: `cast call <CONTRACT> "paused()(bool)" --rpc-url "${ARC_RPC_URLS%%,*}"`
 
 ## Triage by symptom
 
@@ -33,19 +33,19 @@
 → Restart: `cd client && npm run dev:indexer`
 
 ### App 500 errors
-1. Check `DATABASE_URL` is set in Vercel env
-2. Check Neon DB is reachable: `psql "$DATABASE_URL" -c "SELECT 1"`
+1. Check `DATABASE_URL` is set in the web tier env
+2. Check the database is reachable: `psql "$DATABASE_URL" -c "SELECT 1"`
 3. Check for Prisma migration drift: `cd kryon-protocol && ./node_modules/.bin/prisma migrate status`
 
 ### WebSocket disconnects
 1. Check Railway ws-server service is running
-2. Verify `NEXT_PUBLIC_WS_URL` is correct in Vercel env
+2. Verify `NEXT_PUBLIC_WS_URL` is correct in the web tier env
 3. Client auto-reconnects — usually self-healing
 
 ## Escalation
 
 - Contract bugs: roll back via governance (if timelock elapsed) or redeploy fresh instance
-- DB corruption: restore from Neon point-in-time recovery
+- DB corruption: restore from the database provider's point-in-time recovery
 - Key compromise: rotate `ORACLE_PUBLISHER_SECRET` and `MATCHER_OPERATOR_SECRET`, update on-chain via `set_source_publisher` and new deployment
 
 ## Post-incident

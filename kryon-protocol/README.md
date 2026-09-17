@@ -1,7 +1,7 @@
 # Kryon Protocol
 
-The Rust workspace behind Kryon: eight Soroban contracts and the pure crates
-they share. Live on Stellar mainnet since 2026-07-07.
+The Rust workspace behind Kryon: the legacy-chain contracts and the pure crates
+they share, kept as the reference model for the Arc contracts in `evm/`.
 
 Everything off-chain — matcher, oracle keeper, indexer, WebSocket server,
 reconciler, liquidation and TTL keepers — is TypeScript under `client/scripts/`

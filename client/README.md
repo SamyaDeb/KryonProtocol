@@ -1,51 +1,39 @@
-# Kryon — Frontend
+# Kryon — Web app and off-chain services
 
-Stellar/Soroban perpetual-futures DEX terminal (Next.js 16 + React 19). Launch market: **XLM-PERP**, USDC-settled, on Stellar **testnet**.
+Next.js 16 + React 19 trading terminal for Kryon, perpetual futures on Arc,
+plus the TypeScript off-chain services (matcher, indexer, oracle keeper,
+WebSocket server, reconciler, liquidator) under `scripts/`.
 
-## Prerequisites
-
-- [Bun](https://bun.sh)
-- [Freighter](https://freighter.app) wallet, set to **Stellar Testnet**
-- A desktop / large screen (≥ 1024px) — the terminal is desktop-first
+> **Status:** pre-launch. The Arc chain layer lives in `lib/chain/`. Some
+> services and UI still import legacy chain code (`lib/stellar/**`); those are
+> being replaced and are not a supported deployment target.
 
 ## Setup
 
 ```bash
-bun install
+npm ci
+cp .env.local.example .env.local   # fill in values; never commit them
 ```
 
-Create `.env` (Next.js) **and** `.env.local` (the off-chain scripts read this):
+The variables are documented in `.env.local.example`. A database URL looks like
+`postgresql://USER:PASSWORD@HOST:5432/kryon?sslmode=require`.
 
-```ini
-DATABASE_URL="postgresql://…neon.tech/db?sslmode=require"   # Neon Postgres
-ORACLE_PUBLISHER_SECRET="S…"                                 # authorized oracle publisher key
-```
-
-Order & market data uses the app's own `/api` routes (same-origin) — no matcher/indexer URL needed.
-
-## Run
+## Develop and test
 
 ```bash
-bun run dev        # http://localhost:3000  →  /trade/XLM-PERP
+npm run dev          # http://localhost:3000
+npx tsc --noEmit     # typecheck
+npm test             # unit tests
+npm run lint
+npm run build
+npm run wagmi:generate   # regenerate ABIs from ../kryon-protocol/evm
 ```
 
-### Off-chain services (run for live prices & fills)
-
-```bash
-bun run dev:oracle     # publish XLM price on-chain (~8s)
-bun run dev:matcher    # match orders + settle fills on-chain
-bun run dev:indexer    # sync on-chain state → DB
-```
-
-## Other
-
-```bash
-bun run build && bun run start   # production
-bun run lint
-```
+Off-chain services run individually, e.g. `npm run dev:matcher`,
+`npm run dev:indexer`, `npm run dev:ws`.
 
 ## Routes
 
-- `/trade/[market]` — trading terminal (e.g. `/trade/XLM-PERP`)
+- `/trade/[market]` — trading terminal
 - `/portfolio` — account overview
 - `/leaderboard` — trader rankings

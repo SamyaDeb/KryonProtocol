@@ -7,10 +7,11 @@ Amounts use strings instead of JavaScript `number` or database floats. That is
 intentional: protocol values are signed fixed-point integers and must round-trip
 exactly with 18-decimal precision.
 
-## Neon Setup
+## Database Setup
 
 1. Copy `.env.example` to `.env`.
-2. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection string.
+2. Set `DATABASE_URL` and `DIRECT_URL` to your Postgres connection strings, e.g.
+   `postgresql://USER:PASSWORD@HOST:5432/kryon?sslmode=require`.
 3. Run:
 
 ```bash
@@ -41,12 +42,12 @@ the `20260705120000_add_order_signature` repair migration re-baselined it.
 
 ```bash
 # from kryon-protocol/, with prod credentials in the environment:
-DATABASE_URL=<neon-pooled-url> DIRECT_URL=<neon-direct-url> \
+DATABASE_URL=<pooled-url> DIRECT_URL=<direct-url> \
   npx prisma migrate deploy
 ```
 
 - Pending as of 2026-07-05: run the command above once to record
-  `20260705120000_add_order_signature` on the live Neon DB (its `ALTER TABLE
+  `20260705120000_add_order_signature` on the production DB (its `ALTER TABLE
   ... IF NOT EXISTS` is a no-op there — the column already exists).
 - Verify afterwards with `npx prisma migrate status` (expects "Database schema
   is up to date").

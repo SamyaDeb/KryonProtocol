@@ -10,8 +10,7 @@ fleet at ~85% memory plus swap, and gives the testnet fleet a home.
 > `WEB-TIER.md` hold the reasoning behind individual phases.
 >
 > **Web tier:** the Next.js app now runs on this box too, behind a Cloudflare
-> Tunnel — see [`WEB-TIER.md`](./WEB-TIER.md). That supersedes the Vercel and
-> Cloudflare Workers deployments, and makes the §2 VCN ingress rules for
+> Tunnel — see [`WEB-TIER.md`](./WEB-TIER.md). That supersedes serverless hosting of the web app, and makes the §2 VCN ingress rules for
 > 8080/8081 unnecessary (the tunnel dials outbound).
 
 
