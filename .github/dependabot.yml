@@ -10,6 +10,20 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Legacy chain SDK and its types: removed with the frontend and service
+      # ports (Phase 3/4). Bumping them churns code that is being deleted.
+      - dependency-name: "@stellar/*"
+      - dependency-name: stellar-sdk
+      # Major toolchain bumps are deferred until after the external audit, so
+      # the frozen contracts and their clients are not re-churned mid-review.
+      # Revisit once the audit report lands (see BUILD_LOG "Phase 1 freeze").
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /kryon-protocol
@@ -26,3 +40,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      docs-minor-patch:
+        update-types:
+          - minor
+          - patch
