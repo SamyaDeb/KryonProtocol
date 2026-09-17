@@ -99,7 +99,7 @@ they show a worse impact than described.
 
 | Item | Why not fixed |
 |---|---|
-| `arc-forge fmt --check` reports 34 files (mostly `src/`) not matching `[fmt]` | Cosmetic. Formatting before the freeze would change `src/` after the nightly campaign. Planned for `audit-v1.1` with a whitespace-only diff (`git diff -w audit-v1` empty for `src/`) |
+| `arc-forge fmt --check` reports 34 files (mostly `src/`) not matching `[fmt]` | Cosmetic. Formatting before the freeze would change `src/` after the nightly campaign. Planned right after the audit, as a whitespace-only `audit-v1.1` (`git diff -w` empty for `src/`), together with adding `arc-forge fmt --check` to CI so it cannot drift again |
 | Arc USDC blocklist controller and exact blocklist semantics | Not published by Arc; behaviour tested against a mock (item 9) |
 | Backstop unwind limits unset | Set by governance after launch, sized to insurance capital |
 | Referral program disabled | Business decision; the referral share accrues to treasury |

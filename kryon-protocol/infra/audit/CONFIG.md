@@ -52,6 +52,14 @@ Per unit of closed notional (penalty = `liquidation_fee_bps`, reward = `min(pena
 | BNB-PERP | 7 | no | 1000 | 500 | 50 | 10x | 75 | 425 BNB | `0x00d1516C06e030Ef2142478ce14CEbce2De81771` |
 | TRX-PERP | 8 | no | 2000 | 1000 | 50 | 5x | 75 | 575,000 TRX | `0x5693D678943AE1FDfCECFf98B6c677FbAf331AE9` |
 
+**Retired market ids: 1 (XLM-PERP) and 6 (ADA-PERP).** Both were listed in earlier configs and
+were removed at the freeze because Arc has no Chainlink reference feed for them. These ids must
+never be reused for a different market: `RiskParams` keys positions, events and every indexed
+record by numeric market id, and the off-chain projections replay historical logs, so reusing an id
+would let old XLM or ADA data be read as the new market. A future market takes the next unused id
+(9 and upward). `RiskParams.setMarket` also refuses to re-point a listed market at another oracle
+id, and `EnvironmentConfigTest` fails if id 1 or 6 reappears in an Arc config.
+
 All markets: `max_oracle_age_secs = 15`, `max_oracle_confidence_bps = 100`, `min_fill_notional_usd
 = 40`, `funding_premium_coeff = 1`, `funding_max_rate_per_hour = 0.05%`, reference
 `max_divergence_bps = 150`, `max_age_secs = 90000` (25h), reference not `required`.
