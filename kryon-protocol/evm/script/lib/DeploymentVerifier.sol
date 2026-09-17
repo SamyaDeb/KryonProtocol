@@ -317,6 +317,10 @@ library DeploymentVerifier {
             _check(r, d.risk.oiPolicyBps(want.id) == want.oiPolicyBps, string.concat("RiskParams: OI policy for ", sym));
 
             OracleAdapter.FeedConfig memory feed = d.oracle.feed(want.params.oracleId);
+            // Every market, active or not, must have a live feed: a trader holding
+            // a position in a market whose feed is stale or inactive can't
+            // withdraw (plan §6.4, runbooks/oracle-failure.md).
+            _check(r, feed.listed && feed.active, string.concat("OracleAdapter: feed not listed and active for ", sym));
             _check(r, keccak256(abi.encode(feed)) == keccak256(abi.encode(want.feed)), string.concat("OracleAdapter: feed differs for ", sym));
             OracleAdapter.ReferenceFeed memory ref = d.oracle.referenceFeed(want.params.oracleId);
             _check(r, keccak256(abi.encode(ref)) == keccak256(abi.encode(want.ref)), string.concat("OracleAdapter: reference differs for ", sym));

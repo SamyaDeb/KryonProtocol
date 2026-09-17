@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {DeploymentVerifier} from "../../script/lib/DeploymentVerifier.sol";
 import {DeployConfig} from "../../script/lib/KryonDeploy.sol";
+import {OracleAdapter} from "../../src/OracleAdapter.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {MarketParams} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
@@ -157,6 +158,17 @@ contract DeploymentVerifierTest is KryonTest {
         asGov();
         liquidation.setParams(15, 5000);
         assertEq(DeploymentVerifier.warnings(d, baseConfig()).length, 0);
+    }
+
+    function test_flags_a_market_whose_feed_is_inactive() public {
+        OracleAdapter.FeedConfig memory f = oracle.feed(ETH_ID);
+        f.active = false;
+        asGov();
+        oracle.setFeed(ETH_ID, f);
+        string[] memory fl = _failures();
+        assertEq(fl.length, 2);
+        assertEq(fl[0], "OracleAdapter: feed not listed and active for ETH-PERP");
+        assertEq(fl[1], "OracleAdapter: feed differs for ETH-PERP");
     }
 
     function console2_log(string memory) internal pure {}

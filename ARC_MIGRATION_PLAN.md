@@ -424,12 +424,12 @@ market-order book walking) is kept as-is. Around it:
 | Service | Behaviour on Arc |
 |---|---|
 | `matcher-service.ts` | §6.3 |
-| `oracle-keeper.ts` | CEX median + USDC de-peg guard. `pushPrices` batch. Deviation/heartbeat schedule. External reference guard |
+| `oracle-keeper.ts` | CEX median + USDC de-peg guard. `pushPrices` batch. Deviation/heartbeat schedule. External reference guard. **Hard requirement: publish every feed whose market has open interest > 0, including inactive markets**, because a stale price on any held market blocks that trader's withdrawals, trades and liquidation (fail-closed by design) |
 | `state-indexer.ts` | Block cursor. `getLogs` in ≤2,000-block windows. Idempotent on `(txHash, logIndex)`. Optional Goldsky/Envio as a reconciliation source |
 | `settlement-reconciler.ts` | Drives `TxJob` using TxSender rules. Re-simulates before resend. Records decoded revert reasons |
 | `liquidation-keeper.ts` | Multicall3 `accountHealth` scans over accounts with open positions |
 | `funding-keeper.ts` | Periodic `updateFunding`. Verifies on-chain state after each update |
-| `monitor.ts` | Oracle staleness, bad debt, settlement failures, liquidation backlog, signer USDC balances, dropped/replaced tx rate, RPC failover, proxy implementation drift, role drift, invariant #5, revenue vs gas, oracle divergence |
+| `monitor.ts` | Oracle staleness (**alert when any feed with open interest > 0 is older than `maxAge / 2`**, active or not), bad debt, settlement failures, liquidation backlog, signer USDC balances, dropped/replaced tx rate, RPC failover, proxy implementation drift, role drift, invariant #5, revenue vs gas, oracle divergence |
 | `ws-server.ts` | Orderbook deltas and trades, with pending/confirmed fill states |
 | `stats-aggregator.ts` | Leaderboard/portfolio in 1e6 units. Fees from events. 30-day volume for tiers |
 | `keeper-refill.ts` | USDC top-ups to service keys from an ops Safe allowance |
@@ -454,7 +454,12 @@ on one:
    moves on-chain (`maxDivergenceBps`) once feeds are confirmed.
 4. **2–3 publisher keys on separate hosts**, so the quorum median is real.
 5. Markets without an external reference launch with lower OI caps.
-6. Later: evaluate Chainlink Data Streams as the primary mark once it is on Arc mainnet.
+6. **Ops requirement (2026-09-17 review):** withdrawals, trades and liquidations fail closed on a
+   stale oracle for *any* market the account holds. So the keeper publishes every feed with open
+   interest > 0, including inactive markets. The monitor alerts when such a feed is older than
+   `maxAge / 2`. A market can be delisted (feed deactivated) only once its OI is 0.
+   `99_VerifyDeployment` fails if any configured market's feed isn't listed and active.
+7. Later: evaluate Chainlink Data Streams as the primary mark once it is on Arc mainnet.
 
 ---
 
