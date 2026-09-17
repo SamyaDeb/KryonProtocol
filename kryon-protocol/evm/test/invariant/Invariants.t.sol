@@ -10,7 +10,7 @@ import {MarketParams, ORACLE_SOURCE_QUORUM, OracleSnapshot} from "../../src/libr
 import {KryonTest} from "../utils/KryonTest.sol";
 import {Handler} from "./Handler.sol";
 
-/// @notice ARC_MIGRATION_PLAN.md §3 protocol invariants 1-6, plus the
+/// @notice docs/engineering/PROTOCOL_PLAN.md §3 protocol invariants 1-6, plus the
 ///         accounting identities the design depends on.
 contract InvariantsTest is KryonTest {
     Handler internal handler;

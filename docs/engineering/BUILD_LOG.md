@@ -1,12 +1,12 @@
-# Arc migration progress
+# Build log
 
-Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_PROMPT.md`.
+Source of truth: [`PROTOCOL_PLAN.md`](PROTOCOL_PLAN.md).
 
 | Step | Status |
 |---|---|
 | 0. Setup (Appendix B, git init, arc-facts) | ✅ done |
 | 1. Contracts (Phase A + fee contracts) | ✅ done, plus the 2026-09-17 decisions (below) |
-| 7. Remove Stellar (safe first pass) | 🟡 partial: Soroban contracts and Stellar-only scripts removed; the rest follows Steps 2–6 |
+| 7. Remove legacy chain code (safe first pass) | 🟡 partial: legacy contracts and legacy-only scripts removed; the rest follows Steps 2–6 |
 | 2. Chain layer + TxSender | ✅ done |
 | 3. Services | not started |
 | 4. Database | not started |
@@ -79,9 +79,9 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 
 ---
 
-## 2026-09-17: mainnet decisions and safe Stellar removal
+## 2026-09-17: mainnet decisions and safe legacy code removal
 
-### Decisions adopted (written into `ARC_MIGRATION_PLAN.md` §4.4, §5.6, §11, §14, §15)
+### Decisions adopted (written into `PROTOCOL_PLAN.md` §4.4, §5.6, §11, §14, §15)
 
 1. **Liquidation-sizing fix kept.** It is flagged for the audit. New property test
    `testFuzz_one_uncapped_step_restores_maintenance` (20,000 runs; every run builds a liquidatable
@@ -113,16 +113,16 @@ After these changes: **224 tests pass**; fork suite 8/8; differential 9/9; cover
 lines / 95.89% branches**; **Slither 0 findings**; storage-layout snapshots refreshed; all
 contracts under 24KB (Engine 21,865 B, Insurance 13,704 B, OrderGateway 14,040 B).
 
-### Stellar removal, safe first pass (`e0a327f`)
+### Legacy chain code removal, safe first pass (`e0a327f`)
 
-- Deleted `kryon-protocol/contracts/**` (8 Soroban contracts, 10,949 lines). The Cargo workspace
+- Deleted `kryon-protocol/contracts/**` (8 legacy contracts, 10,949 lines). The Cargo workspace
   now holds `crates/protocol-core`, `crates/risk-engine` and `evm/ffi`.
-- Deleted the Appendix A Stellar-only scripts: `ttl-keeper`, `setup-usdc-*`, `*usdt0*`,
+- Deleted the Appendix A legacy-only scripts: `ttl-keeper`, `setup-usdc-*`, `*usdt0*`,
   `redeploy-core`, `redeploy-oracle`, `redeploy-engine-xlm`, `rewire-liquidation`,
   `transfer-admin-to-governance`, `cutover-testnet-v3`, `test-*settle*`, `test-xlm-*`,
   `test-usdc-*`, `test-final-usdc`, `diag-usdc-settle` and `migrate-add-order-signature`, plus the
   `dev:ttl` npm script. **16 of them were gitignored local files, so their deletion is permanent.**
-- CI: the Soroban/wasm job is replaced by `reference-model` (fmt, clippy, test) and `evm` (pinned
+- CI: the legacy wasm job is replaced by `reference-model` (fmt, clippy, test) and `evm` (pinned
   arc-foundry with checksum, sizes, tests, differential, storage-layout diff, Slither
   `--fail-medium`). Rust fmt and clippy pass locally.
 - **Kept on purpose, as the template for the Arc equivalents (your instruction):**
@@ -130,8 +130,8 @@ contracts under 24KB (Engine 21,865 B, Insurance 13,704 B, OrderGateway 14,040 B
   (including `_drill_ecosystem.config.cjs` and `ecosystem.testnet.config.cjs`),
   `railway-testnet-entrypoint.sh` and runbooks. They are rewritten or removed in Step 6.
 - **Still to remove, as Steps 2–5 replace it:** `client/lib/stellar/**`, the `@stellar/*`
-  dependencies, the Stellar service scripts (matcher, keepers, indexer, monitor, …),
-  `SettlementModal`, `/api/settlements`, the wallet/Freighter UI, and Stellar docs. The CI grep
+  dependencies, the legacy service scripts (matcher, keepers, indexer, monitor, …),
+  `SettlementModal`, `/api/settlements`, the wallet/Freighter UI, and legacy chain docs. The CI grep
   guard is added when the last of these goes.
 
 ---
@@ -164,9 +164,9 @@ contracts under 24KB (Engine 21,865 B, Insurance 13,704 B, OrderGateway 14,040 B
 | Storage-layout snapshots | ✅ `evm/storage-layout/*.txt` for all 8 contracts. `./script/storage-layout.sh --check` is the CI diff. Regular storage is empty everywhere; all state is namespaced |
 | Deploy scripts | ✅ `DeployAll` and the numbered `00`→`05` path both **broadcast cleanly to a local arc-anvil fork of Arc testnet**, and `99_VerifyDeployment: OK`. Preflight refuses placeholder governance addresses, a wrong chain id, and mainnet without `KRYON_ALLOW_MAINNET=true`. `DeploymentVerifier` unit tests prove it flags an EOA admin, fee drift, param drift, extra operators and a vetoed timelock |
 
-### Test ports from Soroban
+### Test ports from the legacy contracts
 
-Every scenario from the eight Soroban contracts and the Rust crates was ported, except those that
+Every scenario from the eight legacy contracts and the Rust crates was ported, except those that
 don't apply on Arc (listed under Deviations): Vault, Engine, OrderGateway (including KRY-Q1 and
 KRY-Q6 funding regressions and KRY-S2 cancels), Liquidation (C1 bad debt, KRY-Q4 ADL), Insurance
 (all 8 staking/epoch tests), OracleAdapter (quorum, replay, deviation, duplicate sources),
@@ -210,12 +210,12 @@ default doesn't cover gas for opening fills. See Open decisions.
 ### Deviations from the plan (with reasons)
 
 1. **Liquidation transfers the position to the insurance backstop** at the oracle index instead of
-   closing it one-sidedly as Soroban did. A one-sided close leaves long and short OI unequal and
+   closing it one-sidedly as the legacy engine did. A one-sided close leaves long and short OI unequal and
    makes invariant #5 unprovable. With the transfer, `usdc × 1e12 == Σ balances − Σ cost basis`
    holds exactly (fuzzed). The penalty pays a capped liquidator reward, and the remainder is split
    by the FeeRouter (§4.2).
 2. **ADL closes the backstop's position against an in-profit counterparty and haircuts that
-   counterparty's realized gain** by the unfunded shortfall. Soroban's `adl` only cleared the
+   counterparty's realized gain** by the unfunded shortfall. The legacy `adl` only cleared the
    bad-debt record while crediting the winner in full, which doesn't reduce the shortfall.
 3. **Invariant #5 includes the open cost basis.** Realized PnL isn't zero-sum per fill; balance
    plus cost basis is. The exact identity is `vault USDC×1e12 == totalLedger − netCostBasis`,
@@ -227,21 +227,21 @@ default doesn't cover gas for opening fills. See Open decisions.
 6. **Order sizes are 1e18 base units** (prices 1e18, USDC amounts 1e6 at the token boundary). The
    plan's "1e6 amounts" is read as token amounts.
 7. **Fee rates are in millionths** (1 = 0.01 bps), so 3.5 / 0.5 bps are expressible (350 / 50).
-8. **OI caps count long + short**, as the Soroban engine did (every matched fill opens both sides).
+8. **OI caps count long + short**, as the legacy engine did (every matched fill opens both sides).
 9. **Non-increasing fills** must not leave the account liquidatable (instead of requiring initial
-   margin as Soroban did), so traders between MM and IM can still reduce. Increasing fills
+   margin as the legacy engine did), so traders between MM and IM can still reduce. Increasing fills
    require IM after fees.
-10. **Not ported, because they don't apply on Arc:** isolated margin (disabled in Soroban too),
+10. **Not ported, because they don't apply on Arc:** isolated margin (disabled in the legacy contracts too),
     multi-collateral seizure and USDT0 flows (USDC-only launch; the `setCollateral` interface is
-    kept), Stellar→Arc migration import/seal (fresh baseline per §9), instance-TTL keepalives and
+    kept), legacy-chain state import/seal (fresh baseline per §9), instance-TTL keepalives and
     tombstone reclaim (EVM has no rent, so cancels are permanent), and the advisory `perp-risk`
     contract. The SEP-53/ed25519 golden vector is replaced by an EIP-712 parity vector
     (`test_eip712_parity_vector`, digest `0x3743…895e`) and computed typehashes.
-11. **`updateFunding` is `KEEPER_ROLE`**, per §4.3 (Soroban's was permissionless).
+11. **`updateFunding` is `KEEPER_ROLE`**, per §4.3 (the legacy version was permissionless).
 12. **Deposits stay closed on mainnet** (`depositCap = 0`) until `99_VerifyDeployment` passes and
     the timelock raises the caps. Testnet and local open them at deploy
     (`open_deposits_at_deploy`).
-13. **The funding clock starts at a market's first trade** (Soroban started it at config time),
+13. **The funding clock starts at a market's first trade** (the legacy engine started it at config time),
     because funding config lives in RiskParams.
 
 ### Open questions / decisions for you
@@ -289,7 +289,7 @@ arc-forge build --build-info --skip "test/**" --skip "script/**" && \
   `.dev.vars*`, `*secrets*.env`, keystores/PEM/key files, and arc-foundry outputs.
 - **Legacy secret env files moved out of the working tree** (not deleted):
   `kryon-protocol/infra/deploy/{mainnet,testnet,testnet-v3}-secrets.env` →
-  `~/Kryon-legacy-secrets/` (dir mode 700, files 600). They hold Stellar-era keys. Decide
+  `~/Kryon-legacy-secrets/` (dir mode 700, files 600). They hold legacy-chain keys. Decide
   whether to keep, rotate, or destroy them.
 - **`git init` + baseline commit** `f650754` (340 files). The staged-file secret scan found only
   placeholders. Tracked key/wallet/secret files: 0.

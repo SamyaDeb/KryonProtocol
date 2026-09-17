@@ -9,7 +9,7 @@ import {KryonErrors as Errors} from "../../src/libraries/Errors.sol";
 import {Order} from "../../src/libraries/OrderLib.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
-/// @notice ARC_MIGRATION_PLAN.md §5.8 fee tests, plus schedule plumbing.
+/// @notice docs/engineering/PROTOCOL_PLAN.md §5.8 fee tests, plus schedule plumbing.
 contract FeeRouterTest is KryonTest {
     function setUp() public override {
         super.setUp();

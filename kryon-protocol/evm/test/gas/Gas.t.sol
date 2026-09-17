@@ -6,8 +6,8 @@ import {Fill, Order} from "../../src/libraries/OrderLib.sol";
 import {MarketParams} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
 
-/// @notice Gas for the ARC_MIGRATION_PLAN.md §5.6 unit-economics table.
-///         Numbers are printed (-vv) and recorded in MIGRATION_PROGRESS.md.
+/// @notice Gas for the docs/engineering/PROTOCOL_PLAN.md §5.6 unit-economics table.
+///         Numbers are printed (-vv) and recorded in docs/engineering/BUILD_LOG.md.
 contract GasTest is KryonTest {
     function _fills(uint256 n, uint256 salt) internal returns (Fill[] memory fills) {
         fills = new Fill[](n);

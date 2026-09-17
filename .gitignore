@@ -70,7 +70,7 @@ MainnetImpAudit.md
 # Build artifact shipped to the web box, never source
 *.tar.gz
 
-# --- Appendix B (ARC_MIGRATION_PLAN.md): keys, logs, deploy state ---
+# --- Appendix B (docs/engineering/PROTOCOL_PLAN.md): keys, logs, deploy state ---
 # Load-test and drill wallets hold PRIVATE KEYS. Never commit.
 client/scripts/_loadtest_*_keys.json
 client/scripts/_loadtest_*wallets*.json
@@ -109,3 +109,6 @@ kryon-protocol/evm/ffi/target/
 kryon-protocol/evm/broadcast/
 kryon-protocol/evm/deployments/arc-local*.json
 kryon-protocol/evm/out/invariant-coverage.log
+
+# Stray root copy of a submodule dependency (never tracked)
+/lib/

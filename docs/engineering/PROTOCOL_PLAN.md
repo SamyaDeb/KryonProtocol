@@ -466,7 +466,7 @@ Serve the typed-data definition at `/api/eip712`.
 
 ## 9. Phase F: Database
 
-Fresh Neon database with a new baseline migration.
+Fresh Postgres database with a new baseline migration.
 
 | Model | Shape |
 |---|---|
@@ -545,17 +545,17 @@ The monitor alerts when any service key has less than 1 day of gas.
 
 The repository becomes Arc-only. All legacy chain code is removed:
 
-- `kryon-protocol/contracts/**` (Soroban) is deleted once the Solidity suite reaches parity (keep
+- `kryon-protocol/contracts/**` (legacy contracts) is deleted once the Solidity suite reaches parity (keep
   `crates/` as the math reference).
 - `client/lib/stellar/**` is deleted and replaced by `client/lib/chain/**`.
 - `@stellar/stellar-sdk` and `@stellar/freighter-api` are removed from `package.json`.
 - Legacy-only scripts, settlement co-sign UI/API, TTL keeper, trustline/SAC/USDT0/XLM tooling,
-  WASM optimisation and Soroban budget tooling, and old deployment manifests are deleted
+  WASM optimisation and legacy budget tooling, and old deployment manifests are deleted
   (full list in Appendix A).
 - `README.md`, `ARCHITECTURE.md`, `client/README.md`, `client/CLAUDE.md`, `client/AGENTS.md`,
   and `docs/docs/**` are rewritten for Arc. Diagrams are regenerated.
 - **Sequencing (decided 2026-09-17):** code that nothing running depends on is removed first
-  (Soroban contracts, Stellar-only scripts, the Soroban CI job, done in `e0a327f`). Stellar
+  (legacy contracts, legacy-only scripts, the legacy CI job, done in `e0a327f`). Legacy chain
   client code, services and API routes are removed as Steps 2–5 replace them, so the app always
   builds. **Infra files (Dockerfiles, PM2 configs, `render.yaml`, `wrangler.jsonc`, `infra/**`,
   runbooks) are kept as the template for their Arc equivalents** and are removed or rewritten in

@@ -1,6 +1,6 @@
 # Arc facts register
 
-Verification log for the **[U]** items in `ARC_MIGRATION_PLAN.md` (and the [V] items the
+Verification log for the **[U]** items in `docs/engineering/PROTOCOL_PLAN.md` (and the [V] items the
 code depends on directly). Checked **2026-09-16**, Arc mainnet launch day.
 
 Status legend:

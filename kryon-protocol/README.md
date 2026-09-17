@@ -1,79 +1,58 @@
-# Kryon Protocol
+# kryon-protocol
 
-The Rust workspace behind Kryon: the legacy-chain contracts and the pure crates
-they share, kept as the reference model for the Arc contracts in `evm/`.
+On-chain logic for Kryon, perpetual futures on Arc.
 
-Everything off-chain — matcher, oracle keeper, indexer, WebSocket server,
-reconciler, liquidation and TTL keepers — is TypeScript under `client/scripts/`
-and supervised by PM2. This tree is on-chain logic only.
-
-## Workspace
+## Layout
 
 ```text
+evm/                 Solidity contracts (arc-foundry)
+  src/               Engine, Vault, OrderGateway, OracleAdapter, RiskParams,
+                     Liquidation, Insurance, FeeRouter, governance/, libraries/
+  test/              unit, invariant, upgrade, differential, fork, gas
+  script/            deployment scripts 00–05, 99 verification, DeployAll
+  ffi/               kryon-ref: Rust reference binary for differential fuzzing
+  storage-layout/    committed storage layouts for upgrade checks
 crates/
-  protocol-core/   Deterministic fixed-point math, types, oracle snapshots, accounting primitives
-  risk-engine/     Pure Rust risk, margin, funding, liquidation planning
-
-contracts/
-  perp-governance/    Timelock proposal registry and guardian pause control
-  perp-engine/        Position lifecycle, execution bands, fees, funding, realized PnL settlement
-  perp-insurance/     Insurance fund custody, rewards, bad-debt accounting
-  perp-liquidation/   Account-health liquidation executor
-  perp-order-gateway/ Matched-order settlement, nonce tracking, cancellations
-  perp-oracle-adapter/ Guarded normalized oracle snapshots for collateral and markets
-  perp-risk/          Thin Soroban boundary around the pure risk engine
-  perp-vault/         SEP-41 collateral custody with risk-gated withdrawals
-
-infra/
-  deploy/          Deployment manifests and upgrade governance runbooks
-  monitoring/      Metrics, alerts, and incident hooks
-
-prisma/
-  schema.prisma    Postgres persistence schema for the off-chain runtime state
-
-docs/
-  architecture.md
-  security-model.md
-  legacy-issues-fixed.md
+  protocol-core/     fixed-point math, types, accounting primitives (reference model)
+  risk-engine/       margin, funding and liquidation planning (reference model)
+prisma/              Postgres schema for off-chain runtime state
+infra/deploy/        Arc environment manifests and runbooks
+docs/                architecture and security model notes
 ```
 
-`protocol-core` and `risk-engine` are `#![no_std]` and dependency-light on
-purpose: the accounting rules are testable without a chain, and the contracts
-are a thin authorization and storage layer over them.
-
-## Non-Negotiable Invariants
-
-1. Withdrawals are validated against current account equity, not stored locked margin.
-2. Liquidations are account-health based. Position-local liquidation is only valid for explicit isolated margin.
-3. Funding is based on market imbalance or independently computed mark/index divergence, never oracle minus itself.
-4. Oracle reads carry source, timestamp, confidence, and freshness bounds.
-5. SLP/insurance accounting must reconcile to vault custody and known unsettled liabilities.
-6. Upgrade authority is treated as protocol risk and must be controlled by governance delay plus emergency limits.
-
-## Markets
-
-`XLM-PERP` was the launch market, quoted and settled in `USDC` — a perpetual
-futures market for XLM/USDC exposure, not a spot pair. Seven further markets
-(BTC, ETH, SOL, XRP, ADA, BNB, TRX) are configured; `NEXT_PUBLIC_ACTIVE_MARKETS`
-decides which are live on a given deployment.
+The Rust crates are the reference model the Solidity suite is fuzzed against;
+they are not deployed.
 
 ## Build and test
 
 ```bash
+# Solidity
+cd evm
+arc-forge build --sizes
+arc-forge test
+(cd .. && cargo build -p kryon-ref --release --locked)
+FOUNDRY_PROFILE=differential arc-forge test
+
+# Rust reference model
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
-cargo build --workspace --release --locked   # wasm32v1-none for deployment
 ```
 
-The toolchain is pinned in `rust-toolchain.toml` and must match the version CI
-installs. Release builds are `opt-level = "z"` with LTO and stripped symbols —
-the legacy target charged for bytecode size and rent.
+The Rust toolchain is pinned in `rust-toolchain.toml` and must match CI.
+
+## Invariants
+
+1. Withdrawals are validated against current account equity, not stored locked margin.
+2. Liquidations are account-health based.
+3. Funding is based on market imbalance or independently computed mark/index divergence, never oracle minus itself.
+4. Oracle reads carry source, timestamp, confidence, and freshness bounds.
+5. Insurance accounting must reconcile to vault custody and known unsettled liabilities.
+6. Upgrade authority is protocol risk and is controlled by governance delay plus emergency limits.
+
+The full list, with the Solidity invariant tests, is in
+[`docs/engineering/PROTOCOL_PLAN.md`](../docs/engineering/PROTOCOL_PLAN.md) §3.
 
 ## Deployment
 
-`infra/deploy/` holds the Arc environment manifests
-(`environments/arc-*.toml`, used by the Foundry scripts in `evm/script/`) and
-the runbooks for rollback, incidents, and stuck settlement. Contract addresses that the frontend
-and keepers read come from `client/config/networks.ts` — change those together
-with the keeper environment, never one side alone.
+See [`infra/deploy/README.md`](infra/deploy/README.md).
