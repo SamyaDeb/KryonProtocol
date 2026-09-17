@@ -63,12 +63,19 @@ contract KryonTimelock is TimelockController {
     /// @dev Also runs for the grants made in TimelockController's constructor.
     function _grantRole(bytes32 role, address account) internal override returns (bool granted) {
         granted = super._grantRole(role, account);
-        if (granted) _roleMembers[role].add(account);
+        if (granted) {
+            // The set mirrors AccessControl, which just reported a change.
+            // slither-disable-next-line unused-return
+            _roleMembers[role].add(account);
+        }
     }
 
     function _revokeRole(bytes32 role, address account) internal override returns (bool revoked) {
         revoked = super._revokeRole(role, account);
-        if (revoked) _roleMembers[role].remove(account);
+        if (revoked) {
+            // slither-disable-next-line unused-return
+            _roleMembers[role].remove(account);
+        }
     }
 
     function executionPaused() public view returns (bool) {
@@ -81,6 +88,8 @@ contract KryonTimelock is TimelockController {
 
     /// @notice When the guardian may veto again (0 = never vetoed).
     function vetoCooldownEndsAt() public view returns (uint64) {
+        // 0 is the never-vetoed sentinel, not a timestamp comparison.
+        // slither-disable-next-line incorrect-equality
         return _vetoUntil == 0 ? 0 : uint64(_vetoUntil + VETO_COOLDOWN);
     }
 
