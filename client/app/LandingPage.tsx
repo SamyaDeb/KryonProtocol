@@ -7,7 +7,7 @@ import { useWalletStore } from '@/stores/wallet';
 import { freighterIsInstalled } from '@/lib/stellar/freighter';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ACTIVE_MARKET_SYMBOLS, DEFAULT_MARKET_SYMBOL, NETWORK_LABEL } from '@/config';
+import { ACTIVE_MARKET_SYMBOLS, DEFAULT_MARKET_SYMBOL, NETWORK_LABEL } from '@/lib/stellar/legacy-config';
 import { useNetwork } from '@/features/network/NetworkContext';
 
 const LANDING_NAV = [

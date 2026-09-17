@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { OrderIntent } from "@/lib/market/order-intent";
-import { ACTIVE_NETWORK_ID } from "@/config";
+import { ACTIVE_NETWORK_ID } from "@/lib/network";
 
 /**
  * Locally-tracked orders are per-network.

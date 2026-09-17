@@ -2,7 +2,7 @@
 
 import { nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { simulateRead } from "./invoke";
-import { CONTRACTS } from "@/config";
+import { CONTRACTS } from "./legacy-config";
 
 const DUMMY_SOURCE = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 

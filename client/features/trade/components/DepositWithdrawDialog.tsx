@@ -12,7 +12,7 @@ import {
   type ListedCollateral,
 } from "@/lib/stellar/collateral";
 import { humanToAmount, amountToHuman } from "@/lib/format";
-import { SETTLEMENT_ASSET, STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/config";
+import { SETTLEMENT_ASSET, STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { isOnExpectedNetwork } from "@/lib/stellar/freighter";
 import { AssetLogo } from "@/components/common/AssetLogos";
 import { toast } from "sonner";

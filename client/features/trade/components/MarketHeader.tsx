@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ACTIVE_MARKETS, MarketConfig } from "@/config";
+import { ACTIVE_MARKETS, MarketConfig } from "@/lib/stellar/legacy-config";
 import { getOpenInterest } from "@/lib/stellar/contracts";
 import { formatAmount, formatChangePercent, formatMarketUsd, priceToHuman } from "@/lib/format";
 import { useMarketStore } from "@/stores/market";

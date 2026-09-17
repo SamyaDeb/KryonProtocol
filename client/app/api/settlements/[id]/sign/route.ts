@@ -8,7 +8,15 @@ import {
   xdr,
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
-import { matcherOperatorSecret, networkConfigFromRequest, networkFromRequest } from "@/lib/network-server";
+import { networkFromRequest } from "@/lib/network-server";
+// LEGACY: this route signs a Soroban transaction with the old chain's matcher
+// operator key, so its RPC endpoint and secret are old-chain values. Only the
+// TxJob lookup is network-agnostic, and that uses the Arc id.
+import {
+  legacyNetworkFromRequest,
+  legacyNetworkConfigFromRequest,
+  matcherOperatorSecret,
+} from "@/lib/stellar/legacy-network-server";
 import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
 
 /**
@@ -68,7 +76,7 @@ export async function POST(
   }
 
   const network = networkFromRequest(req);
-  const networkConfig = networkConfigFromRequest(req);
+  const networkConfig = legacyNetworkConfigFromRequest(req);
   const sql = db(network);
   const rows = await sql`
     SELECT id, "payloadHash", "unsignedXdr", status
@@ -164,7 +172,7 @@ export async function POST(
     const server = new sorobanRpc.Server(networkConfig.rpcUrl);
     // Key separation: the settlement fee payer is ONLY the matcher operator.
     // Never fall back to the oracle key — one key must never serve two roles.
-    const feePayerSecret = matcherOperatorSecret(network);
+    const feePayerSecret = matcherOperatorSecret(legacyNetworkFromRequest(req));
     if (!feePayerSecret) {
       return NextResponse.json({ ok: false, error: `Missing matcher fee-payer secret for ${network}` }, { status: 500 });
     }

@@ -8,7 +8,8 @@ import { decodeFunctionData, parseEther } from "viem";
 import { assertChainId, rpcUrlsFromEnv } from "./clients";
 import { ledgerToUsdcDown, usdcToLedger } from "./collateral";
 import { oracleAdapterAbi } from "./contracts";
-import { ARC_NETWORKS, contractsFromDeploymentJson, oracleId, serverContracts, serverNetworkId } from "./networks";
+import { ARC_NETWORKS, contractsFromDeploymentJson, oracleId, serverNetworkId } from "./networks";
+import { serverContracts } from "./contracts-env";
 import { encodePushPrices } from "./oracle";
 import { divergenceBps, readReferencePrice, scaleTo1e18 } from "./refprice";
 

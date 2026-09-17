@@ -1,5 +1,5 @@
 import { rpc } from "@stellar/stellar-sdk";
-import { NETWORK } from "@/config";
+import { NETWORK } from "./legacy-config";
 
 let _server: rpc.Server | null = null;
 

@@ -1,4 +1,8 @@
 /**
+ * LEGACY — the previous, non-EVM deployment's per-network registry.
+ * Do not import from Arc code; see `./legacy-config.ts` for why it is here.
+ * The Arc equivalent is `@/lib/chain/networks` via `@/lib/network`.
+ *
  * Per-network configuration registry.
  *
  * WHY THIS EXISTS

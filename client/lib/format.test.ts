@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MARKETS } from "@/config";
+import { MARKETS } from "@/lib/stellar/legacy-config";
 import { formatMarketPrice, formatMarketSize, formatMarketUsd, priceFor, sizeFor, toPriceInput } from "./format";
 
 const BTC = MARKETS["BTC-PERP"];

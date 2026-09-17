@@ -1,4 +1,4 @@
-import { MARKETS, PRICE_PRECISION, AMOUNT_PRECISION, type MarketConfig } from "@/config";
+import { MARKETS, PRICE_PRECISION, AMOUNT_PRECISION, type MarketConfig } from "@/lib/stellar/legacy-config";
 
 export function priceToHuman(raw: bigint): number {
   return Number(raw * 10000n / PRICE_PRECISION) / 10000;

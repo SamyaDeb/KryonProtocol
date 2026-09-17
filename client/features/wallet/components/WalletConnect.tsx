@@ -10,7 +10,7 @@ import {
 } from "@/lib/stellar/freighter";
 import { shortenAddress } from "@/lib/format";
 import { toast } from "sonner";
-import { NETWORK_LABEL } from "@/config";
+import { NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 
 export function WalletConnect() {
   const {

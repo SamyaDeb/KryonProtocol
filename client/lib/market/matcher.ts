@@ -9,7 +9,7 @@ import {
   type SignedOrderPayload,
 } from "./signing-message";
 import { freighterSignMessage } from "@/lib/stellar/freighter";
-import { NETWORK } from "@/config";
+import { NETWORK } from "@/lib/stellar/legacy-config";
 import { apiFetch } from "@/lib/api";
 
 // All order/market data flows through this app's own same-origin API routes

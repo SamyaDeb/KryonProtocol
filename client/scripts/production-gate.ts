@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { StrKey } from "@stellar/stellar-sdk";
-import { ACTIVE_MARKET_SYMBOLS, ACTIVE_MARKETS, ASSETS, CONTRACTS, DEFAULT_MARKET_SYMBOL, NETWORK, WS_URL } from "../config";
+import { ACTIVE_MARKET_SYMBOLS, ACTIVE_MARKETS, ASSETS, CONTRACTS, DEFAULT_MARKET_SYMBOL, NETWORK, WS_URL } from "@/lib/stellar/legacy-config";
 
 function fail(message: string): never {
   throw new Error(`production gate failed: ${message}`);

@@ -39,7 +39,7 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { ASSETS, NETWORK } from "../config";
+import { ASSETS, NETWORK } from "@/lib/stellar/legacy-config";
 
 const EXECUTE = process.argv.includes("--execute");
 

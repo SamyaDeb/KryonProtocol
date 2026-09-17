@@ -27,7 +27,7 @@
  */
 
 import { neon, type NeonQueryFunction } from "../lib/sql";
-import { ACTIVE_MARKETS } from "../config";
+import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 
 type Sql = NeonQueryFunction<false, false>;
 

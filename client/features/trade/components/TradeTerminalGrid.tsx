@@ -8,7 +8,7 @@ import { OrderBook } from "@/features/trade/components/OrderBook";
 import { OrderEntry } from "@/features/trade/components/OrderEntry";
 import { TradeChart } from "@/features/trade/components/TradeChart";
 import { useTradeSettings } from "@/stores/settings";
-import type { MarketConfig } from "@/config";
+import type { MarketConfig } from "@/lib/stellar/legacy-config";
 
 type MobileTab = "chart" | "book" | "ticket" | "positions";
 

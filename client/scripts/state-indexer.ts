@@ -17,7 +17,8 @@
  *   npx tsx scripts/state-indexer.ts --rebuild  # recompute projections from stored events, then exit
  */
 
-import { arcNetwork, serverContracts, serverNetworkId } from "../lib/chain/networks";
+import { arcNetwork, serverNetworkId } from "../lib/chain/networks";
+import { serverContracts } from "../lib/chain/contracts-env";
 import { assertChainId, createArcPublicClient } from "../lib/chain/clients";
 import { pgDb } from "../lib/indexer/db";
 import { ContractRegistry } from "../lib/indexer/decode";

@@ -46,7 +46,7 @@ import {
   rpc as sorobanRpc,
 } from "@stellar/stellar-sdk";
 import { neon } from "../lib/sql";
-import { ACTIVE_MARKETS, CONTRACTS, NETWORK } from "../config";
+import { ACTIVE_MARKETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
 import { divergenceBps, reflectorContractId, reflectorLastPrice } from "../lib/stellar/reflector";
 import { checkProtocolActivity } from "../lib/oracle-activity";
 import { assertRequiredSecrets, assertNoPublicSecretLeak } from "../lib/secrets-check";

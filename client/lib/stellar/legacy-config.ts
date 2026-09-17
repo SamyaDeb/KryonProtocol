@@ -1,38 +1,33 @@
+// LEGACY — the previous, non-EVM deployment's config. Do not import from Arc code.
+//
 // Market definitions, precision constants, and the *active* network's
-// addresses.
+// addresses, exactly as they were when `@/config` still described the old
+// chain. This module is quarantined under `lib/stellar/` so that the seam is
+// visible in the import path: anything reading it is code the Arc migration has
+// not replaced yet (`lib/stellar/**`, the legacy keeper scripts, the trading UI
+// awaiting its rewrite). Arc code resolves networks through `@/lib/network` and
+// markets through `@/lib/markets` + `@/lib/queries/markets`.
 //
-// The per-network address tables live in `./networks.ts`. This module picks one
-// of them and re-exports it under the flat names the app has always used
-// (`NETWORK`, `CONTRACTS`, `ASSETS`), so the ~20 existing consumers did not
-// have to change.
+// The per-network address tables live in `./legacy-networks.ts`. This module
+// picks one of them and re-exports it under the flat names the app has always
+// used (`NETWORK`, `CONTRACTS`, `ASSETS`).
 //
-// ── How the active network is chosen ─────────────────────────────────────────
-// In the browser this is evaluated once per page load, from `?network=` or the
-// `kryon_network` cookie (see lib/network-resolve.ts). Switching networks in the
-// navbar performs a full reload, which re-evaluates this module — that is what
-// makes a static const safe here, and it is deliberate: a full reload is the
-// only way to guarantee no mainnet state survives into a testnet view. The
-// memoised RPC client, the WebSocket connection, in-flight polls, and every
-// component's cached balances/positions are all process-local singletons; an
-// in-place swap would have to invalidate each one, and missing a single one
-// means showing mainnet balances against testnet contracts.
-//
-// On the SERVER these consts resolve to the deployment's primary network and
-// are therefore NOT per-request. Server code that must honour the caller's
-// choice (API routes) resolves it explicitly with `getNetworkConfig(...)` and
-// the helpers in `lib/network-server.ts`.
-//
-// Keeper scripts under `scripts/` run one network per process and get their
-// network from `NEXT_PUBLIC_STELLAR_NETWORK` in their env file, exactly as
-// before.
+// ── Which network these values describe ──────────────────────────────────────
+// The deployment's primary OLD-chain network (`NEXT_PUBLIC_STELLAR_NETWORK`),
+// always — on the server and in the browser alike. It used to follow the user's
+// navbar selection via the `kryon_network` cookie, but that cookie now holds an
+// Arc network id (`arc-testnet`), which has no meaning on the old chain. Rather
+// than silently coerce one venue's id into another's, the legacy surface is
+// pinned to the primary network and the toggle no longer reaches it. Nothing on
+// the Arc path depends on this; the legacy trading UI reads it only to keep
+// rendering until its replacement lands.
 
 import {
   getNetworkConfig,
   PRIMARY_NETWORK,
   type NetworkConfig,
   type NetworkId,
-} from "./networks";
-import { resolveClientNetwork } from "@/lib/network-resolve";
+} from "./legacy-networks";
 
 export {
   NETWORKS,
@@ -40,18 +35,17 @@ export {
   PRIMARY_NETWORK,
   getNetworkConfig,
   isNetworkId,
-} from "./networks";
+} from "./legacy-networks";
 export type {
   NetworkId,
   NetworkConfig,
   ContractSet,
   AssetSet,
   CollateralAsset,
-} from "./networks";
+} from "./legacy-networks";
 
 /** The network this module's flat exports are bound to. See the note above. */
-export const ACTIVE_NETWORK_ID: NetworkId =
-  typeof window === "undefined" ? PRIMARY_NETWORK : resolveClientNetwork();
+export const ACTIVE_NETWORK_ID: NetworkId = PRIMARY_NETWORK;
 
 const ACTIVE: NetworkConfig = getNetworkConfig(ACTIVE_NETWORK_ID);
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
-import { MARKETS } from "@/config";
+import { MARKETS } from "@/lib/stellar/legacy-config";
 
 /**
  * GET /api/markets — the market listing.

@@ -1,5 +1,5 @@
 import { StrKey } from "@stellar/stellar-sdk";
-import { NETWORK } from "@/config";
+import { NETWORK } from "@/lib/stellar/legacy-config";
 import type { OrderIntent } from "./order-intent";
 
 const APP_DOMAIN = "kryon.perps";

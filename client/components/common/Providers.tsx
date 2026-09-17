@@ -5,10 +5,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { NetworkProvider } from "@/features/network/NetworkContext";
-import type { NetworkId } from "@/config";
+import type { ArcNetworkId } from "@/lib/network";
 import { useState } from "react";
 
-export function Providers({ network, children }: { network: NetworkId; children: React.ReactNode }) {
+export function Providers({ network, children }: { network: ArcNetworkId; children: React.ReactNode }) {
   // Lazy initializer: the QueryClient is created exactly once per mount and is
   // never recreated on re-render (avoids tearing down the cache).
   const [client] = useState(

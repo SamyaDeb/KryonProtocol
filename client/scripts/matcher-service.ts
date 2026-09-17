@@ -22,7 +22,7 @@ import { neon, neonConfig, type NeonQueryFunction } from "../lib/sql";
 // Keep fetch connections alive — prevents "fetch failed" on Neon serverless
 // after idle periods by re-establishing the HTTP connection as needed.
 neonConfig.fetchConnectionCache = true;
-import { ACTIVE_MARKETS, NETWORK } from "../config";
+import { ACTIVE_MARKETS, NETWORK } from "@/lib/stellar/legacy-config";
 import { simulateSettleFill, submitSettleFillSigned } from "../lib/stellar/settlement";
 import { assertRequiredSecrets, assertNoPublicSecretLeak } from "../lib/secrets-check";
 import { verifySignedMessage } from "../lib/market/signed-intent";

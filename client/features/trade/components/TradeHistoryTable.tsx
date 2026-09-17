@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useWalletStore } from "@/stores/wallet";
-import { STELLAR_EXPERT_URL } from "@/config";
+import { STELLAR_EXPERT_URL } from "@/lib/stellar/legacy-config";
 import { MarketCell } from "@/components/common/MarketCell";
 import { priceFor, sizeFor } from "@/lib/format";
 import { apiFetch } from "@/lib/api";

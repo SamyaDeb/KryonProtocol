@@ -9,7 +9,7 @@ import { getPositions } from '@/lib/stellar/contracts'
 import { KryonChart } from '@/features/chart/components/KryonChart'
 import { priceToHuman, amountToHuman } from '@/lib/format'
 import { calcLiqPrice } from '@/lib/math'
-import type { MarketConfig } from '@/config'
+import type { MarketConfig } from '@/lib/stellar/legacy-config'
 import type { PositionOverlay, OrderOverlay } from '@/features/chart/types'
 
 interface Props {

@@ -6,7 +6,7 @@
 // revert on deposit. Everything here reconciles the two so the UI never offers
 // a deposit that cannot succeed.
 
-import { COLLATERAL, NETWORK, SETTLEMENT_ASSET, type CollateralAsset } from "@/config";
+import { COLLATERAL, NETWORK, SETTLEMENT_ASSET, type CollateralAsset } from "./legacy-config";
 import { getCollateralConfig, getDepositCap, getTotalDeposited } from "./contracts";
 
 export interface ListedCollateral extends CollateralAsset {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { roundToBridgeable } from "./collateral";
-import type { CollateralAsset } from "@/config";
+import type { CollateralAsset } from "./legacy-config";
 
 const usdt0: CollateralAsset = {
   code: "USDT0",

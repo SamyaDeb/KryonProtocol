@@ -20,7 +20,7 @@
 
 import { nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { simulateRead } from "./simulate";
-import { NETWORK, PRICE_PRECISION } from "@/config";
+import { NETWORK, PRICE_PRECISION } from "./legacy-config";
 
 // Reflector quotes at 1e14; Kryon's internal precision is 1e18.
 const REFLECTOR_DECIMALS = 14n;

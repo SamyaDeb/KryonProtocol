@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { marketById } from "@/components/common/MarketCell";
 import { priceFor, sizeFor } from "@/lib/format";
 import { useWalletStore } from "@/stores/wallet";
-import { STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/config";
+import { STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { freighterSignAuthEntry, isOnExpectedNetwork } from "@/lib/stellar/freighter";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { useMarketStore } from "@/stores/market";
-import { MarketConfig, AMOUNT_PRECISION, PRICE_PRECISION, ASSETS, NETWORK_LABEL } from "@/config";
+import { MarketConfig, AMOUNT_PRECISION, PRICE_PRECISION, ASSETS, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { buildOrderIntent } from "@/lib/market/order-intent";
 import { submitOrder } from "@/lib/market/matcher";
 import { useLocalOrders } from "@/stores/orders";
