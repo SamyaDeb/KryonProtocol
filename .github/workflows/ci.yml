@@ -188,8 +188,13 @@ jobs:
       - name: Storage-layout diff
         run: ./script/storage-layout.sh --check
 
+      # crytic-compile shells out to `forge config`; point that name at
+      # arc-forge for this step only so Slither analyses the Arc build.
       - name: Slither (fail on High/Medium)
         run: |
+          mkdir -p "$RUNNER_TEMP/forge-shim"
+          ln -sf "$(command -v arc-forge)" "$RUNNER_TEMP/forge-shim/forge"
+          export PATH="$RUNNER_TEMP/forge-shim:$PATH"
           arc-forge build --build-info --skip "test/**" --skip "script/**" --force
           pipx run --spec slither-analyzer==0.11.6 slither . --foundry-out-directory out \
             --ignore-compile --filter-paths "lib/|test/|script/" \
