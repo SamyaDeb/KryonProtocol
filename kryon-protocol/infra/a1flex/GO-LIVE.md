@@ -294,10 +294,10 @@ ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/...   # from Phase 0
 # NODE_ENV=production: with no Upstash credentials it denies every request to
 # /api/orders, /cancel, /settlements, /fills, /funding and /portfolio. Because
 # /api/ready does not rate-limit, the site comes up green and then rejects
-# every order. Reuse the existing free-tier database
-# (https://concise-impala-100570.upstash.io) — but rotate the token first, it
-# was pasted into a chat transcript.
-UPSTASH_REDIS_REST_URL=https://concise-impala-100570.upstash.io
+# every order. Use a new Upstash database
+# (<UPSTASH_REDIS_REST_URL>) (create it in the Kryon account;
+# never reuse a token that has been shared).
+UPSTASH_REDIS_REST_URL=<UPSTASH_REDIS_REST_URL>
 UPSTASH_REDIS_REST_TOKEN=...
 ```
 
