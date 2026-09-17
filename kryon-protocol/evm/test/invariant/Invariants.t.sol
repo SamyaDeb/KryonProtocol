@@ -139,6 +139,23 @@ contract InvariantsTest is KryonTest {
         assertLe(insurance.badDebt(), owed);
     }
 
+    /// Stakers can never redeem more than staked capital net of a negative
+    /// marked-to-market operating balance (review fix 3).
+    function invariant_staker_redemptions_are_marked_to_market() public view {
+        (int256 marked, bool priced) = insurance.markedOperatingBalance();
+        if (!priced) return;
+        int256 redeemable = insurance.redeemableStake();
+        int256 cap = insurance.stakedBalance() + (marked < 0 ? marked : int256(0));
+        assertEq(redeemable, cap > 0 ? cap : int256(0));
+        int256 total = insurance.totalShares();
+        if (total <= 0) return;
+        int256 sum;
+        for (uint256 i = 0; i < handler.actorCount(); ++i) {
+            sum += insurance.sharesOf(handler.actors(i)) * redeemable / total;
+        }
+        assertLe(sum, redeemable);
+    }
+
     function invariant_staking_never_mints_against_nothing() public view {
         if (insurance.totalShares() > 0) assertGt(insurance.stakedBalance(), 0);
     }

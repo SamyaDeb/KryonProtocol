@@ -222,6 +222,19 @@ kryon-protocol/
   restores maintenance. The change is flagged in the audit package (G7).
 - **ADL** closes backstop positions against in-profit counterparties and haircuts their realized
   gain by the unfunded shortfall (recorded bad debt that operating capital can't cover).
+- **Backstop marked to market (2026-09-17 review).** `Engine.accountValue` returns the backstop
+  account's equity (cash + unrealized PnL + pending funding) and never reverts; `priced = false`
+  if a held market can't be priced. Insurance uses
+  `markedOperatingBalance = equity − stakedBalance` for:
+  - OI capacity: `effectiveBalance = max(0, marked − badDebt)`, and 0 when unpriced (fail closed);
+  - the ADL trigger: `unfundedShortfall = max(0, badDebt − max(marked, 0))`, which reverts
+    `StaleOracle` when unpriced;
+  - unstake payouts: `shares × max(0, staked + min(0, marked)) / totalShares`, so stakers absorb
+    an under-water backstop pro rata instead of exiting at full NAV. Reverts `StaleOracle` when
+    unpriced.
+
+  `operatingBalance()` stays cash, because `settleBadDebt` moves real ledger balance.
+  Invariant #5 is unchanged.
 - **Backstop unwind.** Insurance implements ERC-1271 so the backstop can close its positions
   through the normal order book:
   - Orders are signed by a governance-revocable `BACKSTOP_SIGNER_ROLE` key.
