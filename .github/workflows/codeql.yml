@@ -61,7 +61,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # JS/TS is interpreted — no compiler step needed; "none" is correct and fast.
@@ -69,7 +69,7 @@ jobs:
           queries: security-extended
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         # Non-blocking: this is a PRIVATE repo without GitHub Advanced Security,
         # so the SARIF upload returns "Code scanning is not enabled" and red-X's
         # the step. Soft-fail here (at the step, not the job) so the check stays
