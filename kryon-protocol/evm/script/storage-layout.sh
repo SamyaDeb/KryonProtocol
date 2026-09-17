@@ -17,8 +17,11 @@ mode="${1:-write}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-for c in Vault Engine OrderGateway OracleAdapter Liquidation Insurance RiskParams FeeRouter; do
-  f="src/$c.sol"
+# governance/KryonUpgradeable: the pause namespace every proxy inherits.
+for path in Vault Engine OrderGateway OracleAdapter Liquidation Insurance RiskParams FeeRouter \
+  governance/KryonUpgradeable; do
+  c="$(basename "$path")"
+  f="src/$path.sol"
   {
     echo "# $c"
     echo "## regular storage (must stay empty)"

@@ -16,6 +16,71 @@ Source of truth: `ARC_MIGRATION_PLAN.md`. Working instructions: `ARC_MIGRATION_P
 
 ---
 
+## Review fixes (2026-09-17)
+
+These fixes come from the independent review. Each fix is one commit, with the regression test written first and shown failing before the fix.
+
+| # | Fix | Commit | Tests added |
+|---|---|---|---|
+| 1 | **Guardian veto and pauses are time-bounded.** The timelock veto lasts at most 7 days, then there's a 3-day cooldown before another. `unpauseExecution` starts the cooldown, and is a no-op without an active veto. A guardian `pause()` lasts 72h with a 24h cooldown. `pauseIndefinitely()` is timelock-only, and `unpause()` clears both. Pause state lives in the `kryon.storage.KryonUpgradeable` namespace, and `paused()` checks expiry. The verifier fails on an active veto, pause or cooldown | `d9477d8` | 10 in `Governance.t.sol` (the PoC with its expectations inverted, re-veto in cooldown, 7-day expiry, a revoke scheduled during the veto, no-op lift, pause expiry restores withdrawals, re-pause in cooldown, indefinite pause, indefinite outlives guardian, admin-only) and 1 verifier test |
+| 2 | **The oracle jump guard only applies while the previous snapshot is fresh.** A stale feed re-anchors and emits `PriceReanchored`. Quorum, spread, monotonic and reference checks still apply | `7b31a0e` | 3 in `OracleAdapter.t.sol` (PoC inverted with a withdrawal that now succeeds, fresh jump still skipped, re-anchor blocked by a diverged or unavailable reference). Invariant handler `oracleOutage` with a 20% jump guard, plus `invariant_4_feeds_reanchor_after_an_outage` |
+| 3 | **The backstop is marked to market.** `Engine.accountValue` (try/catch self-call, never reverts). Insurance gains `markedOperatingBalance`, and `redeemableStake`. `effectiveBalance`, `unfundedShortfall` and `withdrawUnstaked` use the marked value and fail closed when unpriced. `operatingBalance` stays cash | `7b89611` | 5 in `Insurance.t.sol`, plus `invariant_staker_redemptions_are_marked_to_market` |
+| 4 | **Gateway gas.** `MAX_BATCH = 40`, `MIN_GAS_PER_FILL = 900k` (worst measured fill 729k × 1.2, rounded up), `InsufficientBatchGas`, and ERC-1271 by staticcall capped at 100k gas | `6b131fe` | 3 in `OrderGateway.t.sol` (a gas-burning 1271 wallet, an under-gassed batch, short 1271 return data), the 41-fill bound, and the `test_gas_worst_single_fill` probe |
+| 5 | **Referrer allowlist.** `setReferrerApproved` requires `FEE_ADMIN_ROLE`, plus a `ReferrerApprovalSet` event and an `isApprovedReferrer` view | `efd8d2f` | 3 (unapproved, approved until removed, access control), and self-referral by an approved partner |
+| 6 | **Timelock roles are enumerable**, and the verifier checks exact PROPOSER, EXECUTOR, CANCELLER, DEFAULT_ADMIN and PAUSER sets | `d791769` | 5 in `DeploymentVerifier.t.sol` |
+| 7 | **Verifier WARN** when an active market has `liquidationFeeBps <= maxRewardBps`. Printed by `99_VerifyDeployment`, values unchanged, open question 7 | `37e3c12` | 1 |
+| 8 | **Ops requirement documented:** the keeper publishes every feed with OI > 0, and the monitor alerts at `maxAge / 2` (plan §6.4, §7, `oracle-failure.md`). The verifier checks that every market's feed is listed and active | `0c92c23` | 1 |
+| 9 | **`/lib/` added to the root `.gitignore`.** No config references the root copy | `04f1396` | – |
+| – | **Slither justifications** for the new timelock code (3 false-positive Mediums) | `9bf7d50` | – |
+
+### Acceptance (worktree, after all fixes)
+
+- `arc-forge test`: **258 passed**, 0 failed (224 before).
+- Differential: 9/9 × 5,000 runs. `cargo test --workspace`: 19 passed. Fork (`--network arc`, Arc testnet): 8/8.
+- Coverage: **97.66% lines** (1504/1540), **95.22% branches** (319/335).
+- Slither (High/Medium): **0 findings**.
+- `storage-layout.sh --check`: unchanged. The snapshots now also cover the `KryonUpgradeable` namespace, and FeeRouter gains `approvedReferrer`.
+- `DeployAll` to a local arc-anvil fork of Arc testnet broadcasts cleanly. `99_VerifyDeployment: OK`, plus `WARN BTC-PERP: liquidation fee (25 bps) <= max liquidator reward (25 bps)…`.
+- `arc-forge fmt --check`: **fails, as it already did before these fixes.** The same 34 files differ, most of them untouched here. These fixes don't reformat the tree.
+
+**Sizes (B, runtime; the limit is 24,576):**
+
+| Contract | Before | After | Margin |
+|---|---|---|---|
+| Engine | 21,865 | 22,821 | 1,755 |
+| Insurance | 13,704 | 14,715 | 9,861 |
+| OrderGateway | 14,032 | 14,763 | 9,813 |
+| FeeRouter | 12,997 | 14,025 | 10,551 |
+| OracleAdapter | 13,100 | 13,938 | 10,638 |
+| KryonTimelock | 6,017 | 7,234 | 17,342 |
+
+**Gas (`FOUNDRY_PROFILE=gas`), before → after:**
+
+| Action | Before | After |
+|---|---|---|
+| 1 fill, cold | 608,383 | 610,162 |
+| 40-fill batch | 15,139,537 | 15,204,808 (380,120 per fill) |
+| 40 fills, existing positions | 279,255 per fill | 280,887 per fill |
+| Worst single fill (new probe) | – | 729,134 |
+| Partial liquidation | 274,870 | 276,456 |
+| Oracle push, 8 markets | 109,622 | 111,413 |
+| Funding update | 35,778 | 36,131 |
+| Deposit | 143,854 | 143,983 |
+| Withdraw | 65,417 | 65,526 |
+
+The `whenNotPaused` expiry read adds ~0.1–1.7k gas per call. MTM `effectiveBalance` costs gas only when a market's OI policy is non-zero; it is 0 in every environment today.
+
+### Deviations from the review prompt
+
+1. **FIX 4 reserve is per fill, not per remaining fill.** Reserving ~900k for *every* remaining fill before the first one would need 36M gas for a 40-fill batch, above Arc's 30M block limit, so full batches could never run. Instead, each fill must start with `MIN_GAS_PER_FILL`. If a fill uses all of its forwarded gas, the batch reverts `InsufficientBatchGas`. ERC-1271 gas is capped, so trader code can't trigger this, and operator shortfalls are still never recorded as rejections.
+2. **FIX 3 test "backstop losing, no recorded bad debt → `unfundedShortfall > 0`"** contradicts the specified formula `max(0, badDebt − max(marked, 0))`, which is 0 whenever `badDebt = 0`. The formula was implemented as written. The test covers the case the formula targets: recorded debt that cash covers but marked capital doesn't. Then ADL proceeds.
+3. **FIX 1:** `unpauseExecution` without an active veto is a no-op, so governance can't use it to hold the guardian in a cooldown. `unpause()` of a guardian pause sets its expiry to now, so the 24h cooldown still applies. Without that, a hostile guardian could re-pause right after a timelock unpause.
+4. **FIX 3 under-water unstake test** redeems half of the second staker's shares. A full exit is refused by the vault, because the backstop account would drop below initial margin. That behaviour is unchanged and correct.
+5. **FIX 9:** the stray `/Users/samya/Desktop/Kryon/lib` exists only in the main checkout, which this run could not modify. It is ignored, not deleted.
+6. `client/lib/chain/generated.ts` ABIs were not regenerated. The client was out of scope for this run. It needs `npm run wagmi:generate` for the new errors, events and views, and its matcher cap of 40 already matches.
+
+---
+
 ## Step 2: Chain layer and TxSender (2026-09-17)
 
 ### What was built (`client/lib/`)
@@ -261,6 +326,14 @@ default doesn't cover gas for opening fills. See Open decisions.
    the Arc blocklist controller is unknown).
 6. Items still open from Step 0: explorer verification on mainnet, RPC archive/trace, Safe{Wallet}
    support (affects ops-refill design), RedStone/Chronicle.
+7. **BTC liquidation penalty is all reward (added 2026-09-17 review).** In `arc-mainnet.toml`,
+   BTC-PERP `liquidation_fee_bps = 25` equals `[liquidation] max_reward_bps = 25`. The liquidator
+   takes the whole penalty, so insurance and treasury get nothing from BTC liquidations.
+   `99_VerifyDeployment` now prints a `WARN` line for every active market with
+   `liquidationFeeBps <= maxRewardBps`. The values are unchanged; this is your decision.
+   Options:
+   (a) lower `max_reward_bps` to ~15 for all markets;
+   (b) raise the BTC fee (e.g. 35–50 bps).
 
 ### How to reproduce
 

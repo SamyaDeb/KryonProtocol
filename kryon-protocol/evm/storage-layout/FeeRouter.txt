@@ -17,3 +17,4 @@ uint16 liquidationInsuranceBps;
 int256 treasuryAccrued;
 mapping(address => int256) referralAccrued;
 int256 totalReferralAccrued;
+mapping(address => bool) approvedReferrer;

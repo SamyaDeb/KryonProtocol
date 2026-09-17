@@ -23,8 +23,19 @@ import {Order} from "./libraries/OrderLib.sol";
 ///        - operating capital (`vault balance - stakedBalance`), which receives
 ///          fee shares, penalties, donations and backstop PnL, and which
 ///          covers deficits.
-///      Staked capital only absorbs losses through an explicit, timelocked
-///      `sweepToOperating`.
+///      Staked capital only absorbs realized losses through an explicit,
+///      timelocked `sweepToOperating`.
+///
+///      Two views of operating capital:
+///        - `operatingBalance()` is cash: the ledger balance that can actually
+///          move. `settleBadDebt` pays deficits from it.
+///        - `markedOperatingBalance()` adds the unrealized PnL and pending
+///          funding of the positions the backstop holds (Engine.accountValue).
+///          Every capacity or loss decision uses it: the OI-policy capacity
+///          (`effectiveBalance`), the ADL trigger (`unfundedShortfall`) and
+///          unstake payouts, where a negative marked balance is absorbed by
+///          stakers pro rata. If a held market can't be priced, capacity is 0
+///          and the other two revert StaleOracle.
 ///
 ///      Backstop unwind (plan §4.4): the contract is an ERC-1271 signer, so
 ///      positions it took over in liquidations can be closed through the
@@ -248,7 +259,10 @@ contract Insurance is KryonUpgradeable, IERC1271 {
         int256 shares = M.min(req.shares, held);
         int256 total = $.totalShares;
         int256 nav = $.stakedBalance;
-        int256 payout = total <= 0 ? int256(0) : M.min(M.mulDiv(shares, nav, total), nav);
+        // An under-water backstop is a loss stakers carry pro rata, even before
+        // a sweep realises it, so nobody exits at full NAV ahead of it.
+        int256 redeemable = redeemableStake();
+        int256 payout = total <= 0 ? int256(0) : M.min(M.mulDiv(shares, redeemable, total), nav);
         amount = payout > 0 ? Decimals.toTokenDown(payout) : 0;
         int256 paid = Decimals.toInternal(amount);
 
@@ -326,15 +340,39 @@ contract Insurance is KryonUpgradeable, IERC1271 {
 
     // ------------------------------------------------------------------ views
 
-    /// @notice Operating capital (may be negative after backstop losses).
+    /// @notice Operating capital in cash: the ledger balance above staked
+    ///         capital (may be negative after realized backstop losses). This is
+    ///         what `settleBadDebt` can actually pay out. Ignores the PnL of
+    ///         open backstop positions; see `markedOperatingBalance`.
     function operatingBalance() public view returns (int256) {
         InsuranceStorage storage $ = _s();
         return $.vault.balanceOf(address(this)) - $.stakedBalance;
     }
 
-    /// @notice Capacity used by the OI policy: operating net of bad debt, >= 0.
+    /// @notice Operating capital marked to market: the backstop account's
+    ///         equity (cash + unrealized PnL + pending funding) minus staked
+    ///         capital. `priced` is false if a held market can't be priced.
+    function markedOperatingBalance() public view returns (int256 marked, bool priced) {
+        InsuranceStorage storage $ = _s();
+        int256 equity;
+        (equity, priced) = $.engine.accountValue(address(this));
+        if (priced) marked = equity - $.stakedBalance;
+    }
+
+    /// @notice Capacity used by the OI policy: marked operating capital net of
+    ///         bad debt, >= 0. Fails closed to 0 when the backstop can't be priced.
     function effectiveBalance() external view returns (int256) {
-        return M.max(0, operatingBalance() - _s().badDebt);
+        (int256 marked, bool priced) = markedOperatingBalance();
+        if (!priced) return 0;
+        return M.max(0, marked - _s().badDebt);
+    }
+
+    /// @notice What all stakers could redeem together now: staked capital less
+    ///         any negative marked operating balance, >= 0.
+    function redeemableStake() public view returns (int256) {
+        (int256 marked, bool priced) = markedOperatingBalance();
+        if (!priced) revert Errors.StaleOracle();
+        return M.max(0, _s().stakedBalance + M.min(0, marked));
     }
 
     function unwindLimits()
@@ -363,10 +401,13 @@ contract Insurance is KryonUpgradeable, IERC1271 {
         return _s().recordedDebt[trader];
     }
 
-    /// @notice Recorded deficits that operating capital cannot pay today.
-    ///         ADL may only socialise up to this amount.
+    /// @notice Recorded deficits that marked operating capital cannot pay.
+    ///         ADL may only socialise up to this amount. Reverts StaleOracle
+    ///         when the backstop can't be priced.
     function unfundedShortfall() external view returns (int256) {
-        return M.max(0, _s().badDebt - M.max(operatingBalance(), 0));
+        (int256 marked, bool priced) = markedOperatingBalance();
+        if (!priced) revert Errors.StaleOracle();
+        return M.max(0, _s().badDebt - M.max(marked, 0));
     }
 
     function stakedBalance() external view returns (int256) {

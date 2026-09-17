@@ -23,6 +23,8 @@ contract VerifyDeployment is DeployScript {
         string[] memory failures = DeploymentVerifier.verify(d, cfg, expectedDeployer);
         uint256 extra = _implementationChecks(d, impls);
 
+        string[] memory warnings = DeploymentVerifier.warnings(d, cfg);
+        for (uint256 i = 0; i < warnings.length; ++i) console2.log(string.concat("WARN ", warnings[i]));
         for (uint256 i = 0; i < failures.length; ++i) console2.log(string.concat("FAIL ", failures[i]));
         if (failures.length + extra > 0) revert("99_VerifyDeployment: FAILED");
         console2.log("99_VerifyDeployment: OK");

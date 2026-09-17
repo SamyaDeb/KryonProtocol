@@ -32,6 +32,7 @@ interface IEngine {
     ) external returns (bool increasedExposure);
     function requireMargin(address trader, bool increasedExposure) external view;
     function accountHealth(address trader) external view returns (AccountHealth memory);
+    function accountValue(address trader) external view returns (int256 equity, bool priced);
     function validateWithdrawal(address trader, int256 withdrawalValue)
         external
         view

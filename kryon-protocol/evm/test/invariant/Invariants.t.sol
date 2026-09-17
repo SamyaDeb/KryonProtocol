@@ -5,6 +5,7 @@ import {IAccessControlEnumerable} from
     "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 
 import {KryonDeploy} from "../../script/lib/KryonDeploy.sol";
+import {OracleAdapter} from "../../src/OracleAdapter.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {MarketParams, ORACLE_SOURCE_QUORUM, OracleSnapshot} from "../../src/libraries/Types.sol";
 import {KryonTest} from "../utils/KryonTest.sol";
@@ -29,11 +30,15 @@ contract InvariantsTest is KryonTest {
             MarketParams memory m = risk.market(ms[i]);
             m.maxOpenInterest = 1e30;
             risk.setMarket(ms[i], m);
+            // Mainnet jump guard, so the outage action exercises the re-anchor.
+            OracleAdapter.FeedConfig memory f = oracle.feed(ids[i]);
+            f.maxJumpBps = 2000;
+            oracle.setFeed(ids[i], f);
         }
         vm.stopPrank();
         handler = new Handler(d, usdc, operator, publisher, keeper, ms, ids);
 
-        bytes4[] memory selectors = new bytes4[](13);
+        bytes4[] memory selectors = new bytes4[](14);
         selectors[0] = Handler.deposit.selector;
         selectors[1] = Handler.withdraw.selector;
         selectors[2] = Handler.trade.selector;
@@ -47,6 +52,7 @@ contract InvariantsTest is KryonTest {
         selectors[10] = Handler.donate.selector;
         selectors[11] = Handler.stake.selector;
         selectors[12] = Handler.claimTreasury.selector;
+        selectors[13] = Handler.oracleOutage.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -78,6 +84,12 @@ contract InvariantsTest is KryonTest {
             assertLe(s.writeTime, vm.getBlockTimestamp());
             assertGe(s.sourceCount, 1);
         }
+    }
+
+    /// Invariant 4 (liveness): an outage followed by a move beyond the jump
+    /// guard never leaves a feed stuck on the old price.
+    function invariant_4_feeds_reanchor_after_an_outage() public view {
+        assertEq(handler.feedsStuckAfterOutage(), 0);
     }
 
     /// Invariant 5: balances + fee buckets + insurance - unsettled bad debt
@@ -125,6 +137,23 @@ contract InvariantsTest is KryonTest {
             if (b < 0) owed -= b;
         }
         assertLe(insurance.badDebt(), owed);
+    }
+
+    /// Stakers can never redeem more than staked capital net of a negative
+    /// marked-to-market operating balance (review fix 3).
+    function invariant_staker_redemptions_are_marked_to_market() public view {
+        (int256 marked, bool priced) = insurance.markedOperatingBalance();
+        if (!priced) return;
+        int256 redeemable = insurance.redeemableStake();
+        int256 cap = insurance.stakedBalance() + (marked < 0 ? marked : int256(0));
+        assertEq(redeemable, cap > 0 ? cap : int256(0));
+        int256 total = insurance.totalShares();
+        if (total <= 0) return;
+        int256 sum;
+        for (uint256 i = 0; i < handler.actorCount(); ++i) {
+            sum += insurance.sharesOf(handler.actors(i)) * redeemable / total;
+        }
+        assertLe(sum, redeemable);
     }
 
     function invariant_staking_never_mints_against_nothing() public view {
