@@ -1,79 +1,147 @@
 # Matcher Failure Procedure
 
+The matcher (`client/scripts/matcher-service.ts`) matches the resting book off
+chain and settles fills through `OrderGateway.settleFillsSigned`. One process
+per shard: one operator key, one set of markets in `MATCHER_MARKETS`.
+
+**Before anything else: never start a second process on the same operator key.**
+`TxSender` allocates that key's nonce locally. Two allocators produce two
+transactions at the same nonce, and one silently replaces the other.
+
 ## Symptoms
 
-- Monitor shows: `matcher-lag FAIL: oldest pending order is Xs old`
-- Orders placed but never matched/filled
-- Settlement modal never appears after two opposing orders are placed
+- Crossed book: bids at or above asks that never trade.
+- `Fill` rows piling up `PENDING` and never reaching `SETTLED`.
+- `Fill` rows carrying a `rejectReason` that keeps recurring.
+- The health endpoint (`MATCHER_HEALTH_PORT`, `GET /health`) stops advancing
+  `ticks`, or `tickErrors` climbs.
 
 ## Diagnosis
 
 ```bash
-# Check matcher service logs
-railway logs --service matcher --lines 100
+# The shard's own counters: ticks, matches, band drops, batch reverts, gas.
+curl -s localhost:"$MATCHER_HEALTH_PORT"/health | jq
 
-# Check pending orders in DB
+# Is the book actually crossed, or just thin?
 psql "$DATABASE_URL" -c "
-  SELECT id, \"marketId\", \"isLong\", \"limitPrice\", \"size\", \"filledSize\", \"createdAt\"
+  SELECT \"isLong\", MIN(\"limitPrice\"), MAX(\"limitPrice\"), COUNT(*)
   FROM \"Order\"
-  WHERE cancelled = false AND \"filledSize\"::numeric < \"size\"::numeric
-  ORDER BY \"createdAt\" ASC LIMIT 10;
+  WHERE network = '$KRYON_NETWORK' AND \"marketId\" = 2
+    AND status IN ('OPEN','PARTIALLY_FILLED') AND expiry > extract(epoch from now())
+  GROUP BY \"isLong\";
 "
 
-# Check for pending settlements
+# Fills the matcher reserved but the chain has not confirmed.
 psql "$DATABASE_URL" -c "
-  SELECT id, status, \"createdAt\" FROM \"Settlement\" ORDER BY \"createdAt\" DESC LIMIT 10;
+  SELECT status, \"rejectReason\", COUNT(*), MIN(\"createdAt\")
+  FROM \"Fill\" WHERE network = '$KRYON_NETWORK'
+  GROUP BY 1, 2 ORDER BY 3 DESC;
+"
+
+# Settlement transactions still in flight for this key.
+psql "$DATABASE_URL" -c "
+  SELECT id, nonce, status, label, \"submittedHash\", \"createdAt\"
+  FROM \"TxJob\"
+  WHERE network = '$KRYON_NETWORK' AND service = 'matcher'
+    AND status IN ('PENDING','SUBMITTED')
+  ORDER BY nonce;
 "
 ```
 
-## Recovery steps
+## Common causes, in the order they actually happen
 
-### Step 1 — Restart matcher
+### The oracle is stale, so the market is skipped
+
+`oracle_unavailable` in the logs and `oracleSkips` rising. The matcher reads
+`OracleAdapter.getPrice` with the market's own `maxOracleAge`, exactly as
+`Engine.applyFill` does. If that read reverts, every fill would have reverted
+with it, so the shard correctly declines to build a batch.
+
+This is an oracle incident, not a matcher one → [oracle-failure.md](oracle-failure.md).
+
+### Everything is outside the execution band
+
+`band_dropped` in the logs and `bandDrops` rising. Orders are crossing at prices
+more than `maxExecutionDeviationBps` from the index, and `Engine.applyFill`
+would revert `PriceOutsideBand` on all of them. The book clears once the index
+moves to them or the traders re-quote. Nothing to do.
+
+### A batch keeps reverting `InsufficientBatchGas`
+
+`batch_reverted` with that reason, and `gasResizes` rising. The shard halves the
+batch and retries on its own, down to `MATCHER_MIN_BATCH_FILLS`. Check the
+`batch_applied` lines for the size that did settle; if it is far below 40, the
+per-fill gas has grown and `MAX_FILLS_PER_BATCH` in
+`client/lib/chain/settlement.ts` needs re-measuring against the gas suite.
+
+`batch_gas_floor_reached` means a single fill will not fit. That is a
+contract-level problem, not an operational one: escalate, do not retry.
+
+### Fills rejected for the same reason over and over
 
 ```bash
-railway redeploy --service matcher
-
-# Local fallback:
-cd client && npm run dev:matcher
+psql "$DATABASE_URL" -c "
+  SELECT \"rejectReason\", COUNT(*) FROM \"Fill\"
+  WHERE network = '$KRYON_NETWORK' AND \"createdAt\" > now() - interval '1 hour'
+    AND \"rejectReason\" IS NOT NULL
+  GROUP BY 1 ORDER BY 2 DESC;
+"
 ```
 
-### Step 2 — If matcher crashes on startup (DB connection error)
+- `InsufficientCollateral` — the traders are underfunded. Nothing to fix.
+- `InvalidSignature` / `OrderExpired` / `OrderCancelled` — the shard retires the
+  order it can blame, so these should not recur for the same order. If they do,
+  the orders are from contract wallets (ERC-1271) that the matcher cannot blame
+  by recovery; look for `signature_rejection_unblamed` in the logs.
+- `SelfTrade`, `DirectionMismatch`, `FillBelowMinNotional` — logged as
+  `matcher_bug_rejections`. These mean the matcher offered a fill the gateway
+  should never have been given. **Escalate**: stop the shard and read the fill.
 
-Check `DATABASE_URL` is set correctly in Railway matcher service env vars.
+### The process is stuck with fills reserved
+
+A crash between reserving a batch and broadcasting it leaves PENDING `Fill` rows
+that nothing is waiting for. **The fix is to restart the shard, not to delete
+the rows.** Startup recovery finishes every open `TxJob` for the key, then
+reconciles the leftover fills against `OrderGateway.filled` and releases only
+the ones the chain provably never saw. Deleting them by hand can double-fill an
+order whose batch did land.
+
+`MATCHER_ORPHAN_GRACE_MS` (default 60s) is how long a reservation must sit
+before recovery will judge it.
+
+## Recovery
 
 ```bash
-railway variable list --service matcher
-railway variable set DATABASE_URL="<neon-url>" --service matcher
-railway redeploy --service matcher
+# 1. Restart the shard. Recovery runs before any new matching.
+pm2 restart kryon-matcher && pm2 logs kryon-matcher --lines 100
+
+# 2. Confirm recovery finished and the key has no stranded work:
+#    recovery_started → recovery_orphans → recovery_finished
 ```
 
-### Step 3 — If stale/stuck orders are blocking the book
+If the shard will not start:
 
-```bash
-# Clear orders older than 24h that are still pending (they likely won't match)
-cd client && npx tsx --env-file=.env.local scripts/clear-stale-jobs.ts
-```
+- `MATCHER_MARKETS is not set` — required, and deliberately not defaulted.
+- `MATCHER_OPERATOR_KEY is not set`, or it is not a 32-byte hex key.
+- `RPC chain id … does not match` — `KRYON_NETWORK` and `ARC_RPC_URLS` disagree.
+- `market N is not ready to match` — the indexer has not seen `MarketParamsSet`
+  for that market, so there is no notional floor or band to match against. Fix
+  the indexer, not the matcher.
 
-### Step 4 — If matcher sequence number collision with oracle keeper
+## What the matcher must never be asked to do
 
-Both services share the same `ORACLE_PUBLISHER_SECRET` — this causes Stellar sequence number conflicts. Ensure:
-- Oracle keeper uses `ORACLE_PUBLISHER_SECRET`
-- Matcher uses `MATCHER_OPERATOR_SECRET` (different key)
-
-Verify in Railway env:
-```bash
-railway variable list --service matcher | grep SECRET
-railway variable list --service oracle-keeper | grep SECRET
-```
-
-They must use **different** secret keys.
-
-## Settlement stuck (separate runbook)
-
-If orders match but settlement never confirms → [settlement-stuck.md](settlement-stuck.md)
+- **Write `SETTLED` or `REJECTED` on a `Fill`.** Only the indexer does that,
+  from the gateway's logs. A fill stuck `PENDING` with no `rejectReason` means
+  the indexer is behind → [settlement-stuck.md](settlement-stuck.md).
+- **Share an operator key with another process,** including a second shard, the
+  oracle keeper, the funding keeper or the liquidator. One key, one service,
+  one process.
 
 ## Prevention
 
-- Use separate keys for oracle keeper and matcher (sequence isolation)
-- Matcher polls every 1s and auto-reconnects to DB
-- Set Railway restart policy to always-restart on failure
+- One key per shard, granted `OPERATOR_ROLE` at deploy (`[roles] operators` in
+  `infra/deploy/environments/arc-*.toml`).
+- Alert on the health endpoint's `matcherBugs`, `fillsUnaccounted` and
+  `tickErrors`: all three are zero in normal operation.
+- `fillsUnaccounted` above zero means a receipt did not account for a fill in
+  its own batch. That should be impossible; treat it as data loss and escalate.

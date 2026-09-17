@@ -4,6 +4,7 @@
 // Run: KRYON_TEST_DATABASE_URL=postgresql://localhost:5432/kryon_test npm test
 
 import { after, before, describe, test } from "node:test";
+import { Pool } from "pg";
 import assert from "node:assert/strict";
 import {
   encodeAbiParameters,
@@ -258,14 +259,26 @@ function failingDb(db: Db, failAt: number): Db {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+/**
+ * The matcher suite truncates Market/Account/Order/Fill/Position too, and the
+ * runner starts test files in parallel. Both take this lock so neither wipes
+ * the other's rows halfway through a test.
+ */
+const SHARED_TABLES_LOCK = "8150412001";
+
 describe("Indexer", { skip: !url }, () => {
   let db: Db;
+  let lockPool: Pool;
   const registry = new ContractRegistry(CONTRACTS);
   before(async () => {
     db = pgDb(url!);
+    lockPool = new Pool({ connectionString: url!, max: 1 });
+    await lockPool.query("SELECT pg_advisory_lock($1)", [SHARED_TABLES_LOCK]);
     await truncateAll(db);
   });
   after(async () => {
+    await lockPool?.query("SELECT pg_advisory_unlock($1)", [SHARED_TABLES_LOCK]);
+    await lockPool?.end();
     await db?.end();
   });
 
