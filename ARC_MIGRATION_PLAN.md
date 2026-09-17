@@ -262,7 +262,7 @@ capped, transparent to traders, and accounted for exactly.
 | Per-market schedule | `FeeRouter.setMarketFees(marketId, makerBps, takerBps)` (timelock) |
 | Maker rebate (optional) | signed `makerBps`. Allowed only if `takerBps + makerBps ≥ minNetFeeBps` |
 | Volume tiers | on-chain tier table (timelock). Per-account assignment by `FEE_TIER_ROLE`, restricted to existing tiers |
-| Referrals | optional signed `referrer` in `Order`. Referral share is claimable by the referrer |
+| Referrals | optional signed `referrer` in `Order`. The share is credited only when referrals are enabled, the referrer is on the governance allowlist (`setReferrerApproved`, `FEE_ADMIN_ROLE`/timelock) and is not the payer. Otherwise it accrues to treasury. Claimable by the referrer |
 | Liquidation penalty | `liquidationFeeBps` split between liquidator reward and insurance/treasury |
 | Minimum fill notional | per market in RiskParams, also enforced by API/matcher |
 | Funding | peer-to-peer. The protocol takes nothing |
