@@ -10,8 +10,8 @@
 #
 set -uo pipefail   # deliberately NOT -e: every check must run to completion
 
-DOMAIN="${DOMAIN:-kryonprotocol.live}"
-OLD_VM="${OLD_VM:-92.4.91.30}"
+DOMAIN="${DOMAIN:?set DOMAIN to your apex domain, e.g. DOMAIN=<APP_DOMAIN>}"
+OLD_VM="${OLD_VM:-}"   # e.g. <OLD_HOST_IP>
 KEY="${KEY:-$HOME/.ssh/kryon-vm-oracle.key}"
 VM="${VM:-}"
 
@@ -77,7 +77,7 @@ fi
 head_ "Phase 5 · DNS delegation"
 # The registry is authoritative for the change; a public resolver may still be
 # serving a cached answer for up to the SOA TTL (3600s on this zone).
-reg=$(dig +norecurse NS "$DOMAIN" @v0n0.nic.live 2>/dev/null \
+reg=$(dig +norecurse NS "$DOMAIN" @"$(dig +short NS "${DOMAIN##*.}." | head -1)" 2>/dev/null \
   | awk '/^'"$DOMAIN"'\./ && $4=="NS" {print $5}' | sort | tr '\n' ' ')
 pub=$(dig +short NS "$DOMAIN" @1.1.1.1 2>/dev/null | sort | tr '\n' ' ')
 if [[ "$reg" == *cloudflare* ]]; then
@@ -95,21 +95,22 @@ done
 # ── Phase 8/9: the public site ───────────────────────────────────────────────
 head_ "Phase 8-9 · public site"
 for net in mainnet testnet; do
-  body=$(curl -fsSL -m 20 "https://${DOMAIN}/api/ready?network=${net}" 2>/dev/null)
+  body=$(curl -fsSL -m 20 "https://app.${DOMAIN}/api/ready?network=${net}" 2>/dev/null)
   case "${body:-}" in
-    *'"ok":true'*) pass "https://${DOMAIN}/api/ready?network=${net} → ok" ;;
-    "")            fail "${net}: no response from https://${DOMAIN}" ;;
+    *'"ok":true'*) pass "https://app.${DOMAIN}/api/ready?network=${net} → ok" ;;
+    "")            fail "${net}: no response from https://app.${DOMAIN}" ;;
     *)             fail "${net}: ${body}" ;;
   esac
 done
 
-mk=$(curl -fsSL -m 20 "https://${DOMAIN}/api/markets/BTC-PERP" 2>/dev/null \
+mk=$(curl -fsSL -m 20 "https://app.${DOMAIN}/api/markets/BTC-PERP" 2>/dev/null \
   | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("markPrice",""),d.get("updatedAt",""))' 2>/dev/null)
 [[ -n "$mk" ]] && pass "BTC-PERP: $mk" || warn "BTC-PERP not served yet"
 
 # ── Phase 11: old tiers gone ─────────────────────────────────────────────────
 head_ "Phase 11 · decommission"
-for u in https://client-eight-mu-71.vercel.app https://kryon-client.kryon.workers.dev; do
+# OLD_APP_URLS: space-separated URLs of any previous app tiers to confirm retired.
+for u in ${OLD_APP_URLS:-}; do
   code=$(curl -sL -m 15 -o /dev/null -w '%{http_code}' "$u/api/ready" 2>/dev/null)
   [[ "$code" == "000" || "$code" == "404" ]] && pass "$u retired" \
     || warn "$u still answering ($code) — retire it once the VM serves"

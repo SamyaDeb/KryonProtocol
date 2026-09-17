@@ -127,7 +127,7 @@ goes into both `.env` files and is not stored anywhere else.
 scp -i ~/.ssh/kryon-vm-oracle.key \
     kryon-protocol/infra/a1flex/migrate-from-micro.sh opc@<NEW_IP>:~/
 ssh -i ~/.ssh/kryon-vm-oracle.key opc@<NEW_IP> \
-    'bash ~/migrate-from-micro.sh 92.4.91.30'
+    'bash ~/migrate-from-micro.sh <OLD_HOST_IP>'
 ```
 
 The script **stops the mainnet keepers on the old box first**, then dumps and

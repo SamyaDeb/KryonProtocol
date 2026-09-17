@@ -34,8 +34,8 @@ Confirm you can get into all three of these **before** starting. Phase 5 is a
 hard dependency for the rest and is the one most likely to block you.
 
 - [ ] 🧑 **Oracle Cloud** console login (tenancy `sammodeb28@gmail.com`)
-- [ ] 🧑 **Cloudflare** login — account `b8a23edf0ffbfe1137d1d672b0017238`
-- [ ] 🧑 **Name.com** login for `kryonprotocol.live`
+- [ ] 🧑 **Cloudflare** login — account `<CLOUDFLARE_ACCOUNT_ID>`
+- [ ] 🧑 **Name.com** login for `<APP_DOMAIN>`
       ⚠️ the registrant email is a **different Gmail** than the above — the same
       mismatch behind the 2026-08-16 ICANN suspension. Verify you can log in
       now; if you cannot, stop and recover that account first, because Phase 5
@@ -121,7 +121,7 @@ git cat-file -e origin/main:client/lib/sql.ts && echo "sql shim present"
 **Also check the old box** — it may carry edits that exist nowhere else:
 
 ```bash
-ssh -i ~/.ssh/kryon-vm-oracle.key opc@92.4.91.30 'cd ~/kryon && git status --short'
+ssh -i ~/.ssh/kryon-vm-oracle.key opc@<OLD_HOST_IP> 'cd ~/kryon && git status --short'
 ```
 
 Anything listed there is running in production and exists in no repository.
@@ -194,7 +194,7 @@ ssh -i ~/.ssh/kryon-vm-oracle.key opc@<NEW_IP> \
 
 # Operator secrets never live in git — copy the working env across.
 scp -i ~/.ssh/kryon-vm-oracle.key \
-    opc@92.4.91.30:~/kryon/client/.env.local /tmp/kryon-env
+    opc@<OLD_HOST_IP>:~/kryon/client/.env.local /tmp/kryon-env
 scp -i ~/.ssh/kryon-vm-oracle.key \
     /tmp/kryon-env opc@<NEW_IP>:~/kryon/client/.env.local
 ssh -i ~/.ssh/kryon-vm-oracle.key opc@<NEW_IP> 'chmod 600 ~/kryon/client/.env.local'
@@ -210,7 +210,7 @@ rm /tmp/kryon-env
 ```bash
 scp -i ~/.ssh/kryon-vm-oracle.key migrate-from-micro.sh opc@<NEW_IP>:~/
 ssh -i ~/.ssh/kryon-vm-oracle.key opc@<NEW_IP> \
-    'bash ~/migrate-from-micro.sh 92.4.91.30'
+    'bash ~/migrate-from-micro.sh <OLD_HOST_IP>'
 ```
 
 It **stops the mainnet keepers on the old box first**, then dumps, restores and
@@ -245,7 +245,7 @@ Cloudflare Tunnel routes by hostname through `*.cfargotunnel.com` CNAMEs that
 **only resolve on Cloudflare DNS**. Name.com cannot host them. The domain stays
 registered at Name.com; only the nameservers change.
 
-1. 🧑 Cloudflare → **Add a site** → `kryonprotocol.live` → **Free** plan.
+1. 🧑 Cloudflare → **Add a site** → `<APP_DOMAIN>` → **Free** plan.
 2. 🧑 It imports the existing records. **Delete all three Vercel records:**
    `A @ → 216.198.79.1`, `A @ → 64.29.17.1`, `CNAME www → cname.vercel-dns.com`.
    The tunnel creates its own in Phase 8; leaving these means the edge races
@@ -257,7 +257,7 @@ registered at Name.com; only the nameservers change.
 4. Wait for the zone to read **Active**, then confirm:
 
 ```bash
-dig +short NS kryonprotocol.live     # must return the two Cloudflare NS
+dig +short NS <APP_DOMAIN>     # must return the two Cloudflare NS
 ```
 
 **Do not continue until this returns Cloudflare nameservers.**
@@ -281,12 +281,12 @@ DATABASE_URL_TESTNET=postgresql://kryon:<PW>@localhost:5432/kryon_testnet?sslmod
 NEXT_PUBLIC_MAINNET_KEEPERS_LIVE=true
 NEXT_PUBLIC_TESTNET_KEEPERS_LIVE=false     # → true after Phase 10
 
-NEXT_PUBLIC_WS_URL_MAINNET=wss://ws.kryonprotocol.live
-NEXT_PUBLIC_WS_URL_TESTNET=wss://ws-testnet.kryonprotocol.live
+NEXT_PUBLIC_WS_URL_MAINNET=wss://ws.<APP_DOMAIN>
+NEXT_PUBLIC_WS_URL_TESTNET=wss://ws-staging.<APP_DOMAIN>
 NEXT_PUBLIC_WS_URL=                        # legacy single-network var: leave empty
 
 NEXT_PUBLIC_STELLAR_NETWORK=mainnet
-NEXT_PUBLIC_APP_URL=https://kryonprotocol.live   # an empty string crashes next build
+NEXT_PUBLIC_APP_URL=https://<APP_DOMAIN>   # an empty string crashes next build
 
 ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/...   # from Phase 0
 
@@ -321,7 +321,7 @@ psql "postgresql://kryon:<PW>@localhost:5432/kryon_testnet" -c 'SELECT count(*) 
 
 ```bash
 sudo dnf install -y https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.rpm
-cloudflared tunnel login          # prints a URL — open it, authorise kryonprotocol.live
+cloudflared tunnel login          # prints a URL — open it, authorise <APP_DOMAIN>
 cloudflared tunnel create kryon   # prints the TUNNEL-ID and credentials path
 ```
 
@@ -360,16 +360,16 @@ is bound to loopback only, and verifies `/api/ready` on both networks.
 ## Phase 9 — Verify ⏱ 10 min
 
 ```bash
-curl -s https://kryonprotocol.live/api/ready | python3 -m json.tool
-curl -s 'https://kryonprotocol.live/api/ready?network=testnet' | python3 -m json.tool
-curl -s https://kryonprotocol.live/api/markets/BTC-PERP | python3 -m json.tool
+curl -s https://<APP_DOMAIN>/api/ready | python3 -m json.tool
+curl -s 'https://<APP_DOMAIN>/api/ready?network=testnet' | python3 -m json.tool
+curl -s https://<APP_DOMAIN>/api/markets/BTC-PERP | python3 -m json.tool
 ```
 
 - [ ] `/api/ready` is `ok:true` on **both** networks
 - [ ] `BTC-PERP` mark price is fresh — a timestamp more than a few minutes old
       means the oracle keeper is down, not the web tier
 - [ ] `/trade/BTC-PERP` renders an order book, **no degraded banner on mainnet**
-- [ ] devtools → Network → WS shows `wss://ws.kryonprotocol.live` **connected**,
+- [ ] devtools → Network → WS shows `wss://ws.<APP_DOMAIN>` **connected**,
       not falling back to REST polling
 - [ ] `/docs` loads
 - [ ] place a small limit order end to end and see it appear in the book
@@ -412,14 +412,14 @@ Only after Phase 9 passes. Two deployments answering for Kryon, one permanently
 503, is worse than one.
 
 - [ ] 🧑 Vercel → project → Settings → **Delete** (or at least remove the
-      `kryonprotocol.live` domain assignment)
+      `<APP_DOMAIN>` domain assignment)
 - [ ] 🧑 `npx wrangler delete kryon-client`
 - [ ] 🧑 Add `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, `VM_HOST_KEY` to the GitHub
       `production` environment so `deploy-production.yml` deploys to the VM.
       Until they exist the deploy job skips cleanly.
 - [ ] 🧑 **Rotate the credentials that were pasted into chat transcripts:** the
       Cloudflare API token and the Upstash REST token.
-- [ ] 🧑 Terminate the micro instance `92.4.91.30` — **last**, and only once the
+- [ ] 🧑 Terminate the micro instance `<OLD_HOST_IP>` — **last**, and only once the
       new box has been serving for a day.
 
 ---

@@ -3,7 +3,7 @@
 # migrate-from-micro.sh — move the mainnet database from the old E2.1.Micro
 # box onto this A1.Flex host.
 #
-#   bash migrate-from-micro.sh <OLD_HOST_IP>   # e.g. 92.4.91.30
+#   bash migrate-from-micro.sh <OLD_HOST_IP>   # e.g. <OLD_HOST_IP>
 #
 # Run this ON THE NEW BOX, after bootstrap.sh.
 #

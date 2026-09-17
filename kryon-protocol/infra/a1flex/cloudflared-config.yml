@@ -1,7 +1,9 @@
+# Template. Create a new tunnel in the Kryon Cloudflare account.
+#
 # Cloudflare Tunnel ingress for the Kryon VM.
 #
 # Install to /etc/cloudflared/config.yml on the services VM. Replace
-# <TUNNEL-ID> with the id printed by `cloudflared tunnel create kryon`.
+# <TUNNEL_ID> with the id printed by `cloudflared tunnel create kryon`.
 #
 # WHY A TUNNEL AND NOT AN OPEN PORT
 # ---------------------------------
@@ -13,8 +15,8 @@
 #   - TLS terminated at Cloudflare's edge with an automatic certificate, so
 #     `wss://` works without provisioning or renewing anything on the box.
 
-tunnel: <TUNNEL-ID>
-credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
 
 # Survive brief Postgres/Next restarts without 502-ing the browser.
 originRequest:
@@ -25,21 +27,19 @@ ingress:
   # ── WebSocket feeds ────────────────────────────────────────────────────────
   # Split by hostname, not path: one ws-server process tails exactly one
   # database, so each network needs its own address. These map to
-  # NEXT_PUBLIC_WS_URL_MAINNET / _TESTNET in the client env.
+  # NEXT_PUBLIC_WS_URL (production / staging) in the client env.
   #
   # NOTE THE HOST. The ws-server runs on the KEEPER box, not the web box —
   # localhost here is nothing at all and every feed would 502. Reaching it
   # needs a security-list rule for 8080/8081 from 10.0.0.0/24 (subnet only,
   # never 0.0.0.0/0 — the tunnel is the public path).
-  - hostname: ws.kryonprotocol.live
+  - hostname: ws.<APP_DOMAIN>
     service: ws://10.0.0.222:8080
-  - hostname: ws-testnet.kryonprotocol.live
+  - hostname: ws-staging.<APP_DOMAIN>
     service: ws://10.0.0.222:8081
 
   # ── The app ────────────────────────────────────────────────────────────────
-  - hostname: kryonprotocol.live
-    service: http://localhost:3000
-  - hostname: www.kryonprotocol.live
+  - hostname: app.<APP_DOMAIN>
     service: http://localhost:3000
 
   # Required terminal rule: anything unmatched gets a 404 rather than being

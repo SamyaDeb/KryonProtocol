@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # open-db-to-web-tier.sh — let the web-tier box reach Postgres over the VCN
-# private network. RUN THIS ON THE DATABASE BOX (92.4.91.30).
+# private network. RUN THIS ON THE DATABASE BOX (<OLD_HOST_IP>).
 #
-#   ssh -i ~/.ssh/kryon-vm-oracle.key opc@92.4.91.30 'bash -s' < open-db-to-web-tier.sh
+#   ssh -i ~/.ssh/kryon-vm-oracle.key opc@<OLD_HOST_IP> 'bash -s' < open-db-to-web-tier.sh
 #
 # The web tier could not be co-located with Postgres after all: the only free
 # capacity was a second 1 GB micro, not the A1.Flex box. So the loopback-only

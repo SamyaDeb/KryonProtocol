@@ -19,7 +19,7 @@ die()  { printf '\033[1;31m  ✗ %s\033[0m\n' "$*" >&2; exit 1; }
 APP_USER="${SUDO_USER:-$(id -un)}"
 REPO_DIR="/home/${APP_USER}/kryon"
 CLIENT_DIR="${REPO_DIR}/client"
-DOMAIN="${DOMAIN:-kryonprotocol.live}"
+DOMAIN="${DOMAIN:?set DOMAIN to your apex domain, e.g. DOMAIN=<APP_DOMAIN>}"
 TUNNEL_NAME="${TUNNEL_NAME:-kryon}"
 
 [[ -d "$CLIENT_DIR" ]] || die "No repo at ${REPO_DIR}. Clone it first."
@@ -120,7 +120,7 @@ ok "tunnel config valid"
 # ── 4. DNS routes ────────────────────────────────────────────────────────────
 # Idempotent: re-pointing an existing record is not an error.
 log "Routing hostnames to the tunnel"
-for host in "$DOMAIN" "www.${DOMAIN}" "ws.${DOMAIN}" "ws-testnet.${DOMAIN}"; do
+for host in "app.${DOMAIN}" "ws.${DOMAIN}" "ws-staging.${DOMAIN}"; do
   if cloudflared tunnel route dns "$TUNNEL_NAME" "$host" 2>&1 | tee /tmp/route.log | grep -qiE 'added|updated'; then
     ok "$host → tunnel"
   else
@@ -167,8 +167,8 @@ for net in mainnet testnet; do
   fi
 done
 
-if curl -fsS -m 20 "https://${DOMAIN}/api/ready" | grep -q '"ok":true'; then
-  ok "https://${DOMAIN}/api/ready → ok — the site is live through the tunnel"
+if curl -fsS -m 20 "https://app.${DOMAIN}/api/ready" | grep -q '"ok":true'; then
+  ok "https://app.${DOMAIN}/api/ready → ok — the site is live through the tunnel"
 else
   warn "public readiness not ok yet — DNS can take a minute to propagate after the first route"
 fi

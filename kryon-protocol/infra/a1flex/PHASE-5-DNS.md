@@ -1,4 +1,4 @@
-# Phase 5 — Move `kryonprotocol.live` DNS to Cloudflare
+# Phase 5 — Move `<APP_DOMAIN>` DNS to Cloudflare
 
 Detailed walkthrough. ⏱ ~15 minutes of clicking, then anywhere from 10 minutes
 to 24 hours of nameserver propagation.
@@ -38,10 +38,10 @@ nameserver change break resolution outright.
 You can re-verify any time with:
 
 ```bash
-dig +short NS kryonprotocol.live
-dig +short A  kryonprotocol.live
-dig +short MX kryonprotocol.live      # expect empty
-dig +short DS kryonprotocol.live      # expect empty = no DNSSEC
+dig +short NS <APP_DOMAIN>
+dig +short A  <APP_DOMAIN>
+dig +short MX <APP_DOMAIN>      # expect empty
+dig +short DS <APP_DOMAIN>      # expect empty = no DNSSEC
 ```
 
 ---
@@ -49,10 +49,10 @@ dig +short DS kryonprotocol.live      # expect empty = no DNSSEC
 ## Step A — Add the site to Cloudflare ⏱ 3 min
 
 1. Log in at <https://dash.cloudflare.com> as **sammodeb28@gmail.com**
-   (account `b8a23edf0ffbfe1137d1d672b0017238` — the one that already owns the
+   (account `<CLOUDFLARE_ACCOUNT_ID>` — the one that already owns the
    `kryon-client` Worker).
 2. Top of the dashboard → **Add a domain** (older UI: **Add site**).
-3. Type `kryonprotocol.live` — **no `www`, no `https://`**.
+3. Type `<APP_DOMAIN>` — **no `www`, no `https://`**.
 4. Choose **Continue with Free**. Nothing here needs a paid plan: tunnels,
    unlimited DNS records and universal SSL are all on Free.
 5. Cloudflare scans the existing zone and shows what it found.
@@ -63,8 +63,8 @@ dig +short DS kryonprotocol.live      # expect empty = no DNSSEC
 
 Cloudflare will have imported the three Vercel records. **Delete all three:**
 
-- `A` `kryonprotocol.live` → `216.198.79.1`
-- `A` `kryonprotocol.live` → `64.29.17.1`
+- `A` `<APP_DOMAIN>` → `216.198.79.1`
+- `A` `<APP_DOMAIN>` → `64.29.17.1`
 - `CNAME` `www` → `cname.vercel-dns.com`
 
 Click **Delete** on each row, then **Continue**.
@@ -101,7 +101,7 @@ Both verified resolving 2026-08-22. These two, exactly — no others, and not fo
    the mismatch behind the 2026-08-16 ICANN suspension notice. If you cannot get
    in, stop here and recover that account first; every remaining phase depends
    on this step.
-2. **My Domains** → click `kryonprotocol.live`.
+2. **My Domains** → click `<APP_DOMAIN>`.
 3. Find **Nameservers** in the left sidebar (or the "Manage Nameservers" link on
    the domain overview).
 4. You will see the four `ns[1-4]*.name.com` entries. **Delete all four** and
@@ -128,21 +128,21 @@ Cloudflare emails you when the zone goes **Active**. Verify yourself:
 
 ```bash
 # The authoritative check — must return your two Cloudflare nameservers.
-dig +short NS kryonprotocol.live
+dig +short NS <APP_DOMAIN>
 
 # Ask the registry directly, bypassing any cached answer on your machine.
-dig +norecurse NS kryonprotocol.live @v0n0.nic.live
+dig +norecurse NS <APP_DOMAIN> @<TLD_REGISTRY_NAMESERVER>
 ```
 
 The registry answer flips within minutes; resolvers worldwide catch up over the
 TTL (this zone's SOA says 3600 s, so allow an hour, and up to 24 to be safe).
 
-- [ ] `dig +short NS kryonprotocol.live` returns `*.ns.cloudflare.com`
+- [ ] `dig +short NS <APP_DOMAIN>` returns `*.ns.cloudflare.com`
 - [ ] The Cloudflare dashboard shows the zone as **Active**, not "Pending
       Nameserver Update"
 
 **Do not start Phase 7 until both are true.** `cloudflared tunnel login` lists
-the zones on your account and will not offer `kryonprotocol.live` until the zone
+the zones on your account and will not offer `<APP_DOMAIN>` until the zone
 is Active.
 
 ---
@@ -181,6 +181,6 @@ Nothing is lost — the domain never leaves Name.com's registration.
 
 ## When you're done
 
-Tell me `dig +short NS kryonprotocol.live` returns Cloudflare, and I can drive
+Tell me `dig +short NS <APP_DOMAIN>` returns Cloudflare, and I can drive
 Phases 6–11 from here (I need a Bash permission rule for `ssh` — it is currently
 blocked by the auto-mode classifier).

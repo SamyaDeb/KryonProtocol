@@ -12,7 +12,7 @@
 # rotating. This pipes it host-to-host instead.
 set -euo pipefail
 
-DB_HOST="${DB_HOST:-92.4.91.30}"
+DB_HOST="${DB_HOST:?set DB_HOST to the database host IP, e.g. DB_HOST=<DB_HOST_IP>}"
 DB_PRIVATE="${DB_PRIVATE:-10.0.0.222}"
 WEB_HOST="${WEB_HOST:-130.210.27.190}"
 DB_KEY="${DB_KEY:-$HOME/.ssh/kryon-vm-oracle.key}"

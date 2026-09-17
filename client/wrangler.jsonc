@@ -8,7 +8,7 @@
 // environment, not from this file.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kryon-client",
+  "name": "kryonprotocol-web",
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-05-05",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],

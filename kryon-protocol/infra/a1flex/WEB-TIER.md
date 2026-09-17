@@ -12,9 +12,9 @@ at once:
 
 | Deployment | `/api/ready` |
 |---|---|
-| `www.kryonprotocol.live` (Vercel) | `503 readiness_unavailable` |
-| `client-eight-mu-71.vercel.app` (Vercel) | `503 readiness_unavailable` |
-| `kryon-client.kryon.workers.dev` (CF Workers) | `503 readiness_unavailable` |
+| `app.<APP_DOMAIN>` (Vercel) | `503 readiness_unavailable` |
+| `<OLD_APP_URL>` (Vercel) | `503 readiness_unavailable` |
+| `<OLD_WORKER_URL>` (CF Workers) | `503 readiness_unavailable` |
 
 One cause: the database moved to the services VM with
 `listen_addresses=localhost`. **No serverless web tier can reach it.** They have
@@ -48,9 +48,9 @@ browser ──https──▶ Cloudflare edge ──(outbound tunnel)──▶ VM
       host this — it already sits at ~85% memory with Postgres and 7 keepers;
       `next build` alone will OOM it. This step is not optional.
 - [ ] You can log in to the Cloudflare account (`sammodeb28@gmail.com`,
-      account `b8a23edf0ffbfe1137d1d672b0017238`).
+      account `<CLOUDFLARE_ACCOUNT_ID>`).
 - [ ] You can log in to **Name.com** to change nameservers. ⚠️ The
-      `kryonprotocol.live` registrant email is a *different* Gmail than the one
+      `<APP_DOMAIN>` registrant email is a *different* Gmail than the one
       above — the same mismatch behind the 2026-08-16 ICANN suspension. Confirm
       you can get into that account before starting, because step 1 is a hard
       dependency for everything after it.
@@ -64,7 +64,7 @@ Cloudflare Tunnel routes by hostname, and a tunnel hostname resolves through a
 cannot host it. So the zone has to move. The domain stays registered at
 Name.com — only the nameservers change.
 
-1. Cloudflare dashboard → **Add a site** → `kryonprotocol.live` → Free plan.
+1. Cloudflare dashboard → **Add a site** → `<APP_DOMAIN>` → Free plan.
 2. Cloudflare scans existing records. **Delete the three Vercel records** it
    imports (`A @ → 216.198.79.1`, `A @ → 64.29.17.1`,
    `CNAME www → cname.vercel-dns.com`). The tunnel creates its own in step 4;
@@ -75,7 +75,7 @@ Name.com — only the nameservers change.
 4. Wait for Cloudflare to report the zone **Active** (usually minutes, up to
    24 h). Verify:
    ```bash
-   dig +short NS kryonprotocol.live      # must return the two Cloudflare NS
+   dig +short NS <APP_DOMAIN>      # must return the two Cloudflare NS
    ```
 
 **Do not proceed until this returns Cloudflare nameservers.** Everything below
@@ -108,11 +108,11 @@ NEXT_PUBLIC_TESTNET_KEEPERS_LIVE=false     # → true once step 6 is done
 
 # WebSocket feeds, one hostname per network — one ws-server process tails
 # exactly one database.
-NEXT_PUBLIC_WS_URL_MAINNET=wss://ws.kryonprotocol.live
-NEXT_PUBLIC_WS_URL_TESTNET=wss://ws-testnet.kryonprotocol.live
+NEXT_PUBLIC_WS_URL_MAINNET=wss://ws.<APP_DOMAIN>
+NEXT_PUBLIC_WS_URL_TESTNET=wss://ws-staging.<APP_DOMAIN>
 NEXT_PUBLIC_WS_URL=                         # legacy single-network var; leave empty
 
-NEXT_PUBLIC_APP_URL=https://kryonprotocol.live   # empty string crashes `next build`
+NEXT_PUBLIC_APP_URL=https://<APP_DOMAIN>   # empty string crashes `next build`
 NEXT_PUBLIC_STELLAR_NETWORK=mainnet              # the primary venue
 
 # The 43-day silent outage happened because the monitor had nowhere to shout.
@@ -135,7 +135,7 @@ psql "$DATABASE_URL_TESTNET" -c 'SELECT count(*) FROM "Market";'
 
 ```bash
 sudo dnf install -y https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.rpm
-cloudflared tunnel login        # prints a URL — open it, pick kryonprotocol.live
+cloudflared tunnel login        # prints a URL — open it, pick <APP_DOMAIN>
 cloudflared tunnel create kryon # prints the TUNNEL-ID and credentials path
 ```
 
@@ -171,10 +171,10 @@ unencrypted on `<public-ip>:3000`, straight past the tunnel's TLS.
 ## Step 5 — Verify
 
 ```bash
-curl -s https://kryonprotocol.live/api/ready | jq          # ok:true, network:mainnet
-curl -s 'https://kryonprotocol.live/api/ready?network=testnet' | jq
-curl -s https://kryonprotocol.live/api/markets/BTC-PERP | jq '.markPrice,.updatedAt'
-curl -sI https://kryonprotocol.live | grep -i content-security-policy
+curl -s https://<APP_DOMAIN>/api/ready | jq          # ok:true, network:mainnet
+curl -s 'https://<APP_DOMAIN>/api/ready?network=testnet' | jq
+curl -s https://<APP_DOMAIN>/api/markets/BTC-PERP | jq '.markPrice,.updatedAt'
+curl -sI https://<APP_DOMAIN> | grep -i content-security-policy
 ```
 
 - [ ] `/api/ready` is `ok:true` on **both** networks
@@ -182,7 +182,7 @@ curl -sI https://kryonprotocol.live | grep -i content-security-policy
       than a few minutes old means the keeper is down, not the web tier)
 - [ ] Order book renders on `/trade/BTC-PERP` with no degraded banner on mainnet
 - [ ] Browser devtools shows the WebSocket connected to
-      `wss://ws.kryonprotocol.live`, not falling back to REST polling
+      `wss://ws.<APP_DOMAIN>`, not falling back to REST polling
 - [ ] `/docs` loads
 
 ---
@@ -226,13 +226,13 @@ Only after step 5 passes. Leaving them up means two deployments answering for
 Kryon, one of them permanently 503.
 
 - [ ] Vercel → project → Settings → **Delete** (or at minimum remove the
-      `kryonprotocol.live` domain assignment)
+      `<APP_DOMAIN>` domain assignment)
 - [ ] `npx wrangler delete kryon-client` for the Workers deployment
 - [ ] Disable the `deploy-production.yml` GitHub workflow — it still pushes to
       Workers on every merge to `main` and will resurrect the dead tier
 - [ ] Rotate the credentials that were pasted into chat transcripts: the
       Cloudflare API token and the Upstash REST token
-- [ ] Terminate the micro instance (`92.4.91.30`) — **last**, and only once
+- [ ] Terminate the micro instance (`<OLD_HOST_IP>`) — **last**, and only once
       `pm2 status` on the new box shows all fleets online
 
 ---
