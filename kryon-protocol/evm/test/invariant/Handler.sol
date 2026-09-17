@@ -58,6 +58,8 @@ contract Handler is CommonBase, StdCheats, StdUtils {
     uint256 public withdrawalsBelowInitialMargin; // invariant 1
     uint256 public liquidationsOfHealthyAccounts; // invariant 2
     uint256 public fundingNotFromPremium; // invariant 3
+    uint256 public feedsStuckAfterOutage; // oracle re-anchor (review fix 2)
+    uint256 public outages;
     uint256 public calls;
     uint256 public trades;
     uint256 public liquidations;
@@ -234,6 +236,24 @@ contract Handler is CommonBase, StdCheats, StdUtils {
         if (next < 1e15) next = 1e15;
         index[m] = next;
         _tick(bound(secs, 1, 30));
+    }
+
+    /// @notice Oracle outage longer than maxAge, then a move beyond the jump
+    ///         guard. The feed must re-anchor on the first push after it.
+    function oracleOutage(uint256 marketSeed, int256 moveBps, uint256 gap) external {
+        ++calls;
+        uint256 k = marketSeed % markets.length;
+        uint32 m = markets[k];
+        moveBps = bound(moveBps, -5000, 5000);
+        int256 next = index[m] + index[m] * moveBps / 10_000;
+        if (next < 1e15) next = 1e15;
+        index[m] = next;
+        vm.warp(_now() + bound(gap, uint256(oracle.feed(oracleIds[k]).maxAge) + 1, 1 hours));
+        _republish();
+        ++outages;
+        for (uint256 i = 0; i < markets.length; ++i) {
+            if (oracle.latest(oracleIds[i]).price != index[markets[i]]) ++feedsStuckAfterOutage;
+        }
     }
 
     function updateFunding(uint256 marketSeed, uint256 secs) external {

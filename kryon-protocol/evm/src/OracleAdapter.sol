@@ -17,6 +17,8 @@ import {ORACLE_SOURCE_QUORUM, OracleSnapshot} from "./libraries/Types.sol";
 ///      reference divergence) skip the update and emit an event rather than
 ///      revert, so one bad feed never blocks a publisher's batch. A skipped
 ///      update lets the price go stale, and a stale price halts the market.
+///      The jump guard only applies while the previous aggregate is fresh, so
+///      a feed recovering from an outage re-anchors instead of staying stale.
 contract OracleAdapter is KryonUpgradeable {
     uint256 public constant MAX_PUBLISHERS = 5;
     uint32 public constant MAX_FEED_AGE = 300;
@@ -29,7 +31,8 @@ contract OracleAdapter is KryonUpgradeable {
         bool active;
         uint8 minPublishers;
         uint16 maxSpreadBps;
-        /// Max move vs the previous aggregate in one update. 0 disables.
+        /// Max move vs the previous aggregate in one update, while that
+        /// aggregate is still fresh (see `_aggregate`). 0 disables.
         uint16 maxJumpBps;
         uint16 maxConfidenceBps;
         uint32 maxAge;
@@ -89,6 +92,8 @@ contract OracleAdapter is KryonUpgradeable {
         uint8 sourceCount
     );
     event PriceUpdateSkipped(bytes32 indexed id, SkipReason reason, int256 candidate);
+    /// @notice A stale feed resumed without the jump guard (see `_aggregate`).
+    event PriceReanchored(bytes32 indexed id, int256 prevPrice, int256 newPrice, uint256 staleFor);
 
     function _s() private pure returns (OracleStorage storage $) {
         assembly ("memory-safe") {
@@ -223,7 +228,14 @@ contract OracleAdapter is KryonUpgradeable {
             emit PriceUpdateSkipped(id, SkipReason.NotMonotonic, median);
             return;
         }
-        if (cfg.maxJumpBps != 0 && prev.price > 0) {
+        // The jump guard compares against the last price only while that price
+        // is still fresh. After an outage longer than maxAge the market has
+        // already halted, and the true price may have moved further than
+        // maxJumpBps; holding the feed to the old anchor would keep it stale
+        // forever. A stale feed re-anchors on a median that passes every other
+        // guard (quorum, spread, monotonic, reference).
+        bool prevStale = block.timestamp - prev.writeTime > cfg.maxAge;
+        if (cfg.maxJumpBps != 0 && prev.price > 0 && !prevStale) {
             if (M.abs(M.sub(median, prev.price)) > M.applyBps(prev.price, cfg.maxJumpBps)) {
                 emit PriceUpdateSkipped(id, SkipReason.JumpTooLarge, median);
                 return;
@@ -253,6 +265,9 @@ contract OracleAdapter is KryonUpgradeable {
             sourceCount: uint8(count)
         });
         emit PriceUpdated(id, median, maxConfidence, oldest, uint64(block.timestamp), uint8(count));
+        if (prevStale && prev.price > 0) {
+            emit PriceReanchored(id, prev.price, median, block.timestamp - prev.writeTime);
+        }
     }
 
     /// @dev Never reverts: an unreadable, non-positive or stale answer is `ok = false`.

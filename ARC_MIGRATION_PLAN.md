@@ -424,6 +424,11 @@ on one:
 1. **Mark/index = Kryon's pushed CEX median** (Binance, Coinbase, Kraken; ≥2 sources; USDC
    de-peg guard).
 2. **Push policy:** push on ≥5 bps move, else a 5s heartbeat. On-chain `maxAge` = 15s.
+   **Jump guard (`maxJumpBps`, 20% on mainnet)** applies only while the previous aggregate is
+   fresh. After an outage longer than `maxAge`, the first median that passes quorum, spread,
+   monotonicity and the reference check re-anchors the feed and emits `PriceReanchored`
+   (2026-09-17 review; before, a >20% move during an outage bricked the feed until governance
+   stepped in). The monitor alerts on every `PriceReanchored`.
 3. **Independent cross-check:** Chainlink Data Feeds → RedStone → Stork → Chronicle, whichever
    publishes Arc mainnet feeds for our assets first. It starts as an off-chain halt in the keeper and
    moves on-chain (`maxDivergenceBps`) once feeds are confirmed.
