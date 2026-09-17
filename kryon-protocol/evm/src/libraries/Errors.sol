@@ -61,6 +61,8 @@ library KryonErrors {
     error HasOpenPositions();
     error InsuranceAccount();
     error ExecutionPaused();
+    error VetoCooldownActive();
+    error PauseCooldownActive();
     error BackstopUnwindDisabled();
     error BackstopLimitExceeded();
 }

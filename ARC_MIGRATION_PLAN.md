@@ -187,7 +187,7 @@ kryon-protocol/
 | **Insurance** | Backstop fund. Stake / request-unstake / withdraw with cooldown. `payLiquidator`, `coverDeficit`, bad-debt ledger. Shares retired when a loss wipes the staked pool. Receives a fee share. |
 | **RiskParams** | Per-market IM/MM/liquidation fee/OI caps/min fill notional, with hard bounds. Timelock-only. |
 | **FeeRouter** | Fee schedule, caps, tiers, split, accrual, and claim (§5). |
-| **Governance** | Safe N-of-M → OZ `TimelockController` (48h). Guardian Safe holds `PAUSER_ROLE`. `unpause` goes through the timelock. |
+| **Governance** | Safe N-of-M → OZ `TimelockController` (48h). Guardian Safe holds `PAUSER_ROLE`. `unpause` goes through the timelock. **Guardian powers are time-bounded (2026-09-17 review):** a timelock veto lasts at most 7 days, and after it ends (expiry or timelocked lift) the guardian can't veto again for 3 days, so operations scheduled during the veto (e.g. revoking the guardian) execute in that window. A guardian `pause()` lasts 72h, with a 24h cooldown after it ends. A longer stop is `pauseIndefinitely()` (timelock only), which ends only with `unpause()`. |
 
 ### 4.3 Design rules
 
@@ -195,13 +195,18 @@ kryon-protocol/
    roles to the timelock and renounces the deployer in the same run.
    `99_VerifyDeployment` fails if any EOA holds `DEFAULT_ADMIN_ROLE`, `UPGRADER_ROLE`,
    `FEE_ADMIN_ROLE`, or `RISK_ADMIN_ROLE`. The vault starts with `depositCap = 0` until this passes.
-2. **Role separation:** `OPERATOR_ROLE` (settle), `PUBLISHER_ROLE` (oracle), `KEEPER_ROLE`
+2. **Bounded emergency powers.** The guardian can halt governance execution for ≤ 7 days and any
+   protocol contract for ≤ 72h, with cooldowns (3 days / 24h) that outlast the 48h delay. So a
+   compromised guardian can delay governance and user withdrawals, but can't freeze them.
+   Pause state lives in the `kryon.storage.KryonUpgradeable` ERC-7201 namespace.
+   `99_VerifyDeployment` fails on an active veto, pause or cooldown.
+3. **Role separation:** `OPERATOR_ROLE` (settle), `PUBLISHER_ROLE` (oracle), `KEEPER_ROLE`
    (funding), `PAUSER_ROLE` (guardian), `FEE_TIER_ROLE` (bounded tier assignment).
-3. **Single decimals boundary**, fuzzed.
-4. **Checks-effects-interactions + `nonReentrant`** on every vault and insurance entry point.
-5. **Storage-layout snapshots** diffed in CI for every upgradeable contract.
-6. **Complete events.** The database is rebuildable from logs alone.
-7. **Bounded setters:** hard min/max constants that even the timelock can't exceed.
+4. **Single decimals boundary**, fuzzed.
+5. **Checks-effects-interactions + `nonReentrant`** on every vault and insurance entry point.
+6. **Storage-layout snapshots** diffed in CI for every upgradeable contract.
+7. **Complete events.** The database is rebuildable from logs alone.
+8. **Bounded setters:** hard min/max constants that even the timelock can't exceed.
 
 ---
 

@@ -42,6 +42,33 @@
 2. Verify `NEXT_PUBLIC_WS_URL` is correct in Vercel env
 3. Client auto-reconnects — usually self-healing
 
+## Emergency pause and guardian veto (Arc contracts)
+
+The guardian Safe's powers are time-bounded on purpose, so a compromised guardian can delay but
+never freeze governance or user withdrawals.
+
+| Action | Who | Effect | Limit |
+|---|---|---|---|
+| `pause()` on a protocol contract | guardian (`PAUSER_ROLE`) | stops the contract, incl. `Vault.withdraw` | lapses after **72h**; no new guardian pause for **24h** after it ends |
+| `pauseIndefinitely()` | timelock (48h) | stops the contract with no expiry | ends only with `unpause()` |
+| `unpause()` | timelock (48h) | ends both pause kinds now | the guardian's 24h cooldown still runs |
+| `KryonTimelock.pauseExecution()` | guardian | vetoes `execute` / `executeBatch` | lapses after **7 days**; no new veto for **3 days** after it ends |
+| `unpauseExecution()` | timelock self-call (48h) | lifts the veto now, starts the 3-day cooldown | no-op without an active veto |
+
+**Real emergency (P0):**
+1. The guardian pauses the affected contracts. The 72h clock starts.
+2. Within the first 24h, governance schedules `pauseIndefinitely()` on the same contracts, so they
+   stay paused when the guardian pause lapses. Schedule the fix (upgrade or parameter change) and
+   the eventual `unpause()` at the same time.
+3. If execution must be stopped too (a governance key is suspect), the guardian calls
+   `pauseExecution()`. Scheduling still works during a veto, and nothing executes for 7 days
+   unless the timelock lifts it.
+
+**Hostile guardian:** schedule `revokeRole(PAUSER_ROLE, guardian)` on the timelock and on every
+proxy (and `grantRole` to a replacement Safe) immediately. The guardian can't renew its veto or
+its pauses: whatever it does, the revokes execute within ~7 days + 48h, and withdrawals are only
+blocked during its bounded pauses.
+
 ## Escalation
 
 - Contract bugs: roll back via governance (if timelock elapsed) or redeploy fresh instance

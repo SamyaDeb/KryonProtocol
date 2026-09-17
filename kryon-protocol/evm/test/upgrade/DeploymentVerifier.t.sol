@@ -51,5 +51,35 @@ contract DeploymentVerifierTest is KryonTest {
         assertEq(f.length, 2);
     }
 
+    function test_flags_active_pauses_and_running_cooldowns() public {
+        vm.prank(guardian);
+        vault.pause();
+        asGov();
+        engine.pauseIndefinitely();
+        string[] memory f = _failures();
+        assertEq(f.length, 2);
+        assertEq(f[0], "Vault: guardian pause active");
+        assertEq(f[1], "Engine: paused indefinitely");
+
+        // After expiry the guardian cooldown and a lifted veto still show up.
+        vm.warp(_now() + 72 hours);
+        asGov();
+        engine.unpause();
+        vm.prank(guardian);
+        timelock.pauseExecution();
+        vm.warp(_now() + 7 days - 1);
+        push(BTC_ID, 100 * P);
+        push(ETH_ID, 2000 * P);
+        f = _failures();
+        assertEq(f.length, 1);
+        assertEq(f[0], "Timelock: execution is vetoed");
+        vm.warp(_now() + 1);
+        f = _failures();
+        assertEq(f.length, 1);
+        assertEq(f[0], "Timelock: guardian veto cooldown active");
+        vm.warp(_now() + 3 days);
+        assertEq(_failures().length, 0);
+    }
+
     function console2_log(string memory) internal pure {}
 }

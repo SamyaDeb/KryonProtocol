@@ -6,6 +6,7 @@ import {IAccessControlEnumerable} from
 
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {OracleAdapter} from "../../src/OracleAdapter.sol";
+import {KryonUpgradeable} from "../../src/governance/KryonUpgradeable.sol";
 import {Roles} from "../../src/governance/Roles.sol";
 import {FundingConfig, MarketParams} from "../../src/libraries/Types.sol";
 import {DeployConfig, Deployment, KryonDeploy, MarketConfig} from "./KryonDeploy.sol";
@@ -55,7 +56,7 @@ library DeploymentVerifier {
             ["Vault", "Engine", "OrderGateway", "OracleAdapter", "Liquidation", "Insurance", "RiskParams", "FeeRouter"];
         for (uint256 i = 0; i < all.length; ++i) {
             _adminRoles(r, IAccessControlEnumerable(all[i]), names[i], address(d.timelock));
-            _pauser(r, IAccessControlEnumerable(all[i]), names[i], cfg.guardian, deployer);
+            _pauser(r, all[i], names[i], cfg.guardian, deployer, d.timelock.getMinDelay());
         }
 
         _exactMembers(r, IAccessControlEnumerable(address(d.gateway)), Roles.OPERATOR_ROLE, cfg.operators, "OPERATOR_ROLE");
@@ -96,17 +97,28 @@ library DeploymentVerifier {
 
     function _pauser(
         Report memory r,
-        IAccessControlEnumerable c,
+        address target,
         string memory name,
         address guardian,
-        address deployer
+        address deployer,
+        uint256 timelockDelay
     ) private view {
+        IAccessControlEnumerable c = IAccessControlEnumerable(target);
         _check(r, !c.hasRole(Roles.PAUSER_ROLE, deployer), string.concat(name, ": deployer is a pauser"));
         _check(
             r,
             c.getRoleMemberCount(Roles.PAUSER_ROLE) == 1 && c.hasRole(Roles.PAUSER_ROLE, guardian),
             string.concat(name, ": guardian must be the sole PAUSER_ROLE")
         );
+        KryonUpgradeable k = KryonUpgradeable(target);
+        (, bool indefinite, uint64 cooldownEndsAt) = k.pauseState();
+        if (k.paused()) {
+            _fail(r, string.concat(name, indefinite ? ": paused indefinitely" : ": guardian pause active"));
+        } else if (block.timestamp < cooldownEndsAt) {
+            _fail(r, string.concat(name, ": guardian pause cooldown active"));
+        }
+        // Governance must be able to schedule a longer pause before a guardian pause lapses.
+        _check(r, k.GUARDIAN_PAUSE_DURATION() > timelockDelay, string.concat(name, ": guardian pause shorter than the timelock delay"));
     }
 
     function _exactMembers(
@@ -142,7 +154,13 @@ library DeploymentVerifier {
         _check(r, d.timelock.hasRole(Roles.PAUSER_ROLE, cfg.guardian), "Timelock: guardian cannot veto");
         _check(r, !d.timelock.hasRole(d.timelock.DEFAULT_ADMIN_ROLE(), deployer), "Timelock: deployer is admin");
         _check(r, !d.timelock.hasRole(d.timelock.PROPOSER_ROLE(), deployer), "Timelock: deployer is proposer");
-        _check(r, !d.timelock.executionPaused(), "Timelock: execution is vetoed");
+        if (d.timelock.executionPaused()) {
+            _fail(r, "Timelock: execution is vetoed");
+        } else if (block.timestamp < d.timelock.vetoCooldownEndsAt()) {
+            _fail(r, "Timelock: guardian veto cooldown active");
+        }
+        // Operations scheduled during a veto must fit inside the cooldown that follows it.
+        _check(r, d.timelock.VETO_COOLDOWN() > d.timelock.getMinDelay(), "Timelock: veto cooldown not longer than the delay");
     }
 
     // ----------------------------------------------------------------- wiring

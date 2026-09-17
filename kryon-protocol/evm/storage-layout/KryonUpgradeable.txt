@@ -1,0 +1,7 @@
+# KryonUpgradeable
+## regular storage (must stay empty)
+## ERC-7201 namespace
+erc7201:kryon.storage.KryonUpgradeable
+## fields (append-only)
+uint64 guardianPauseExpiry;
+bool indefinite;
