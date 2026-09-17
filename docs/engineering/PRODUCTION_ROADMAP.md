@@ -1,6 +1,6 @@
 # Kryon on Arc: Implementation Status and Production Roadmap
 
-**Scanned:** 2026-09-17, commit `43a7063` (23 commits). **Build status verified by running:** contracts 224/224 tests passing, client 74/75 passing (1 env-gated skip), `tsc` clean.
+**Scanned:** 2026-09-17, merge commit `eeadae1` on `integrate/arc-work` (repository setup on `main` plus the contract review fixes, DB baseline and indexer). **Build status verified by running:** contracts 258/258 tests, differential fuzz 9/9, `cargo test` 19/19, storage layouts unchanged, Slither 0 findings at Medium and above; client 91/92 with a local Postgres (1 skip needs a running arc-anvil; 80/81 without the DB), `tsc` clean, lint 0 errors, `next build` ok. Coverage was not re-run (last recorded 97.7% lines / 95.9% branches).
 
 Kryon is a perpetual-futures DEX on **Arc mainnet** (chain 5042). It pairs an off-chain price-time CLOB with on-chain custody, margin, funding, liquidation, fees and settlement. USDC is both collateral and gas.
 
@@ -14,22 +14,22 @@ This roadmap treats Kryon as a **standalone product**: its own brand surface, do
 
 | # | Workstream | Done | Evidence |
 |---|---|---|---|
-| A | **Smart contracts** (Solidity, `kryon-protocol/evm`) | **~85%** | 8 contracts + timelock, UUPS/ERC-7201, deploy scripts 00–05/99, 224 tests, invariants, differential fuzz vs Rust, Arc fork tests 8/8, coverage 97.7% lines / 95.9% branches, Slither 0, gas pass done (279k–378k per fill), ERC-1271 backstop unwind. **Open:** 3 medium review findings + 5 low (`prompts/CONTRACT_FIXES_PROMPT.md`, not yet applied), external audit |
-| B | **Chain SDK** (`client/lib/chain`, `lib/market/eip712.ts`) | **~95%** | viem clients with RPC fallback, generated ABIs, EIP-712 parity with the contracts, TxSender (nonce, 20 gwei floor, rebroadcast/replace), settlement encoding, Multicall3 health reads, Chainlink reader. **Nothing uses it yet.** Postgres TxJob store pending |
-| C | **Off-chain services** (matcher, oracle, indexer, reconciler, liquidation, funding, monitor, WS, stats) | **~10%** | Matching algorithm (`lib/market/matcher.ts`) and WS/stats logic are reusable. **All 7 chain-facing services still run on the legacy chain SDK** (0 import `lib/chain`) |
-| D | **Database** | **0%** | `prisma/schema.prisma` is still the legacy model: ledger cursors, XDR tx jobs, wasm hashes, no fee ledger. No Arc baseline migration |
-| E | **Frontend + API** | **~5%** | 6 pages and 19 API routes exist and the UI design is reusable, but **31 files import the legacy SDK or wallet**. No EVM wallet connection (wagmi/RainbowKit not installed), no EIP-712 order flow, no permit deposit, fees hardcoded |
-| F | **Infra, CI/CD, ops** | **~15%** | CI has `evm` + `reference-model` jobs (pinned arc-foundry). Everything else (hosting, tunnel, PM2, Docker, runbooks, monitoring, deploy manifests) is legacy |
+| A | **Smart contracts** (Solidity, `kryon-protocol/evm`) | **~90%** | 8 contracts + timelock, UUPS/ERC-7201, deploy scripts 00–05/99, 258 tests, invariants, differential fuzz vs Rust, Arc fork tests, Slither 0 High/Medium, gas pass done, ERC-1271 backstop unwind. **Review fixes FIX 1–9 applied and merged** (`18ed19d`): bounded guardian veto/pause, oracle re-anchor, insurance mark-to-market, batch gas reserve + bounded ERC-1271 gas, referrer allowlist, exact role verification, liquidation-reward warning. **Open:** fee/liquidation parameter decisions, `audit-v1` freeze, external audit |
+| B | **Chain SDK** (`client/lib/chain`, `lib/market/eip712.ts`) | **~95%** | viem clients with RPC fallback, generated ABIs (regenerated after the fixes, `380eb89`), EIP-712 parity with the contracts, TxSender (nonce, 20 gwei floor, rebroadcast/replace), settlement encoding, Multicall3 health reads, Chainlink reader, **Postgres `PgTxJobStore`** with a shared contract test suite. Only the indexer consumes it so far |
+| C | **Off-chain services** (matcher, oracle, indexer, reconciler, liquidation, funding, monitor, WS, stats) | **~15%** | **Indexer ported** (`da5f8db`, `49b79f2`): `lib/indexer` (decode, projections, replay) + `scripts/state-indexer.ts`, ~1.3k lines with tests. Matching algorithm (`lib/market/matcher.ts`) and WS/stats logic are reusable. **The other chain-facing services still run on the legacy SDK:** 19 of 26 scripts in `client/scripts` import it (matcher, oracle keeper, liquidation keeper, funding keeper, reconciler, monitor, deploy/upgrade/gate scripts). `ws-server` and `stats-aggregator` have no chain imports but read the legacy data model |
+| D | **Database** | **~80%** | **Arc baseline committed** (`b86dfbe`): legacy migrations squashed into `20260917000000_arc_baseline`; log-keyed event projections (fills, positions, oracle, funding, liquidation/ADL, backstop unwinds, fee accrual/claim/tier), EVM `TxJob`, `GasSpend`, `DeploymentArtifact`, `GovernanceOperation`, 1e6 analytics; `NUMERIC(78,0)` integers; 98 CHECK constraints. **Open:** provider/project, PITR backups + restore drill, read replica, separate local/staging/prod DBs |
+| E | **Frontend + API** | **~5%** | 6 pages and 19 API routes exist and the UI design is reusable, but **29 app/feature/lib/component/store files import the legacy SDK or wallet** (plus 11 files in `lib/stellar`). No EVM wallet connection (wagmi/RainbowKit not installed; only `@wagmi/cli` for codegen), no EIP-712 order flow, no permit deposit, fees hardcoded, `/api/settlements` co-sign flow still present |
+| F | **Infra, CI/CD, ops** | **~25%** | CI has `separation-guard`, `client`, `reference-model`, `evm` (pinned arc-foundry, differential, storage layout, Slither), `prisma` (migration drift) and `security` jobs, plus CodeQL and dependency review. **Removed:** legacy deploy workflows, legacy deploy records and tooling, the Render blueprint, the legacy production gate step. Arc deploy manifests exist only as `environments/arc-*.toml`. **Open:** Arc deploy workflows (Phase 5), Docker/PM2 configs and runbooks still describe the legacy services, no monitoring, no hosting |
 | G | **Testnet deployment and drills** | **0%** | Only local arc-anvil deploys. No Arc testnet deployment, no E2E, no soak |
-| H | **Security and launch** (audit, bounty, legal, compliance) | **0%** | Not started |
-| I | **Standalone identity** (domain, DB, hosting, repo, keys, docs) | **~5%** | Fresh git repo with no remote. Everything else still points at legacy infrastructure (see §2) |
+| H | **Security and launch** (audit, bounty, legal, compliance) | **~2%** | Auditor RFQ email drafted (kept outside the repository, not sent). No auditor booked, no bounty, no legal work |
+| I | **Standalone identity** (domain, DB, hosting, repo, keys, docs) | **~45%** | **Repo done:** public `github.com/SamyaDeb/KryonProtocol`, pushed, CI running; workspace outside iCloud. **Cut ties done:** Vercel link, local env files and legacy audit reports moved to a private archive; wrangler worker renamed to a neutral name; tunnel config is a template with placeholder hostnames and tunnel id; old domain, VM address and account ids replaced by placeholders in infra scripts and docs; legacy deploy records, workflows and Render blueprint deleted; Arc-only env templates (names only); planning docs moved to `docs/engineering/`; Arc-only README; `separation-guard` CI job. **Open:** domain, Cloudflare account/zone and tunnel, DB provider, RPC providers, secrets vault, branch protection, brand decision (see §2) |
 
 ### 1.2 Overall
 
 Weighted by the effort remaining to a production mainnet launch (contracts 30%, services 20%, frontend/API 15%, DB 5%, infra/ops 10%, testnet+audit+launch 15%, identity 5%):
 
-> **About 33% complete to production mainnet.**
-> The hardest and highest-risk part, the protocol contracts, is mostly done and well tested. Almost everything a user or operator would touch has not been built on Arc yet.
+> **About 40% complete to production mainnet** (39.7% by the weights above, up from ~33% at `43a7063`).
+> Since the last scan: the contract review fixes landed, the Arc database baseline and Postgres TxJob store were built, the indexer was ported, and the repository was published with the old deployment's ties cut (F 20% → 25%, I 15% → 45%; together about +1.8 points). The contracts are close to audit-ready. Most of what a user or operator touches (services other than the indexer, the frontend, hosting, testnet, audit) has not been built on Arc yet.
 
 ---
 
@@ -39,24 +39,29 @@ These must be cut before anything is deployed from this repo. Some are **dangero
 
 | Severity | Item | Where | Risk | Action |
 |---|---|---|---|---|
-| 🔴 | Vercel project link | `client/.vercel/project.json` (existing projectId/orgId) | `vercel deploy` from this repo **overwrites the other live site** | Delete `client/.vercel/`. Create a new Vercel project (or skip Vercel, §4.5) |
-| 🔴 | Cloudflare Worker name | `client/wrangler.jsonc` `"name": "kryon-client"` | `npm run cf:deploy` **overwrites the existing worker** | Rename, and use a new Cloudflare account/zone |
-| 🔴 | Tunnel hostnames | `kryon-protocol/infra/a1flex/cloudflared-config.yml` (the previous product's apex, `ws.` and `ws-testnet.` hostnames; now placeholders) | Running the tunnel **hijacks the other product's domain** | Replace with new hostnames and a new tunnel ID/credentials |
-| 🔴 | Local env files | `client/.env.local`, `client/.env.production.local` (old network vars, contract IDs, old app URL and service secrets) | Services or builds silently use the old contracts, DB and keys | Move them out of the repo. Create fresh Arc `.env.*` from new examples |
-| 🟠 | Shared host | `infra/a1flex/*` provisions the same OCI box that runs the other fleet | Resource contention, blast radius, shared SSH/keys | New dedicated host (or managed platform), new SSH keys and user |
-| 🟠 | Database | Neon URLs in `.env.example`, README, runbooks; `sql.ts` Neon routing | Accidental writes into the other product's DB | New DB project, role and URL. Never reuse the old connection strings |
-| 🟠 | Docs/app URLs | `docs/docusaurus.config.ts` (the previous deployment's app URL, tagline), README links and "live on…" claims, `check-go-live.sh` | Public confusion, broken links | New domain everywhere |
-| 🟠 | Legacy deploy records | `infra/deploy/{mainnet,testnet}*.toml/json`, `role-transfer.sh`, `optimize-wasm.py`, legacy budget and RPC tooling, two legacy runbooks | Wrong addresses in ops tooling | Delete (Phase 1) |
-| 🟡 | Legacy audit reports | `Audit Reports/` (6 files, untracked) | They describe different code; must not be presented as audits of this product | Move out of the repo |
-| 🟡 | `.mailmap`, plan/prompt docs at the repo root, `docs/SETTLEMENT_AUTH.md`, `docs/arc-facts.md` wording | Repo root/docs | Transitional framing in a standalone product | Move plan docs to `docs/engineering/`, archive the rest; rewrite `arc-facts` as "Arc platform facts" |
-| 🟡 | Stray folder | `/lib/openzeppelin-contracts-upgradeable` at repo root | Confusing duplicate dependency | Delete |
-| 🟡 | Workspace location | Repo lives in iCloud-synced `~/Desktop` | Very slow builds and git lock timeouts (seen during this scan) | Move to a non-synced path (e.g. `~/code/kryon`) |
+| ✅ | Vercel project link | `client/.vercel/` | — | **Done:** moved to the private archive. Create a new project only if Vercel is chosen (§4.5) |
+| ✅ | Cloudflare Worker name | `client/wrangler.jsonc` | — | **Done:** renamed to a neutral `kryonprotocol-web`; no account, zone or route ids in the file. Deploy only from a new Cloudflare account |
+| ✅ | Tunnel hostnames | `kryon-protocol/infra/a1flex/cloudflared-config.yml` | — | **Done:** template with `<TUNNEL_ID>` and `*.<APP_DOMAIN>` hostnames. **Open:** create the tunnel and its credentials in the new account |
+| ✅ | Local env files | `client/.env.local`, `client/.env.production.local`, `kryon-protocol/.env` | — | **Done:** moved to the private archive. Arc-only `*.example` templates (names only) are committed |
+| 🟠 | Shared host | `infra/a1flex/*` | Resource contention, blast radius, shared SSH/keys | Scripts no longer default to the old host (they require `DOMAIN` / `DB_HOST`). **Open:** a dedicated host or managed platform, new SSH keys and user |
+| 🟠 | Database | Legacy client code still routes through the old serverless Postgres driver (`client/lib/sql.ts`) | Accidental writes into another product's DB if an old URL is reused | Templates carry no URLs. **Open:** choose the DB provider, create new projects and roles per environment (Decision 8). Never reuse old connection strings |
+| ✅ | Docs/app URLs | `docs/docusaurus.config.ts`, READMEs, `check-go-live.sh` | — | **Done:** `<APP_DOMAIN>` placeholders, "live on…" claims removed. **Open:** fill in once the domain exists |
+| ✅ | Legacy deploy records and workflows | `infra/deploy/`, `infra/budget/`, `infra/rpc/`, legacy runbooks, `client/render.yaml`, legacy deploy workflows | — | **Done:** deleted (`docs/engineering/REPO_SETUP_LOG.md`) |
+| ✅ | Legacy audit reports | `Audit Reports/` | — | **Done:** moved to the private archive |
+| ✅ | `.mailmap`, root migration docs, `docs/SETTLEMENT_AUTH.md` | Repo root/docs | — | **Done:** plan and build log moved to `docs/engineering/`, the rest archived. **Open:** rewrite `docs/arc-facts.md` as "Arc platform facts" |
+| ✅ | Stray folder | root `/lib` | — | **Done:** not present; ignored in `.gitignore` |
+| ✅ | Workspace location | Outside iCloud | — | **Done** |
+| ✅ | Git remote | `github.com/SamyaDeb/KryonProtocol` | — | **Done:** pushed; CI runs on every PR and push to `main` |
+| 🟠 | Branch protection, secret scanning | GitHub settings | Force pushes or unreviewed merges to `main` | **Open:** required checks, no force pushes/deletions, push protection |
+| 🟠 | Accounts and secrets | Domain, Cloudflare, DB provider, RPC providers, vault | Nothing can be deployed standalone | **Open:** Phase 0 steps 3–4 |
 | 🟡 | Brand/name | "Kryon" is also the other product's name | Presented as separate but carries the same name | **Decision:** keep "Kryon" on a new domain, or rebrand (§6 Decision 1) |
 
+The old hostnames, domain, VM address and hosting-provider ids are described above, never written out: the `separation-guard` CI job fails the build if any tracked file contains them.
+
 Legacy-coupled code inventory (all replaced by the phases below):
-- `client/lib/stellar/*` (11 files) and `@stellar/stellar-sdk`, `@stellar/freighter-api`.
-- 32 scripts still importing the legacy SDK.
-- 31 app/feature/lib files.
+- `client/lib/stellar/*` (11 files) and `@stellar/stellar-sdk`, `@stellar/freighter-api` (still in `package.json`).
+- 19 of 26 scripts still importing the legacy SDK (`state-indexer.ts` is ported).
+- 29 app/feature/lib/component/store files.
 - 85 client, 50 protocol, 24 docs and 1 CI file mention the legacy chain.
 
 ---
@@ -94,20 +99,24 @@ Every phase ends with an **exit gate**. Nothing moves forward until its gate pas
 
 ### Phase 0: Standalone foundation (week 1)
 
+> **Status (2026-09-17):** steps 1–2 and 5 **done**, except branch protection: repository published at `github.com/SamyaDeb/KryonProtocol` with CI (including `separation-guard`); Vercel link, env files and legacy audit reports archived; wrangler worker renamed; tunnel config, domain, VM and account ids replaced by placeholders; legacy deploy records, workflows and Render blueprint deleted; Arc-only env templates; docs moved to `docs/engineering/` and an Arc-only README (see `docs/engineering/REPO_SETUP_LOG.md`). **Open:** branch protection, step 3 (brand decision, domain, Cloudflare account/zone and tunnel, DB provider, RPC providers and other accounts) and step 4 (secrets vault).
+
 1. **Workspace:** move the repo out of iCloud. Create a new GitHub org/repo, push, turn on branch protection (required checks, signed commits, CODEOWNERS for `evm/` and `infra/`).
-2. **Cut ties** (§2 🔴/🟠): delete `.vercel/`; rename the wrangler worker; replace the tunnel config; move old `.env*.local` files out of the repo; delete the legacy deploy manifests, runbooks and budget/rpc docs; move `Audit Reports/` and the transitional docs out; delete the root `lib/`.
+2. **Cut ties** (§2 🔴/🟠): delete `.vercel/`; rename the wrangler worker; replace the tunnel config; move old `.env*.local` files out of the repo; delete the legacy deploy manifests, runbooks and budget/rpc docs; move `Audit Reports/` and the migration docs out; delete the root `lib/`.
 3. **Identity:** decide the name (Decision 1). Register the domain. Create new accounts: Cloudflare account + zone, DB provider project, RPC provider accounts (2), error tracking, uptime/status, email/support inbox, analytics.
 4. **Secrets management:** a vault (1Password/Doppler/SOPS) holding every environment variable. No `.env` files with real values on disk except on hosts.
 5. **Docs reset:** a README, ARCHITECTURE and docs site that describe Kryon on Arc only.
 
 **Exit gate:**
-- `git grep -iE "vercel\.app|kryonprotocol|workers\.dev|neon\.tech"` returns only new values.
-- No legacy project IDs remain.
-- The new repo passes CI.
+- The `separation-guard` CI job passes (✅ on `main`).
+- No legacy project IDs remain (✅).
+- The new repo passes CI (✅).
 
 ### Phase 1: Contract hardening (weeks 1–2)
 
-1. Apply `prompts/CONTRACT_FIXES_PROMPT.md` FIX 1–9:
+> **Status (2026-09-17):** step 1 **done** (FIX 1–9 merged in `18ed19d`, 258 tests green). Steps 2–4 open.
+
+1. Apply `docs/engineering/prompts/CONTRACT_FIXES_PROMPT.md` FIX 1–9:
    - bounded guardian veto and pause;
    - oracle re-anchor after an outage;
    - insurance marked to market;
@@ -124,6 +133,8 @@ Every phase ends with an **exit gate**. Nothing moves forward until its gate pas
 **Exit gate:** all suites green, coverage ≥95/90, Slither 0 High/Medium, storage-layout snapshots committed, `audit-v1` tag.
 
 ### Phase 2: Data layer (weeks 2–3, parallel with 3)
+
+> **Status (2026-09-17):** steps 1–2 **done** (`b86dfbe`). Steps 3–4 (backups/replica, per-environment DBs) and the restore drill open.
 
 1. New Prisma baseline, squashed with no legacy migrations:
    - `BlockCursor`;
@@ -145,6 +156,8 @@ Every phase ends with an **exit gate**. Nothing moves forward until its gate pas
 **Exit gate:** `prisma migrate deploy` works on an empty staging DB, the indexer replay test rebuilds all tables from logs, and a restore drill from backup passes.
 
 ### Phase 3: Off-chain services on Arc (weeks 2–5)
+
+> **Status (2026-09-17):** indexer **done** (`da5f8db`, replay test included). All other services open.
 
 Build every service on `lib/chain` + TxSender, one process per key.
 
@@ -303,6 +316,8 @@ Delete all legacy service code as each replacement lands.
 
 **About 13–14 weeks to a guarded mainnet launch**, assuming an auditor slot is booked in week 2.
 
+**Update 2026-09-17:** the Phase 1 fixes, the Phase 2 schema and the indexer are done ahead of schedule. That leaves roughly **11–13 weeks**, still limited by when an auditor slot can be booked.
+
 ---
 
 ## 6. Decisions needed from you
@@ -326,7 +341,9 @@ Delete all legacy service code as each replacement lands.
 
 ## 7. Immediate next actions (this week)
 
-1. Decide #1 (name/domain) and move the repo out of iCloud into a new GitHub repo.
-2. Execute Phase 0 step 2. **Delete the Vercel link, wrangler name, tunnel config and `.env*.local` before any deploy command is run.**
-3. Run `prompts/CONTRACT_FIXES_PROMPT.md` in a dedicated session (Phase 1).
-4. In parallel, start Phase 2 (DB baseline) and book auditors.
+1. ✅ **Done:** planning docs committed under `docs/engineering/`; the auditor RFQ draft and superseded prompts archived outside the repository.
+2. ✅ **Done:** repository published, ties to the old deployment cut, and the two working copies integrated into one `main`. Remaining Phase 0: branch protection, accounts, secrets vault, brand decision.
+3. Decide #2–#5 (fees, split, liquidation reward, launch markets), run the nightly fuzz profile, and tag `audit-v1`.
+4. Send the auditor RFQ email (recount nSLOC at the tag) and book auditors: the audit calendar is the long pole.
+5. Continue Phase 3 with the matcher + order intake, then the reconciler and keepers, on `lib/chain` + `PgTxJobStore`.
+6. ✅ Client tests and `tsc` re-verified after the integration (see the scan line at the top).
