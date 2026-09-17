@@ -5,7 +5,7 @@
 # public network.
 #
 # Read by kryon-protocol/evm/script/*.s.sol (DeployConfig.sol) and checked by
-# 99_VerifyDeployment and the mainnet-preflight workflow. Every value here is
+# 99_VerifyDeployment. Every value here is
 # public; keys and RPC credentials come from the environment, never this file.
 # Facts marked [docs/arc-facts.md] were verified on 2026-09-16.
 

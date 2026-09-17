@@ -68,14 +68,12 @@ cargo build --workspace --release --locked   # wasm32v1-none for deployment
 
 The toolchain is pinned in `rust-toolchain.toml` and must match the version CI
 installs. Release builds are `opt-level = "z"` with LTO and stripped symbols —
-Soroban charges for bytecode size and rent, so the wasm is optimized further by
-`infra/deploy/optimize-wasm.py` before upload.
+the legacy target charged for bytecode size and rent.
 
 ## Deployment
 
-`infra/deploy/` holds the environment manifests (`environments/*.toml`),
-the recorded live deployments (`mainnet-deployment.json`,
-`testnet-deployment-*.json`), and the runbooks for governance admin transfer,
-rollback, incidents, and stuck settlement. Contract addresses that the frontend
+`infra/deploy/` holds the Arc environment manifests
+(`environments/arc-*.toml`, used by the Foundry scripts in `evm/script/`) and
+the runbooks for rollback, incidents, and stuck settlement. Contract addresses that the frontend
 and keepers read come from `client/config/networks.ts` — change those together
 with the keeper environment, never one side alone.
