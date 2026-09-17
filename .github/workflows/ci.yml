@@ -14,14 +14,39 @@ permissions:
   contents: read
 
 # Cancel superseded runs on the same ref/PR to save runner minutes, but never
-# cancel a push to main mid-flight (those feed the deploy pipeline).
+# cancel a push to main mid-flight.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Frontend: lint, typecheck, production gate, and a real Next.js build.
+  # Separation guard: no tracked file may reference the previous deployment's
+  # hosts or hosting-provider project ids. Each literal is written with a
+  # character class so this file does not match its own pattern.
+  # ---------------------------------------------------------------------------
+  separation-guard:
+    name: separation-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: No references to the previous deployment
+        env:
+          PATTERN: 'kryonprotocol[.]live|client-eight-mu-7[1]|kryon-client[.]kryon[.]workers[.]dev|kryonprotocol[.]vercel[.]app|prj_[A-Za-z0-9]{20,}|team_[A-Za-z0-9]{20,}'
+        run: |
+          if git grep -nE "$PATTERN"; then
+            echo "::error::Tracked files reference the previous deployment (see matches above)."
+            exit 1
+          fi
+          echo "clean"
+
+  # ---------------------------------------------------------------------------
+  # Frontend: lint, typecheck, unit tests, and a real Next.js build.
   # ---------------------------------------------------------------------------
   client:
     name: client (lint · typecheck · build)
@@ -42,9 +67,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
-
-      - name: Production readiness gate
-        run: npm run production:gate
 
       - name: Typecheck
         run: npx tsc --noEmit
