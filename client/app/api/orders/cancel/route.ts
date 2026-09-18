@@ -1,67 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, withRetry } from "@/lib/db";
-import { networkFromRequest } from "@/lib/network-server";
-// LEGACY: the signature these routes verify is an old-chain signed message,
-// so its passphrase comes from the old chain's registry — which the Arc
-// network id cannot name. Step 3 replaces this with EIP-712 verification
-// against the OrderGateway domain and both lines go away together.
-import { getNetworkConfig } from "@/lib/stellar/legacy-config";
-import { legacyNetworkFromRequest } from "@/lib/stellar/legacy-network-server";
-import { StrKey } from "@stellar/stellar-sdk";
-import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
-import { assertU64, cancelSigningMessage } from "@/lib/market/signing-message";
-import { verifySignedMessage } from "@/lib/market/signed-intent";
 
+import { db } from "@/lib/db";
+import { arcNetwork } from "@/lib/network";
+import { contractsForNetwork, networkFromRequest } from "@/lib/network-server";
+import { cancelOrderByNonce } from "@/lib/queries/orders";
+import { rateLimit, requestKey } from "@/lib/rate-limit";
+import {
+  claimedOwner,
+  erc1271CheckerFor,
+  readBoundedJson,
+  reject,
+  rejectionBody,
+  validateCancel,
+  type Rejection,
+} from "@/lib/validation";
+
+const fail = (r: Rejection) => NextResponse.json(rejectionBody(r), { status: r.status });
+
+/**
+ * POST /api/orders/cancel — best-effort off-chain cancel of one order.
+ *
+ * ```json
+ * { "owner": "0x…", "nonce": "42", "deadline": "1790000000", "signature": "0x…" }
+ * ```
+ *
+ * The signature is over the gateway's own EIP-712 `Cancel(owner, nonce,
+ * deadline)`, verified exactly as the gateway's `cancelSigned` would.
+ *
+ * BEST-EFFORT: this stops the matcher picking the order up. It does not cancel
+ * it on chain — the signed order stays valid there until `cancelOrder(nonce)`,
+ * `cancelUpTo(n)` or `cancelSigned(cancel, signature)` is mined, and a fill the
+ * matcher already committed (PENDING) may still settle. The same `Cancel`
+ * signature can be submitted to `cancelSigned` by anyone to make it final.
+ */
 export async function POST(req: NextRequest) {
+  const read = await readBoundedJson(req);
+  if (!read.ok) return fail(read);
+  if (!(await rateLimit(requestKey(req, `cancel:${claimedOwner(read.body)}`), 60))) {
+    return fail(reject("rate_limited", "Too many cancel requests"));
+  }
+
   const network = networkFromRequest(req);
-
-  if (bodyTooLarge(req)) {
-    return NextResponse.json({ ok: false, error: "Body too large" }, { status: 413 });
-  }
-
-  let body: { owner?: unknown; nonce?: unknown; signature?: unknown };
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
-  }
+    const result = await validateCancel(read.body, {
+      network,
+      chainId: arcNetwork(network).chainId,
+      gateway: contractsForNetwork(network).orderGateway,
+      nowSec: BigInt(Math.floor(Date.now() / 1000)),
+      erc1271: erc1271CheckerFor(network),
+    });
+    if (!result.ok) return fail(result);
 
-  const owner = body.owner;
-  if (typeof owner !== "string" || !StrKey.isValidEd25519PublicKey(owner)) {
-    return NextResponse.json({ ok: false, error: "Invalid owner address" }, { status: 400 });
-  }
-  const nonceStr = String(body.nonce ?? "");
-  if (!/^\d+$/.test(nonceStr)) {
-    return NextResponse.json({ ok: false, error: "Invalid nonce" }, { status: 400 });
-  }
-  const nonce = BigInt(nonceStr);
-  if (!assertU64(nonce)) {
-    return NextResponse.json({ ok: false, error: "Invalid nonce" }, { status: 400 });
-  }
-  if (typeof body.signature !== "string" || body.signature.length > 256) {
-    return NextResponse.json({ ok: false, error: "Missing cancel signature" }, { status: 400 });
-  }
-  // Rate-limit before signature verification so junk requests don't get free
-  // ed25519-verify CPU.
-  if (!(await rateLimit(requestKey(req, owner), 60))) {
-    return NextResponse.json({ ok: false, error: "Too many cancel requests" }, { status: 429 });
-  }
-  if (!verifySignedMessage(owner, cancelSigningMessage(owner, nonce, getNetworkConfig(legacyNetworkFromRequest(req)).passphrase), body.signature)) {
-    return NextResponse.json({ ok: false, error: "Invalid cancel signature" }, { status: 401 });
-  }
-
-  try {
-    const sql = db(network);
-    await withRetry(() =>
-      sql`
-        UPDATE "Order"
-        SET cancelled = true, "updatedAt" = NOW()
-        WHERE owner = ${owner} AND nonce = ${nonce}
-      `
-    );
-    return NextResponse.json({ ok: true });
+    const cancelled = await cancelOrderByNonce(db(network), network, result.cancel.owner, result.cancel.nonce);
+    return NextResponse.json({
+      ok: true,
+      cancelled: cancelled.length,
+      orderHashes: cancelled.map((c) => c.orderHash),
+      onChainFinal: false,
+      note:
+        "Off-chain cancel: the matcher will not match this order. It remains valid on chain until " +
+        "cancelOrder/cancelUpTo/cancelSigned is mined, and an already-matched fill may still settle.",
+    });
   } catch (e) {
     console.error("order cancel error:", e);
-    return NextResponse.json({ ok: false, error: "Failed to cancel order" }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "internal", error: "Failed to cancel order" }, { status: 500 });
   }
 }

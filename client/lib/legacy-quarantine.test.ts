@@ -42,18 +42,13 @@ const LEGACY_BY_LOCATION = [/^lib\/stellar\//, /^scripts\//];
  *  - the trading UI (`features/trade/**`, `app/*Page`, the market pages and
  *    cells) renders old-chain amounts and Stellar explorer links, and is
  *    rewritten with the wallet/trading work, not here;
- *  - `lib/format|math|validation|stats` and `lib/market/*` do arithmetic in the
+ *  - `lib/format|math|stats` and `lib/market/*` do arithmetic in the
  *    old chain's 1e7 amount scale. Re-basing them on Arc's scales changes every
  *    number the UI renders, so it belongs with the UI rewrite rather than
  *    inside a config move;
- *  - the four API routes verify old-chain signed messages or sign Soroban
- *    transactions. Steps 2 and 3 replace them with Arc SQL and EIP-712.
  */
 const QUARANTINED = new Set([
   "app/LandingPage.tsx",
-  "app/api/orders/cancel-all/route.ts",
-  "app/api/orders/cancel/route.ts",
-  "app/api/orders/route.ts",
   "app/markets/page.tsx",
   "app/trade/[market]/page.tsx",
   "components/common/MarketCell.tsx",
@@ -82,7 +77,6 @@ const QUARANTINED = new Set([
   "lib/math.ts",
   "lib/oracle-activity.ts",
   "lib/stats.ts",
-  "lib/validation.ts",
 ]);
 
 const SOURCE_ROOTS = ["app", "lib", "features", "components", "stores", "scripts"];

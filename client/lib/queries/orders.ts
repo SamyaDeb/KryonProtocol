@@ -281,3 +281,72 @@ export async function cancelAllOrders(
   );
   return rows.map((r) => ({ orderHash: String(r.orderHash), nonce: big(r.nonce) }));
 }
+
+// ── Intake ───────────────────────────────────────────────────────────────────
+
+export interface NewOrder {
+  orderHash: string;
+  owner: string;
+  marketId: number;
+  isLong: boolean;
+  size: bigint;
+  limitPrice: bigint;
+  reduceOnly: boolean;
+  nonce: bigint;
+  expiry: bigint;
+  /** Lowercase; null for the zero address (no referrer). */
+  referrer: string | null;
+  /** Lowercase 0x hex. */
+  signature: string;
+}
+
+export type InsertOrderResult = "inserted" | "duplicate" | "nonce_reused";
+
+/**
+ * Store a validated order: create the `Account` row if this is the owner's
+ * first appearance, and insert the `Order` as OPEN with `filledSize = 0` —
+ * the only time the API writes either field.
+ *
+ * One statement, so one transaction: the account upsert runs in a CTE and the
+ * order's foreign key sees it when the statement's constraints are checked.
+ *
+ * Keyed on the EIP-712 order hash, so resubmitting the identical signed order
+ * is an idempotent no-op (`duplicate`) rather than a second row. A DIFFERENT
+ * order under an (owner, nonce) already taken is `nonce_reused`: the gateway
+ * binds a nonce to the first digest that fills, so the second could never
+ * settle.
+ */
+export async function insertOrder(q: Queryable, network: ArcNetworkId, o: NewOrder): Promise<InsertOrderResult> {
+  try {
+    const rows = await q.query(
+      `WITH account AS (
+         INSERT INTO "Account" ("network", "address", "updatedAt") VALUES ($1, $2, now())
+         ON CONFLICT ("network", "address") DO NOTHING
+       )
+       INSERT INTO "Order" ("orderHash", "network", "owner", "marketId", "isLong", "size", "limitPrice",
+         "reduceOnly", "nonce", "expiry", "referrer", "signature", "status", "filledSize", "updatedAt")
+       VALUES ($3, $1, $2, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'OPEN', 0, now())
+       ON CONFLICT ("orderHash") DO NOTHING
+       RETURNING "orderHash"`,
+      [
+        network,
+        o.owner,
+        o.orderHash,
+        o.marketId,
+        o.isLong,
+        o.size.toString(),
+        o.limitPrice.toString(),
+        o.reduceOnly,
+        o.nonce.toString(),
+        o.expiry.toString(),
+        o.referrer,
+        o.signature,
+      ]
+    );
+    return rows.length > 0 ? "inserted" : "duplicate";
+  } catch (err) {
+    const e = err as { code?: string; constraint?: string };
+    if (e.code === "23505" && e.constraint === "Order_network_owner_nonce_key") return "nonce_reused";
+    throw err;
+  }
+}

@@ -1,152 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
-import { StrKey } from "@stellar/stellar-sdk";
-import { db, withRetry } from "@/lib/db";
-import { networkFromRequest } from "@/lib/network-server";
-// LEGACY: the signature these routes verify is an old-chain signed message,
-// so its passphrase comes from the old chain's registry — which the Arc
-// network id cannot name. Step 3 replaces this with EIP-712 verification
-// against the OrderGateway domain and both lines go away together.
-import { getNetworkConfig } from "@/lib/stellar/legacy-config";
-import { legacyNetworkFromRequest } from "@/lib/stellar/legacy-network-server";
-import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
+
+import { db } from "@/lib/db";
+import { arcNetwork } from "@/lib/network";
+import { contractsForNetwork, networkFromRequest } from "@/lib/network-server";
+import { cancelAllOrders } from "@/lib/queries/orders";
+import { rateLimit, requestKey } from "@/lib/rate-limit";
 import {
-  CANCEL_ALL_WINDOW_SECONDS,
-  cancelAllSigningMessage,
-} from "@/lib/market/signing-message";
-import { verifySignedMessage } from "@/lib/market/signed-intent";
+  claimedOwner,
+  erc1271CheckerFor,
+  MAX_CANCEL_ALL_WINDOW_SECONDS,
+  readBoundedJson,
+  reject,
+  rejectionBody,
+  validateCancelAll,
+  type Rejection,
+} from "@/lib/validation";
+
+const fail = (r: Rejection) => NextResponse.json(rejectionBody(r), { status: r.status });
 
 /**
- * POST /api/orders/cancel-all
- *
- * Cancel every resting order for an account, optionally scoped to one market.
+ * POST /api/orders/cancel-all — best-effort off-chain cancel of every working
+ * order, optionally in one market. The kill switch for a misbehaving bot.
  *
  * ```json
- * { "owner": "G…", "market_id": 1, "issued_at": "1780061000", "signature": "…" }
+ * { "owner": "0x…", "marketId": 0, "deadline": "1790000000", "signature": "0x…" }
  * ```
  *
- * `market_id` may be omitted or `"all"` to cancel across every market.
+ * The signature is over the API-only EIP-712 type
+ * `CancelAll(address owner, uint32 marketId, uint64 deadline)` in the Kryon
+ * domain (`lib/validation.ts`); `marketId` 0 means every market. The gateway
+ * has no such type, so the signature cannot be replayed on chain; the
+ * deadline may be at most MAX_CANCEL_ALL_WINDOW_SECONDS ahead, because until
+ * then a replay here would also cancel orders placed after it.
  *
- * This is the kill switch. A bot that detects it is misbehaving — a runaway
- * loop, a bad price feed, a risk limit breached — needs one call that takes it
- * flat, not N cancels that might be rate-limited halfway through leaving half
- * its book live. Without it, the only bulk exit was 60 cancels a minute.
- *
- * The signature covers `issued_at`, which must be within
- * CANCEL_ALL_WINDOW_SECONDS of the server clock. Without that bound a captured
- * cancel-all signature would work forever, since there is no nonce to consume.
+ * BEST-EFFORT, like /api/orders/cancel. The authoritative bulk cancel is the
+ * wallet calling `cancelUpTo(nonce)` on the gateway, which the indexer
+ * projects into `Account.minValidNonce`.
  */
 export async function POST(req: NextRequest) {
-  if (bodyTooLarge(req)) {
-    return NextResponse.json({ ok: false, error: "Body too large" }, { status: 413 });
-  }
-
-  let body: {
-    owner?: unknown;
-    market_id?: unknown;
-    issued_at?: unknown;
-    signature?: unknown;
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const owner = body.owner;
-  if (typeof owner !== "string" || !StrKey.isValidEd25519PublicKey(owner)) {
-    return NextResponse.json({ ok: false, error: "Invalid owner address" }, { status: 400 });
-  }
-
-  // Rate-limit before the ed25519 verify so junk cannot buy free CPU.
-  if (!(await rateLimit(requestKey(req, owner), 30))) {
-    return NextResponse.json(
-      { ok: false, error: "Too many cancel-all requests" },
-      { status: 429 }
-    );
-  }
-
-  // Scope: a market id, or "all". Absent means all.
-  const rawMarket = body.market_id;
-  let marketId: number | "all";
-  if (rawMarket === undefined || rawMarket === null || rawMarket === "all") {
-    marketId = "all";
-  } else {
-    const parsed = Number(rawMarket);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return NextResponse.json({ ok: false, error: "Invalid market_id" }, { status: 400 });
-    }
-    marketId = parsed;
-  }
-
-  const issuedAtStr = String(body.issued_at ?? "");
-  if (!/^\d+$/.test(issuedAtStr)) {
-    return NextResponse.json({ ok: false, error: "Invalid issued_at" }, { status: 400 });
-  }
-  const issuedAt = Number(issuedAtStr);
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSec - issuedAt) > CANCEL_ALL_WINDOW_SECONDS) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: `issued_at is outside the ${CANCEL_ALL_WINDOW_SECONDS}s window; check your clock against GET /api/time`,
-      },
-      { status: 400 }
-    );
-  }
-
-  if (typeof body.signature !== "string" || body.signature.length > 256) {
-    return NextResponse.json({ ok: false, error: "Missing cancel signature" }, { status: 400 });
+  const read = await readBoundedJson(req);
+  if (!read.ok) return fail(read);
+  if (!(await rateLimit(requestKey(req, `cancel-all:${claimedOwner(read.body)}`), 30))) {
+    return fail(reject("rate_limited", "Too many cancel-all requests"));
   }
 
   const network = networkFromRequest(req);
-  const message = cancelAllSigningMessage(
-    owner,
-    issuedAtStr,
-    marketId,
-    getNetworkConfig(legacyNetworkFromRequest(req)).passphrase
-  );
-  if (!verifySignedMessage(owner, message, body.signature)) {
-    return NextResponse.json({ ok: false, error: "Invalid cancel signature" }, { status: 401 });
-  }
-
   try {
-    const sql = db(network);
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const result = await validateCancelAll(read.body, {
+      network,
+      chainId: arcNetwork(network).chainId,
+      gateway: contractsForNetwork(network).orderGateway,
+      nowSec,
+      erc1271: erc1271CheckerFor(network),
+    });
+    if (!result.ok) return fail(result);
 
-    // Only touch live orders. Re-cancelling a filled or expired order would
-    // inflate the reported count and tell the caller nothing useful.
-    const rows = await withRetry(() =>
-      marketId === "all"
-        ? sql`
-            UPDATE "Order"
-            SET cancelled = true, "updatedAt" = NOW()
-            WHERE owner = ${owner}
-              AND cancelled = false
-              AND "expiryTs" > ${nowSec}
-              AND "filledSize"::numeric < size::numeric
-            RETURNING nonce
-          `
-        : sql`
-            UPDATE "Order"
-            SET cancelled = true, "updatedAt" = NOW()
-            WHERE owner = ${owner}
-              AND "marketId" = ${marketId}
-              AND cancelled = false
-              AND "expiryTs" > ${nowSec}
-              AND "filledSize"::numeric < size::numeric
-            RETURNING nonce
-          `
-    );
-
+    const { owner, marketId } = result.cancelAll;
+    const cancelled = await cancelAllOrders(db(network), network, owner, marketId === 0 ? null : marketId, nowSec);
     return NextResponse.json({
       ok: true,
-      cancelled: rows.length,
-      nonces: rows.map((r) => String(r.nonce)),
+      cancelled: cancelled.length,
+      nonces: cancelled.map((c) => c.nonce.toString()),
+      orderHashes: cancelled.map((c) => c.orderHash),
+      onChainFinal: false,
+      note:
+        "Off-chain cancel: the matcher will not match these orders. They remain valid on chain until " +
+        "cancelUpTo (or per-order cancels) is mined, and already-matched fills may still settle.",
+      maxDeadlineWindowSeconds: Number(MAX_CANCEL_ALL_WINDOW_SECONDS),
     });
   } catch (e) {
     console.error("cancel-all error:", e);
-    return NextResponse.json(
-      { ok: false, error: "Failed to cancel orders" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, code: "internal", error: "Failed to cancel orders" }, { status: 500 });
   }
 }

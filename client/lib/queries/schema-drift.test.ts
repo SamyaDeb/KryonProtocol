@@ -128,7 +128,8 @@ export function driftIn(src: string, schema: Schema): string[] {
 }
 
 function sqlSources(): string[] {
-  const files: string[] = [];
+  // lib/validation.ts reads Market and Account for the intake checks.
+  const files: string[] = ["lib/validation.ts"];
   for (const f of readdirSync("lib/queries")) {
     if (f.endsWith(".ts") && !f.endsWith(".test.ts")) files.push(join("lib/queries", f));
   }
@@ -171,35 +172,13 @@ test("the check catches the drift step 2 fixed", () => {
   assert.ok(problems.includes("unknown enum value 'QUEUED'"), problems.join("; "));
 });
 
-/**
- * Routes still issuing the previous schema's SQL, replaced by the EIP-712
- * intake (roadmap Phase 3 step 3). Like QUARANTINED, this list may only
- * shrink: an entry that no longer drifts fails the staleness test below.
- */
-const AWAITING_STEP_3 = new Set([
-  "app/api/orders/route.ts",
-  "app/api/orders/cancel/route.ts",
-  "app/api/orders/cancel-all/route.ts",
-]);
-
 test("every SQL identifier in the query layer and the API routes exists in the schema", () => {
   const files = sqlSources();
   assert.ok(files.some((f) => f.endsWith("orders.ts")), "lib/queries not scanned");
   assert.ok(files.length >= 20, `expected the query layer and routes, found ${files.length} files`);
   const failures: string[] = [];
   for (const f of files) {
-    if (AWAITING_STEP_3.has(f)) continue;
     for (const p of driftIn(readFileSync(f, "utf8"), schema)) failures.push(`${f}: ${p}`);
   }
   assert.deepEqual(failures, [], "SQL references something the Arc schema does not define:\n  " + failures.join("\n  "));
-});
-
-test("the step-3 allowlist has no stale entries", () => {
-  // `cancel/route.ts` uses unquoted legacy columns this lexer cannot see, so an
-  // entry counts as live while it still reads the old chain's config.
-  const stale = [...AWAITING_STEP_3].filter((f) => {
-    const src = readFileSync(f, "utf8");
-    return driftIn(src, schema).length === 0 && !/legacy-(config|network-server)/.test(src);
-  });
-  assert.deepEqual(stale, [], "These routes are ported — remove them from AWAITING_STEP_3:\n  " + stale.join("\n  "));
 });

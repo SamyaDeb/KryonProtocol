@@ -1,95 +1,109 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, withRetry } from "@/lib/db";
-import { networkFromRequest } from "@/lib/network-server";
-// LEGACY: the signature these routes verify is an old-chain signed message,
-// so its passphrase comes from the old chain's registry — which the Arc
-// network id cannot name. Step 3 replaces this with EIP-712 verification
-// against the OrderGateway domain and both lines go away together.
-import { getNetworkConfig } from "@/lib/stellar/legacy-config";
-import { legacyNetworkFromRequest } from "@/lib/stellar/legacy-network-server";
-import { validateOrderIntent } from "@/lib/validation";
-import { bodyTooLarge, rateLimit, requestKey } from "@/lib/rate-limit";
+import { zeroAddress } from "viem";
 
-// Persist incoming order intent from the frontend to the DB.
-// The off-chain matcher will pick these up and settle fills on-chain.
+import { db } from "@/lib/db";
+import { arcNetwork } from "@/lib/network";
+import { contractsForNetwork, networkFromRequest } from "@/lib/network-server";
+import { insertOrder } from "@/lib/queries/orders";
+import { rateLimit, requestKey } from "@/lib/rate-limit";
+import {
+  claimedOwner,
+  erc1271CheckerFor,
+  readBoundedJson,
+  reject,
+  rejectionBody,
+  validateOrderSubmission,
+  type Rejection,
+} from "@/lib/validation";
+
+/** Orders per minute, per claimed owner and — separately — per client IP. */
+const ORDER_RATE_LIMIT = 30;
+
+const fail = (r: Rejection) => NextResponse.json(rejectionBody(r), { status: r.status });
+
+/**
+ * POST /api/orders — submit an EIP-712 signed order.
+ *
+ * ```json
+ * { "owner": "0x…", "marketId": 2, "isLong": true,
+ *   "size": "1500000000000000000", "limitPrice": "65000000000000000000000",
+ *   "reduceOnly": false, "nonce": "42", "expiry": "1790000000",
+ *   "referrer": "0x0000000000000000000000000000000000000000",
+ *   "signature": "0x…", "chainId": 5042002 }
+ * ```
+ *
+ * Fields are exactly the `Order` struct the wallet signed (domain `Kryon`/`1`,
+ * verifyingContract = the OrderGateway proxy of the caller's network); uint256
+ * values as decimal strings. `referrer` may be omitted; `chainId` is optional
+ * and, when sent, turns a wrong-chain signature into a clear error.
+ *
+ * The API accepts only orders the gateway would accept (lib/validation.ts),
+ * stores them by EIP-712 hash, and hands them to the matcher. Resubmitting the
+ * identical signed order is an idempotent no-op (200, `duplicate: true`).
+ *
+ * 201 { ok, orderHash, status: "OPEN" } | 200 { ok, orderHash, duplicate }
+ * 4xx/503 { ok: false, code, error, contractError }
+ */
 export async function POST(req: NextRequest) {
-  if (bodyTooLarge(req)) {
-    return NextResponse.json({ ok: false, error: "Body too large" }, { status: 413 });
-  }
+  const read = await readBoundedJson(req);
+  if (!read.ok) return fail(read);
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
-  }
+  // Rate-limit BEFORE any signature work: ECDSA recovery costs CPU, and an
+  // ERC-1271 check costs an RPC call. Two buckets, so neither rotating owners
+  // from one IP nor one owner from many IPs gets past the limit.
+  const [byOwner, byIp] = await Promise.all([
+    rateLimit(`order-owner:${claimedOwner(read.body)}`, ORDER_RATE_LIMIT),
+    rateLimit(requestKey(req, "order-ip"), ORDER_RATE_LIMIT),
+  ]);
+  if (!byOwner || !byIp) return fail(reject("rate_limited", "Too many order requests"));
 
-  // Rate-limit FIRST, before signature verification — otherwise an attacker
-  // gets free ed25519-verify CPU on every junk request. The owner field is
-  // taken as-is for the limiter key; validateOrderIntent re-checks it fully.
-  const claimedOwner = typeof (body as Record<string, unknown>)?.owner === "string"
-    ? ((body as Record<string, unknown>).owner as string).slice(0, 64)
-    : "invalid";
-  if (!(await rateLimit(requestKey(req, claimedOwner), 30))) {
-    return NextResponse.json({ ok: false, error: "Too many order requests" }, { status: 429 });
-  }
-
-  // Validate before touching the DB — keeps malformed/abusive intents out of
-  // the orderbook and the matcher.
   const network = networkFromRequest(req);
-  const result = validateOrderIntent(
-    body,
-    getNetworkConfig(legacyNetworkFromRequest(req)).passphrase
-  );
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
+  let gateway;
+  try {
+    gateway = contractsForNetwork(network).orderGateway;
+  } catch (e) {
+    console.error("order intake: contracts not configured:", e);
+    return NextResponse.json({ ok: false, code: "unavailable", error: "Order intake is not configured" }, { status: 503 });
   }
-  const o = result.order;
-  const sig = typeof (body as Record<string, unknown>).signature === "string"
-    ? (body as Record<string, unknown>).signature as string
-    : null;
 
   try {
     const sql = db(network);
-
-    await withRetry(async () => {
-      // Auto-create Account row if this is a new trader (FK required)
-      await sql`
-        INSERT INTO "Account" (address, collateral, "cancelledNonces", "filledByNonce", "createdAt", "updatedAt")
-        VALUES (${o.owner}, '{}', ARRAY[]::BIGINT[], '{}', NOW(), NOW())
-        ON CONFLICT (address) DO NOTHING
-      `;
-
-      // Upsert — safe to resubmit same nonce
-      await sql`
-        INSERT INTO "Order" (
-          id, owner, "marketId", "isLong", size, "limitPrice",
-          "reduceOnly", nonce, "expiryTs", cancelled, "filledSize",
-          signature, "createdAt", "updatedAt"
-        ) VALUES (
-          ${o.owner + ":" + o.nonce.toString()},
-          ${o.owner},
-          ${o.marketId},
-          ${o.isLong},
-          ${o.size.toString()},
-          ${o.limitPrice.toString()},
-          ${o.reduceOnly},
-          ${o.nonce},
-          ${o.expiryTs},
-          false,
-          '0',
-          ${sig},
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (id) DO NOTHING
-      `;
+    const result = await validateOrderSubmission(read.body, {
+      network,
+      chainId: arcNetwork(network).chainId,
+      gateway,
+      nowSec: BigInt(Math.floor(Date.now() / 1000)),
+      erc1271: erc1271CheckerFor(network),
+      q: sql,
     });
+    if (!result.ok) return fail(result);
 
-    return NextResponse.json({ ok: true });
+    const o = result.order;
+    const outcome = await insertOrder(sql, network, {
+      orderHash: result.orderHash,
+      owner: o.owner.toLowerCase(),
+      marketId: o.marketId,
+      isLong: o.isLong,
+      size: o.size,
+      limitPrice: o.limitPrice,
+      reduceOnly: o.reduceOnly,
+      nonce: o.nonce,
+      expiry: o.expiry,
+      referrer: o.referrer === zeroAddress ? null : o.referrer.toLowerCase(),
+      signature: result.signature,
+    });
+    if (outcome === "nonce_reused") {
+      return fail(reject("nonce_reused", `nonce ${o.nonce} already carries a different order for this owner`));
+    }
+    return NextResponse.json(
+      outcome === "inserted"
+        ? { ok: true, orderHash: result.orderHash, status: "OPEN" }
+        : { ok: true, orderHash: result.orderHash, duplicate: true },
+      { status: outcome === "inserted" ? 201 : 200 }
+    );
   } catch (e) {
-    // Log server-side; never leak internal errors to the client.
+    // Log server-side; never leak internals to the client.
     console.error("order intake error:", e);
-    return NextResponse.json({ ok: false, error: "Failed to persist order" }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "internal", error: "Failed to accept order" }, { status: 500 });
   }
 }

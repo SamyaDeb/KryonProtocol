@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 /**
  * GET /api/time — the venue's clock.
  *
- * Order intake rejects any `expiry_ts` at or before `now + 5s`, where `now` is
+ * Order intake rejects any `expiry` at or before `now + 5s`, where `now` is
  * the SERVER's clock. A bot on a host whose clock drifts a few seconds fast
- * has its orders rejected as "expiry_ts is too soon" with no indication that
+ * has its orders rejected as `expired` ("expiry must be more than 5s in the
+ * future") with no clearer indication that
  * time is the problem — a genuinely difficult failure to diagnose from the
  * outside, and a common one on VMs that have been suspended.
  *
