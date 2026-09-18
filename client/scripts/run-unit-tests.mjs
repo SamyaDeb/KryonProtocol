@@ -39,6 +39,13 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// --test-concurrency=1: the suites that need a database share one physical
+// database (KRYON_TEST_DATABASE_URL) and truncate tables in their fixtures, so
+// running files in parallel lets one suite wipe another's rows mid-test. The
+// indexer suite already narrowed its TRUNCATE to dodge this; that only works
+// while no two suites own a table, which stopped being true once the
+// reconciler started asserting on Fill. Serial execution costs a few seconds
+// and removes the whole class of flake.
 console.log(`running ${files.length} unit test file(s)`);
-const result = spawnSync("tsx", ["--test", ...files], { stdio: "inherit" });
+const result = spawnSync("tsx", ["--test", "--test-concurrency=1", ...files], { stdio: "inherit" });
 process.exit(result.status ?? 1);
