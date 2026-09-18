@@ -145,3 +145,25 @@ If the shard will not start:
   `tickErrors`: all three are zero in normal operation.
 - `fillsUnaccounted` above zero means a receipt did not account for a fill in
   its own batch. That should be impossible; treat it as data loss and escalate.
+
+## Arc monitor alerts (`matcher.*`)
+
+| Alert | Severity | Means |
+|---|---|---|
+| `matcher.crossed-book:market-<id>` | WARN | Best bid ≥ best ask among live, unexpired, unfilled orders for longer than `MONITOR_CROSSED_BOOK_SECS`. The matcher is not matching what it could. |
+| `matcher.rejections` | WARN | More than `MONITOR_REJECTION_RATE_MAX_BPS` of fills decided in the window were rejected, with the reason classes in the alert's values. The chain is refusing what the matcher sends. |
+
+A crossed book is not always the matcher's fault, and the reasons are already in
+this runbook above: the oracle is stale so the market is skipped; everything is
+outside the execution band; the two sides are the same owner. Check
+`oracle.freshness:<SYM>` first — it will be firing too, and it is the cause.
+
+`matcher.rejections` needs `MONITOR_REJECTION_MIN_SAMPLE` fills before it can
+fire, so a single rejection on a quiet market says nothing. The reason class is
+the diagnosis:
+
+```sql
+SELECT "rejectReason", count(*) FROM "Fill"
+WHERE "network" = :n AND status = 'REJECTED' AND "updatedAt" > now() - interval '1 hour'
+GROUP BY 1 ORDER BY 2 DESC;
+```

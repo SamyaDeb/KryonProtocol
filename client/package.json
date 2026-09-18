@@ -31,6 +31,7 @@
     "wagmi:generate": "wagmi generate",
     "test:e2e:matcher": "tsx scripts/matcher-e2e.ts",
     "drill:oracle": "tsx scripts/oracle-drill.ts",
+    "drill:monitor": "tsx scripts/monitor-drill.ts",
     "drill:funding": "tsx scripts/funding-drill.ts",
     "test:e2e:keepers": "tsx scripts/keepers-e2e.ts"
   },

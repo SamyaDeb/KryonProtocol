@@ -131,6 +131,9 @@ module.exports = {
       out_file: "./logs/refill.log",
       error_file: "./logs/refill.error.log",
     },
+    // The monitor: read-only, no key. It watches every service above, so it
+    // runs last and restarts eagerly — the one process whose silence nobody
+    // else would notice.
     {
       name: "kryon-stats",
       script: "npx",
@@ -148,8 +151,13 @@ module.exports = {
       script: "npx",
       args: "tsx --env-file=.env.local scripts/monitor.ts",
       cwd: __dirname,
-      // The local WS server, not the public NEXT_PUBLIC_WS_URL from .env.local.
-      env: { MONITOR_WS_URL: "ws://localhost:8080" },
+      env: {
+        // The local API and WS server, not the public URLs in .env.local.
+        MONITOR_API_URL: "http://localhost:3000",
+        MONITOR_WS_URL: "ws://localhost:8080",
+        // /healthz, /metrics and /status, bound to loopback.
+        MONITOR_HTTP_PORT: "9464",
+      },
       restart_delay: 10000,
       max_restarts: 20,
       autorestart: true,

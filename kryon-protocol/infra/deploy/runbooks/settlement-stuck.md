@@ -91,3 +91,44 @@ This unblocks the orders so they can be re-matched. The positions are not affect
 - Ensure oracle keeper is always running before the matcher
 - Use separate key for matcher to avoid sequence conflicts with oracle keeper
 - Monitor settlement age: alert if any settlement is `pending` > 2 minutes
+
+## Arc monitor alerts (`settlement.*`)
+
+| Alert | Severity | Means |
+|---|---|---|
+| `settlement.txjobs:<service>:<key>` | PAGE | A `TxJob` has been open past `MONITOR_TXJOB_STUCK_SECS` (default 300s). The alert names the nonce, the label and the key. |
+| `settlement.nonce-gap:<service>:<key>` | PAGE | A nonce below an in-flight job that no open job covers. **Nothing that key sends will mine until it is filled.** |
+| `settlement.fills:in-flight` / `:indexer-lag` | WARN | A fill is PENDING but something will resolve it by itself. |
+| `settlement.fills:batch-failed` | PAGE | The batch reverted or dropped: those fills will never settle. The matcher must re-match or expire them. |
+| `settlement.fills:not-in-receipt` | PAGE | The batch confirmed, the indexer has passed that block, and the fill was neither settled nor rejected. The batch that landed is not the batch we think we sent — that is a bug, not a delay. |
+| `settlement.fills:never-submitted` | PAGE | A PENDING fill with no batch at all. |
+
+### A nonce gap
+
+Reported, never filled automatically. Filling it means signing with the
+stranded key, and a gap usually means **two processes share that key** — a
+filler would race the second writer rather than unblock it. So:
+
+1. Find the second writer. `TxJob` tells you which services used that address:
+   ```sql
+   SELECT service, count(*), min(nonce), max(nonce) FROM "TxJob"
+   WHERE "network" = :n AND lower("fromAddress") = :key GROUP BY 1;
+   ```
+   One key per process is the rule (`lib/keepers/runtime.ts`); two `pm2` entries
+   pointed at the same key is the usual cause.
+2. Stop the duplicate, then let the owning service fill its own gap: its
+   `TxSender.wait()` fee-bumps at that nonce on restart.
+
+### An unreconciled transaction
+
+The reconciler drains these: it rebroadcasts byte-identical signed bytes (same
+nonce, same hash, so it cannot duplicate intent) and records outcomes. If a job
+is stuck past the replacement window on a key the reconciler does not hold, it
+reports and leaves it: only the owning process can fee-bump. Restart that
+process — recovery runs before it signs anything new.
+
+```bash
+pm2 logs kryon-reconciler --lines 200
+psql "$DATABASE_URL" -c 'SELECT service, status, nonce, label, "createdAt" FROM "TxJob"
+  WHERE status::text IN ('"'"'PENDING'"'"','"'"'SUBMITTED'"'"','"'"'REPLACED'"'"') ORDER BY "createdAt"'
+```
