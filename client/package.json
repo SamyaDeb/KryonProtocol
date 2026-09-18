@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:stack": "tsx scripts/dev-stack.ts",
     "build": "next build",
     "start": "next start",
     "docs:build": "npm --prefix ../docs run build && rm -rf public/docs && cp -r ../docs/build public/docs",
