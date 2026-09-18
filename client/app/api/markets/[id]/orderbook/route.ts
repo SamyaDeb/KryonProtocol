@@ -1,74 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
+import { aggregateBook, listWorkingOrdersForMarket } from "@/lib/queries/orders";
+import { formatFixed, parseMarketId } from "@/lib/queries/scalars";
 
-// Reconstruct live orderbook from resting (unfilled, uncancelled) limit orders.
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const marketId = parseInt(id, 10);
-  if (!marketId) return NextResponse.json(null, { status: 400 });
+/**
+ * GET /api/markets/:id/orderbook — the public book, aggregated by price.
+ *
+ * Built from exactly the orders the matcher can trade (live status, unexpired,
+ * nonce at or above the owner's `minValidNonce`), sized by REMAINING size:
+ * `size − filledSize − PENDING reservations`, the matcher's own definition
+ * (`lib/queries/orders.ts`). Showing gross size, or orders the matcher will
+ * skip, is how a book ends up crossed with nobody able to trade it.
+ *
+ * `price`/`size` are display decimals for the UI; `price_raw`/`size_raw` are
+ * the exact 1e18 values for bots.
+ */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const marketId = parseMarketId((await params).id);
+  if (marketId === null) return NextResponse.json(null, { status: 400 });
 
+  const network = networkFromRequest(req);
   try {
-    const sql = db(networkFromRequest(req));
-    const PRECISION = 1e18;
-    const AMOUNT_PRECISION = 1e7;
-
-    // Open resting limit orders: not cancelled, not fully filled, not expired,
-    // and carrying a limit price.
-    //
-    // The expiry predicate must match the matcher's (scripts/matcher-service.ts
-    // `loadRestingOrders`) exactly. Without it this route published orders the
-    // matcher will never touch, which is why the public book showed a
-    // permanently CROSSED spread — a best bid above the best ask that no engine
-    // was ever going to trade, because both sides had already expired. Any
-    // divergence here reappears as a book that looks broken.
-    const rows = await sql`
-      SELECT
-        "isLong",
-        "limitPrice"::numeric  AS limit_price,
-        "size"::numeric        AS size,
-        "filledSize"::numeric  AS filled_size
-      FROM "Order"
-      WHERE
-        "marketId"   = ${marketId}
-        AND cancelled = false
-        AND "limitPrice" <> '0'
-        AND "filledSize"::numeric < "size"::numeric
-        AND ("expiryTs"::numeric = 0 OR "expiryTs"::numeric > EXTRACT(EPOCH FROM NOW()))
-      ORDER BY "limitPrice"::numeric ASC
-    `;
-
-    // Aggregate into price levels
-    const bidMap = new Map<string, number>();
-    const askMap = new Map<string, number>();
-
-    for (const row of rows) {
-      const priceHuman = (Number(row.limit_price) / PRECISION).toFixed(4);
-      const remainingSize = (Number(row.size) - Number(row.filled_size)) / AMOUNT_PRECISION;
-      if (row.isLong) {
-        bidMap.set(priceHuman, (bidMap.get(priceHuman) ?? 0) + remainingSize);
-      } else {
-        askMap.set(priceHuman, (askMap.get(priceHuman) ?? 0) + remainingSize);
-      }
-    }
-
-    // Sort: bids descending (best bid first), asks ascending (best ask first)
-    const bids = [...bidMap.entries()]
-      .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-      .map(([price, size]) => ({ price, size: size.toFixed(4) }));
-
-    const asks = [...askMap.entries()]
-      .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-      .map(([price, size]) => ({ price, size: size.toFixed(4) }));
-
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const orders = await listWorkingOrdersForMarket(db(network), network, marketId, nowSec);
+    const { bids, asks } = aggregateBook(orders);
+    const level = (l: { price: bigint; size: bigint; orders: number }) => ({
+      price: formatFixed(l.price),
+      size: formatFixed(l.size),
+      price_raw: l.price.toString(),
+      size_raw: l.size.toString(),
+      orders: l.orders,
+    });
     return NextResponse.json(
-      { bids, asks, timestamp: Date.now() },
+      { bids: bids.map(level), asks: asks.map(level), timestamp: Date.now() },
       { headers: { "Cache-Control": "no-store" } }
     );
-  } catch {
+  } catch (e) {
+    console.error("orderbook error:", e);
     return NextResponse.json(null, { status: 500 });
   }
 }

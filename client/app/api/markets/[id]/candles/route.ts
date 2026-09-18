@@ -1,67 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
+import { listCandles } from "@/lib/queries/fills";
+import { parseLimit, parseMarketId, toFloat } from "@/lib/queries/scalars";
 
-// Build OHLCV candles by bucketing fills into time windows.
-// Returns newest-first to match frontend expectations.
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const marketId = parseInt(id, 10);
-  if (!marketId) return NextResponse.json([], { status: 400 });
+/**
+ * GET /api/markets/:id/candles?tf=3600&limit=600 — OHLCV over SETTLED fills,
+ * oldest first (what the chart wants). `tf` is the bucket width in seconds,
+ * at least 60.
+ */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const marketId = parseMarketId((await params).id);
+  if (marketId === null) return NextResponse.json([], { status: 400 });
 
-  const tf = Math.max(60, parseInt(req.nextUrl.searchParams.get("tf") ?? "3600", 10));
-  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "600", 10), 1000);
+  const sp = req.nextUrl.searchParams;
+  const tfRaw = sp.get("tf");
+  const tf = tfRaw === null ? 3600 : Number(tfRaw);
+  if (!Number.isInteger(tf) || tf < 60 || tf > 7 * 24 * 3600) {
+    return NextResponse.json({ error: "invalid_tf" }, { status: 400 });
+  }
+  const limit = parseLimit(sp.get("limit"), 600, 1000);
+  if (limit === null) return NextResponse.json({ error: "invalid_limit" }, { status: 400 });
 
+  const network = networkFromRequest(req);
   try {
-    const sql = db(networkFromRequest(req));
-
-    // Each fill becomes an OHLCV bucket. For sparse data, each fill is its own candle.
-    // For real volume: aggregate fills within the same tf window.
-    const rows = await sql`
-      WITH bucketed AS (
-        SELECT
-          (floor(extract(epoch FROM "createdAt") / ${tf})::bigint * ${tf}) AS time,
-          "fillPrice"::numeric  AS price,
-          "fillSize"::numeric   AS size,
-          "createdAt"
-        FROM "Fill"
-        WHERE "marketId" = ${marketId}
-        ORDER BY "createdAt" ASC
-      ),
-      agg AS (
-        SELECT
-          time,
-          (array_agg(price ORDER BY "createdAt" ASC))[1]  AS open,
-          max(price)                                        AS high,
-          min(price)                                        AS low,
-          (array_agg(price ORDER BY "createdAt" DESC))[1]  AS close,
-          sum(size)                                         AS volume
-        FROM bucketed
-        GROUP BY time
-      )
-      SELECT * FROM agg
-      ORDER BY time DESC
-      LIMIT ${limit}
-    `;
-
-    const PRICE_SCALE = 1e18;
-    const AMOUNT_SCALE = 1e7;
-    const candles = rows.map((r) => ({
-      time: Number(r.time),
-      open:   Number(r.open)   / PRICE_SCALE,
-      high:   Number(r.high)   / PRICE_SCALE,
-      low:    Number(r.low)    / PRICE_SCALE,
-      close:  Number(r.close)  / PRICE_SCALE,
-      volume: Number(r.volume) / AMOUNT_SCALE,
-    })).reverse(); // oldest first for the chart
-
-    return NextResponse.json(candles, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch {
+    const candles = await listCandles(db(network), network, marketId, tf, limit);
+    return NextResponse.json(
+      candles.map((c) => ({
+        time: c.time,
+        open: toFloat(c.open),
+        high: toFloat(c.high),
+        low: toFloat(c.low),
+        close: toFloat(c.close),
+        volume: toFloat(c.volume),
+      })),
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e) {
+    console.error("candles error:", e);
     return NextResponse.json([], { status: 500 });
   }
 }
