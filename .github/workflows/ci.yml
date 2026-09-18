@@ -113,7 +113,7 @@ jobs:
       # this from masking or failing on an earlier build error.
       - name: Upload build artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: client-next-build
           path: |
