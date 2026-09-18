@@ -212,6 +212,66 @@ jobs:
         run: npm run test:e2e:matcher
 
   # ---------------------------------------------------------------------------
+  # Keeper drills: each keeper's real code against a local arc-anvil and a real
+  # deployment, driven through the failure modes it exists to handle (quorum
+  # loss, re-anchor, divergence, de-peg, ...). Local only; the drills refuse a
+  # non-loopback RPC.
+  # ---------------------------------------------------------------------------
+  keeper-drills:
+    name: keeper drills (arc-anvil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ARC_FOUNDRY_VERSION: v0.8.0-1
+      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_drills
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon_drills
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install arc-foundry (checksum verified)
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          V="$ARC_FOUNDRY_VERSION"
+          T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
+          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T.sha256"
+          sha256sum -c "$T.sha256"
+          tar -xzf "$T"
+          mkdir -p "$HOME/.local/bin"
+          mv forge "$HOME/.local/bin/arc-forge"
+          mv cast "$HOME/.local/bin/arc-cast"
+          mv anvil "$HOME/.local/bin/arc-anvil"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Setup client
+        uses: ./.github/actions/setup-client
+
+      - name: Migrate the drill database
+        run: psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f kryon-protocol/prisma/migrations/*/migration.sql
+
+      - name: Oracle publisher drill
+        working-directory: client
+        run: npm run drill:oracle
+
+  # ---------------------------------------------------------------------------
   # Solidity suite on arc-foundry (pinned). Build sizes, unit/invariant tests,
   # differential fuzz vs the Rust reference, storage-layout diff, Slither.
   # The full job set (coverage, gas diff, fork tests) lands with Step 6.
