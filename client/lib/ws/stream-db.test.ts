@@ -204,6 +204,32 @@ describe("ws stream against the Arc schema", { skip: !TEST_DATABASE_URL }, () =>
     assert.equal(alice.drain("fill").length, 0, "each transition once");
   });
 
+  test("the tape follows chain order past block 9, not lexical order", async () => {
+    // `SELECT "blockNumber"::text AS "blockNumber" … ORDER BY "blockNumber"`
+    // sorts by the TEXT alias, which puts "12" before "9" and strands the
+    // cursor. Ordering is by the table's own column, so this must stream both.
+    const tape = await subscribe(["trades:2"]);
+    await server.pollOnce();
+    for (const [block, logIndex] of [
+      [9, 0],
+      [12, 1],
+    ] as const) {
+      await seedFill(s, {
+        status: "SETTLED",
+        blockNumber: BigInt(block),
+        logIndex,
+        txHash: `0x${block.toString(16).padStart(2, "0").repeat(32)}`,
+      });
+    }
+    await server.pollOnce();
+    const first = await tape.next("trade");
+    const second = await tape.next("trade");
+    assert.deepEqual([first.block_number, second.block_number], ["9", "12"]);
+    await server.pollOnce();
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(tape.drain("trade").length, 0, "the cursor advanced past the highest block");
+  });
+
   test("markets and /healthz read the real tables", async () => {
     const c = await subscribe(["markets"]);
     const m = await c.next("markets");
