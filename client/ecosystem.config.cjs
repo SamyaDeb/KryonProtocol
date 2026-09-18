@@ -18,11 +18,19 @@ module.exports = {
       out_file: "./logs/oracle.log",
       error_file: "./logs/oracle.error.log",
     },
+    // One shard per process: one operator key, one set of markets. To run a
+    // second shard, copy this entry with a different name, MATCHER_MARKETS and
+    // MATCHER_OPERATOR_KEY. Never point two entries at the same key — TxSender
+    // allocates the nonce for its key and two allocators produce two
+    // transactions at the same nonce.
     {
       name: "kryon-matcher",
       script: "npx",
       args: "tsx --env-file=.env.local scripts/matcher-service.ts",
       cwd: __dirname,
+      // instances stays 1 by design; see the note above.
+      instances: 1,
+      env: { MATCHER_SHARD: "primary" },
       restart_delay: 3000,
       max_restarts: 20,
       autorestart: true,
