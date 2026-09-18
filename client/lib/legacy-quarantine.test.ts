@@ -51,11 +51,9 @@ const LEGACY_BY_LOCATION = [/^lib\/stellar\//, /^scripts\//];
  */
 const QUARANTINED = new Set([
   "app/LandingPage.tsx",
-  "app/api/markets/route.ts",
   "app/api/orders/cancel-all/route.ts",
   "app/api/orders/cancel/route.ts",
   "app/api/orders/route.ts",
-  "app/api/settlements/[id]/sign/route.ts",
   "app/markets/page.tsx",
   "app/trade/[market]/page.tsx",
   "components/common/MarketCell.tsx",

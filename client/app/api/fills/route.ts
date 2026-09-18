@@ -1,76 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
-import { StrKey } from "@stellar/stellar-sdk";
 import { db } from "@/lib/db";
 import { networkFromRequest } from "@/lib/network-server";
+import { listFillsForAccount } from "@/lib/queries/fills";
+import { formatFixed, parseAddress, parseLimit } from "@/lib/queries/scalars";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 
-const PRICE_SCALE  = 1e18;
-const AMOUNT_SCALE = 1e7;
-
-// GET /api/fills?address=G...&since=<unix-ms>&limit=10
+/**
+ * GET /api/fills?address=0x…&since=<unix-ms>&limit=20 — an account's fills on
+ * either side, newest first, default window 24h.
+ *
+ * Every status is returned and labelled. A PENDING fill has been matched but
+ * not settled: the gateway may still reject it, it has no `txHash`, and the UI
+ * must not present it as a trade that happened. `rejectReason` is set once the
+ * chain has refused the fill, sometimes before the status catches up.
+ */
 export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get("address");
-  if (!address || !StrKey.isValidEd25519PublicKey(address)) {
-    return NextResponse.json([], { status: 400 });
-  }
+  const sp = req.nextUrl.searchParams;
+  const address = parseAddress(sp.get("address"));
+  if (!address) return NextResponse.json([], { status: 400 });
   if (!(await rateLimit(requestKey(req, address), 120))) {
     return NextResponse.json([], { status: 429 });
   }
 
-  // Reject a bad value rather than passing NaN into the query. `parseInt("x")`
-  // is NaN, `Math.min(NaN, 50)` is NaN, and `LIMIT NaN` reaches Postgres as a
-  // type error — so a malformed query string produced a 500 that read like a
-  // server fault instead of a 400 that names the caller's mistake. Same for
-  // `since`, where an unparseable value became an Invalid Date.
-  const limitRaw = req.nextUrl.searchParams.get("limit");
-  const limitNum = limitRaw === null ? 20 : Number(limitRaw);
-  if (!Number.isInteger(limitNum) || limitNum < 1) {
-    return NextResponse.json({ error: "invalid_limit" }, { status: 400 });
-  }
-  const limit = Math.min(limitNum, 50);
+  const limit = parseLimit(sp.get("limit"), 20, 50);
+  if (limit === null) return NextResponse.json({ error: "invalid_limit" }, { status: 400 });
+  const sinceRaw = sp.get("since");
+  const sinceMs = sinceRaw === null ? Date.now() - 24 * 3600 * 1000 : Number(sinceRaw);
+  if (!Number.isFinite(sinceMs)) return NextResponse.json({ error: "invalid_since" }, { status: 400 });
 
-  const since = req.nextUrl.searchParams.get("since");
-  const sinceMs = since === null ? null : Number(since);
-  if (sinceMs !== null && !Number.isFinite(sinceMs)) {
-    return NextResponse.json({ error: "invalid_since" }, { status: 400 });
-  }
-
+  const network = networkFromRequest(req);
   try {
-    const sql = db(networkFromRequest(req));
-    const sinceDate =
-      sinceMs === null ? new Date(Date.now() - 24 * 3600 * 1000) : new Date(sinceMs);
-
-    const rows = await sql`
-      SELECT
-        id,
-        "marketId"   AS market_id,
-        maker,
-        taker,
-        "makerNonce" AS maker_nonce,
-        "takerNonce" AS taker_nonce,
-        "fillPrice"  AS fill_price,
-        "fillSize"   AS fill_size,
-        "txHash"     AS tx_hash,
-        "createdAt"  AS created_at
-      FROM "Fill"
-      WHERE (maker = ${address} OR taker = ${address})
-        AND "createdAt" > ${sinceDate}
-      ORDER BY "createdAt" DESC
-      LIMIT ${limit}
-    `;
-
-    const fills = rows.map((r) => ({
-      id:        String(r.id),
-      marketId:  Number(r.market_id),
-      isMaker:   r.maker === address,
-      price:     (Number(r.fill_price) / PRICE_SCALE).toFixed(4),
-      size:      (Number(r.fill_size)  / AMOUNT_SCALE).toFixed(4),
-      txHash:    String(r.tx_hash),
-      createdAt: new Date(r.created_at).getTime(),
-    }));
-
-    return NextResponse.json(fills, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+    const fills = await listFillsForAccount(db(network), network, address, new Date(sinceMs), limit);
+    return NextResponse.json(
+      fills.map((f) => {
+        const isMaker = f.maker === address;
+        return {
+          id: f.fillId,
+          status: f.status,
+          rejectReason: f.rejectReason,
+          marketId: f.marketId,
+          isMaker,
+          // This account's direction in the fill.
+          side: (isMaker ? !f.takerIsBuy : f.takerIsBuy) ? "buy" : "sell",
+          price: formatFixed(f.price),
+          size: formatFixed(f.size),
+          fee: formatFixed(isMaker ? f.makerFee : f.takerFee),
+          orderHash: isMaker ? f.makerOrderHash : f.takerOrderHash,
+          txHash: f.txHash,
+          createdAt: f.createdAt.getTime(),
+        };
+      }),
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e) {
+    console.error("fills error:", e);
     return NextResponse.json([], { status: 500 });
   }
 }

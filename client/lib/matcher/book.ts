@@ -25,6 +25,9 @@
 import { getAddress, type Address, type Hex } from "viem";
 
 import type { EngineOrder } from "@/lib/market/matching-engine";
+// The reservation statement is shared with the API's order and book views, so
+// the matcher and the UI cannot disagree about what is still working.
+import { pendingReservationSql } from "@/lib/queries/orders";
 import type { Query, Row } from "./db";
 
 /** Everything one tick needs about a market, from `Market`. */
@@ -129,14 +132,8 @@ export async function loadOrders(
        o."filledSize"::text AS "filledSize", o."createdAt",
        COALESCE(p.reserved, 0)::text AS reserved
      FROM "Order" o
-     LEFT JOIN (
-       SELECT h AS "orderHash", SUM(f."size") AS reserved
-       FROM "Fill" f
-       CROSS JOIN LATERAL (VALUES (f."makerOrderHash"), (f."takerOrderHash")) AS sides(h)
-       WHERE f."network" = $1 AND f."status" = 'PENDING' AND f."marketId" = $2
-         AND f."rejectReason" IS NULL
-       GROUP BY h
-     ) p ON p."orderHash" = o."orderHash"
+     LEFT JOIN (${pendingReservationSql("$1", `AND f."marketId" = $2`)}) p
+       ON p."orderHash" = o."orderHash"
      WHERE o."network" = $1
        AND o."marketId" = $2
        AND o."status" = ANY($3::"OrderStatus"[])

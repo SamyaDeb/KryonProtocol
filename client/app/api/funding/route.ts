@@ -1,39 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { StrKey } from "@stellar/stellar-sdk";
 import { db } from "@/lib/db";
-import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { networkFromRequest } from "@/lib/network-server";
+import { listFundingPayments } from "@/lib/queries/funding";
+import { parseAddress, parseLimit, toFloat } from "@/lib/queries/scalars";
+import { rateLimit, requestKey } from "@/lib/rate-limit";
 
-const AMOUNT_SCALE = 1e7;
-
-// GET /api/funding?address=G...&limit=50
+/**
+ * GET /api/funding?address=0x…&limit=50 — funding payments, newest first.
+ * `amount` is USDC as a float, positive when the account received funding;
+ * `amountRaw` is the exact 1e18 value.
+ */
 export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get("address");
-  if (!address || !StrKey.isValidEd25519PublicKey(address)) {
-    return NextResponse.json([], { status: 400 });
-  }
+  const sp = req.nextUrl.searchParams;
+  const address = parseAddress(sp.get("address"));
+  if (!address) return NextResponse.json([], { status: 400 });
   if (!(await rateLimit(requestKey(req, address), 120))) {
     return NextResponse.json([], { status: 429 });
   }
-  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "50", 10), 100);
+  const limit = parseLimit(sp.get("limit"), 50, 100);
+  if (limit === null) return NextResponse.json({ error: "invalid_limit" }, { status: 400 });
+
+  const network = networkFromRequest(req);
   try {
-    const network = networkFromRequest(req);
-    const sql = db(network);
-    const rows = await sql`
-      SELECT "marketId", amount, "txHash", "createdAt"
-      FROM "FundingPayment"
-      WHERE network = ${network} AND address = ${address}
-      ORDER BY "createdAt" DESC
-      LIMIT ${limit}
-    `;
-    const payments = rows.map((r) => ({
-      marketId:  Number(r.marketId),
-      amount:    Number(r.amount) / AMOUNT_SCALE,
-      txHash:    String(r.txHash),
-      createdAt: new Date(r.createdAt).getTime(),
-    }));
-    return NextResponse.json(payments, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+    const payments = await listFundingPayments(db(network), network, address, limit);
+    return NextResponse.json(
+      payments.map((p) => ({
+        marketId: p.marketId,
+        amount: toFloat(p.amount),
+        amountRaw: p.amount.toString(),
+        txHash: p.txHash,
+        createdAt: p.createdAt.getTime(),
+      })),
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e) {
+    console.error("funding error:", e);
     return NextResponse.json([], { status: 500 });
   }
 }
