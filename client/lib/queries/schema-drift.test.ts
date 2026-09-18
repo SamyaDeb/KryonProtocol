@@ -128,8 +128,9 @@ export function driftIn(src: string, schema: Schema): string[] {
 }
 
 function sqlSources(): string[] {
-  // lib/validation.ts reads Market and Account for the intake checks.
-  const files: string[] = ["lib/validation.ts"];
+  // lib/validation.ts reads Market and Account for the intake checks, and
+  // lib/oracle-activity.ts reads four tables for the publisher's idle gating.
+  const files: string[] = ["lib/validation.ts", "lib/oracle-activity.ts"];
   for (const f of readdirSync("lib/queries")) {
     if (f.endsWith(".ts") && !f.endsWith(".test.ts")) files.push(join("lib/queries", f));
   }
