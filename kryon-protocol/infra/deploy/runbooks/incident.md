@@ -9,6 +9,26 @@
 | P2 | Degraded — oracle stale, WS disconnected, indexer lagging | < 1 hour |
 | P3 | Minor — UI glitch, slow query, cosmetic | Next business day |
 
+## The monitor's two severities
+
+The Arc monitor (`client/scripts/monitor.ts`) has two levels, and each alert
+carries the runbook to open:
+
+| Monitor | Meaning | Maps to |
+|---|---|---|
+| **PAGE** | Money or availability at risk: solvency, an unfunded shortfall, a stale feed on a market with open interest, a signer out of gas, the indexer stalled, an unreconciled transaction or nonce gap, funding not accruing, a liquidation backlog, role/implementation/cap drift, the API down. | P0 / P1 |
+| **WARN** | Degraded but safe: RPC fallback in use, fees below gas, elevated rejection rate, a thin insurance fund, replica lag, a queued timelock operation, a pause. | P2 / P3 |
+
+Alerts fire only after N consecutive failing ticks, re-notify on an interval
+while they persist, and resolve on their own. A check that could not run at all
+reports at WARN rather than passing — a blind spot is reported, not hidden.
+
+```bash
+curl -s localhost:9464/healthz    # is the monitor itself ticking?
+curl -s localhost:9464/status | jq   # every check, its verdict and its values
+psql "$DATABASE_URL" -c 'SELECT "createdAt","event","severity","alertKey","detail" FROM "MonitorAlert" ORDER BY id DESC LIMIT 20'
+```
+
 ## First response checklist
 
 1. Run monitor: `cd client && npm run dev:monitor`

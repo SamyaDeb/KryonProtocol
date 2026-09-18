@@ -62,6 +62,23 @@ enum KeeperActionStatus {
   SKIPPED
 }
 
+enum MonitorLevel {
+  OK
+  WARN
+  PAGE
+}
+
+enum MonitorSeverity {
+  PAGE
+  WARN
+}
+
+enum MonitorAlertEvent {
+  FIRING
+  REMINDER
+  RESOLVED
+}
+
 enum GovernanceOperationStatus {
   SCHEDULED
   EXECUTED
@@ -713,4 +730,44 @@ model AccountAnalytics {
   updatedAt        DateTime  @default(now()) @updatedAt
 
   @@id([network, address])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MONITOR (client/lib/monitor)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Latest monitor tick per network: what the status page reads. Upserted, so
+/// it stays one row per network however long the monitor runs.
+model MonitorStatus {
+  network        String       @id
+  level          MonitorLevel
+  /// Every check's last result: [{ key, check, subject, status, severity, detail, values, runbook }].
+  checks         Json         @default("[]")
+  /// Alerts currently firing: [{ key, severity, detail, since }].
+  firing         Json         @default("[]")
+  tickAt         DateTime
+  tickDurationMs Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+}
+
+/// One row per alert transition. Append-only, but written only when an alert
+/// fires, is re-notified or resolves — never once per tick.
+model MonitorAlert {
+  id        BigInt            @id @default(autoincrement())
+  network   String
+  /// `<check>` or `<check>:<subject>`.
+  alertKey  String
+  check     String
+  subject   String?
+  severity  MonitorSeverity
+  event     MonitorAlertEvent
+  detail    String
+  values    Json              @default("{}")
+  runbook   String?
+  /// How long it had been failing when this row was written.
+  forSecs   Int               @default(0)
+  createdAt DateTime          @default(now())
+
+  @@index([network, createdAt])
+  @@index([network, alertKey, createdAt])
 }

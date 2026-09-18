@@ -86,3 +86,40 @@ liquidated. This fail-closed behaviour is intended.
   moved more than `maxJumpBps` during the outage. Check the re-anchored price against the
   reference before re-opening the matcher.
 - `99_VerifyDeployment` fails if any configured market's feed isn't listed and active.
+
+## Arc monitor alerts and what each one means
+
+The monitor (`client/lib/monitor/checks/oracle.ts`) reports **every feed by
+name**, one result per market, so one stale feed can never hide the other seven.
+
+| Alert | Severity | Means |
+|---|---|---|
+| `oracle.freshness:<SYM>` | PAGE | Past `maxOracleAge × MONITOR_ORACLE_STALE_FRACTION` (default half). The wording says whether it is approaching the bound or already past it — past it, trading, liquidation and withdrawals are blocked for that market's holders. |
+| `oracle.freshness:adapter` | PAGE | `OracleAdapter.paused()`: no feed can update at all. |
+| `oracle.quorum:<SYM>` | WARN | Fewer publishers are fresh than `minPublishers`, so the next push cannot aggregate. This is the early warning for the PAGE above — usually one publisher process down. |
+| `oracle.divergence:<SYM>` | WARN | Within `MONITOR_ORACLE_DIVERGENCE_FRACTION` of the on-chain `maxDivergenceBps`, i.e. the adapter is about to start skipping updates. Also fires when a *required* reference is unavailable. |
+| `oracle.flatline:<SYM>` | WARN | The same price published repeatedly for longer than `MONITOR_ORACLE_FLATLINE_SECS`. A fresh feed with a stuck source looks perfectly healthy to a freshness check. |
+
+Freshness is measured exactly as `OracleAdapter._validate` measures it: the
+**older** of `publishTime` and `writeTime` against the block timestamp, bounded
+by the market's `maxOracleAge` (the value `Engine` passes to `getPrice`). A feed
+whose price was published long before it landed is stale on the publish side,
+and the monitor sees that.
+
+A market with **no open interest** reports `skip`, not `pass`: nothing is
+blocked, and there is nothing to page about. Its feed still needs to be fresh
+before anyone opens a position in it.
+
+### Diagnosis on Arc
+
+```bash
+cd client
+curl -s localhost:9464/status | jq '.checks[] | select(.check|startswith("oracle."))'
+pm2 logs kryon-oracle kryon-oracle-2 --lines 100    # both publishers
+npx tsx scripts/monitor.ts --once                   # one tick, printed
+```
+
+Then, in order: is the publisher process alive; does its key hold
+`PUBLISHER_ROLE` (`governance.roles` would also be firing); does it have gas
+(`gas.balance:publisher`, and remember gas is USDC); are its venues reachable
+(the keeper logs `source dropped as outlier` and `feed backing off`).

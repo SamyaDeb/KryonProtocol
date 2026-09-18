@@ -85,7 +85,15 @@ jobs:
         uses: ./.github/actions/setup-client
 
       - name: Migrate the test database
-        run: psql "$KRYON_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f ../kryon-protocol/prisma/migrations/*/migration.sql
+        # Every migration in order. A glob passed straight to `psql -f` silently
+        # applies only the first file and hands the rest to psql as connection
+        # arguments, which stopped being harmless the moment a second migration
+        # existed.
+        run: |
+          for f in ../kryon-protocol/prisma/migrations/*/migration.sql; do
+            echo "applying $f"
+            psql "$KRYON_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
 
       - name: Lint
         run: npm run lint
@@ -205,7 +213,11 @@ jobs:
         uses: ./.github/actions/setup-client
 
       - name: Migrate the end-to-end database
-        run: psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f kryon-protocol/prisma/migrations/*/migration.sql
+        run: |
+          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
+            echo "applying $f"
+            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
 
       - name: Run the matcher end to end
         working-directory: client
@@ -220,7 +232,7 @@ jobs:
   keeper-drills:
     name: keeper drills (arc-anvil)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       ARC_FOUNDRY_VERSION: v0.8.0-1
       KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_drills
@@ -265,7 +277,11 @@ jobs:
         uses: ./.github/actions/setup-client
 
       - name: Migrate the drill database
-        run: psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f kryon-protocol/prisma/migrations/*/migration.sql
+        run: |
+          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
+            echo "applying $f"
+            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
 
       - name: Oracle publisher drill
         working-directory: client
@@ -278,6 +294,10 @@ jobs:
       - name: Liquidation cascade drill
         working-directory: client
         run: npm run drill:liquidation
+
+      - name: Monitor drill (every fault class fires its alert)
+        working-directory: client
+        run: npm run drill:monitor
 
       - name: Keepers end-to-end gate (deposit, trade, funding, liquidation, ADL, fee claim, withdraw)
         working-directory: client
