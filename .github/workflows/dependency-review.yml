@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           # Fail the PR on high-or-worse vulnerabilities in newly added deps.
           fail-on-severity: high
