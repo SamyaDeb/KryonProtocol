@@ -279,6 +279,10 @@ jobs:
         working-directory: client
         run: npm run drill:liquidation
 
+      - name: Keepers end-to-end gate (deposit, trade, funding, liquidation, ADL, fee claim, withdraw)
+        working-directory: client
+        run: npm run test:e2e:keepers
+
   # ---------------------------------------------------------------------------
   # Solidity suite on arc-foundry (pinned). Build sizes, unit/invariant tests,
   # differential fuzz vs the Rust reference, storage-layout diff, Slither.
