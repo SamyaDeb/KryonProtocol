@@ -41,7 +41,7 @@ import type { TxJob } from "@/lib/chain/tx-store";
 import type { TxOutcome, TxRequest } from "@/lib/chain/tx-sender";
 
 import { decodeError } from "./reverts";
-import { errorMessage, type KeeperActions, type Logger, type Metrics } from "./runtime";
+import { errorMessage, stillInFlight, type KeeperActions, type Logger, type Metrics } from "./runtime";
 
 export const MAX_FUNDING_ELAPSED_SECS = 3600;
 
@@ -63,6 +63,7 @@ export interface FundingSender {
   readonly address: Address;
   submit(req: TxRequest): Promise<TxJob>;
   wait(job: TxJob): Promise<TxOutcome>;
+  openJobs(): Promise<TxJob[]>;
 }
 
 export interface FundingOptions {
@@ -156,7 +157,7 @@ export function classifyFundingRevert(errorName: string | null): FundingRevertCl
 }
 
 export interface FundingTickResult {
-  status: "paused" | "not-keeper" | "idle" | "ran";
+  status: "paused" | "not-keeper" | "in-flight" | "idle" | "ran";
   plans: FundingPlan[];
   results: Map<number, { outcome: "confirmed" | "reverted" | "preflight" | "unconfirmed"; detail?: unknown }>;
 }
@@ -182,6 +183,9 @@ export class FundingKeeper {
       log.error("this key does not hold KEEPER_ROLE on the engine", { alert: true, key: this.o.sender.address });
       return { status: "not-keeper", plans: [], results };
     }
+
+    // A pending update would make lastUpdate look stale and draw a second one.
+    if (await stillInFlight(this.o.sender, log)) return { status: "in-flight", plans: [], results };
 
     const plans = planFunding(state.markets, state.chainNow, this.o.dueAfterSecs);
     for (const m of state.markets) {

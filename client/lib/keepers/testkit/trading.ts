@@ -17,6 +17,7 @@ import { MemoryTxJobStore } from "@/lib/chain/tx-store";
 import { pgDb, type Db } from "@/lib/indexer/db";
 import { ContractRegistry } from "@/lib/indexer/decode";
 import { Indexer, publicClientSource } from "@/lib/indexer/indexer";
+import { DERIVED_TABLES } from "@/lib/indexer/projections";
 import { hashOrder, orderTypedData, type Order } from "@/lib/market/eip712";
 import { Matcher } from "@/lib/matcher/loop";
 
@@ -43,9 +44,10 @@ export interface Trading {
 
 export async function startTrading(lc: LocalChain, dbUrl: string, marketIds: number[]): Promise<Trading> {
   const db = pgDb(dbUrl);
-  await db.query(
-    `TRUNCATE "Fill", "Order", "Position", "Account", "Market", "BlockCursor", "KeeperAction", "TxJob", "GasSpend" CASCADE`
-  );
+  // Start from nothing: every indexer-derived table (the indexer's own list),
+  // the event log, and the service tables. Other suites share this database.
+  const tables = [...DERIVED_TABLES, "ProtocolEvent", "Fill", "Order", "Account", "Market", "BlockCursor", "KeeperAction", "TxJob", "GasSpend"];
+  await db.query(`TRUNCATE ${tables.map((t) => `"${t}"`).join(", ")} CASCADE`);
   const indexer = new Indexer(db, publicClientSource(lc.client), new ContractRegistry(lc.contracts), {
     network: NETWORK.id,
     startBlock: 0n,

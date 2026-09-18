@@ -113,6 +113,7 @@ let receiptLogs: Log[];
 let receiptStatus: "success" | "reverted";
 let statuses: string[];
 let logs: { level: string; msg: string }[];
+let stuck: boolean;
 
 function keeper(maxPerTick = 5) {
   const sql = {
@@ -130,10 +131,11 @@ function keeper(maxPerTick = 5) {
         submitted.push(req);
         return { id: "job" } as TxJob;
       },
-      wait: async (job): Promise<TxOutcome> => ({
-        job,
-        receipt: { status: receiptStatus, logs: receiptLogs, blockNumber: 9n } as unknown as TransactionReceipt,
-      }),
+      wait: async (job): Promise<TxOutcome> => {
+        if (stuck && job.id === "stuck") throw new Error("timeout");
+        return { job, receipt: { status: receiptStatus, logs: receiptLogs, blockNumber: 9n } as unknown as TransactionReceipt };
+      },
+      openJobs: async () => (stuck ? [{ id: "stuck", nonce: 3, createdAt: new Date() } as TxJob] : []),
     },
     engine: ENGINE,
     log: createLogger("t", "debug", {}, (l) => logs.push(JSON.parse(l))),
@@ -154,6 +156,7 @@ beforeEach(() => {
   receiptStatus = "success";
   statuses = [];
   logs = [];
+  stuck = false;
 });
 
 describe("FundingKeeper.tick", () => {
@@ -201,6 +204,14 @@ describe("FundingKeeper.tick", () => {
     assert.ok(logs.some((l) => l.level === "error"));
   });
 
+  test("a pending update from an earlier tick blocks a new one", async () => {
+    stuck = true;
+    assert.equal((await keeper().tick()).status, "in-flight");
+    assert.equal(submitted.length, 0);
+    stuck = false;
+    assert.equal((await keeper().tick()).status, "ran");
+  });
+
   test("nothing due: idle", async () => {
     markets = [mkt(1, NOW - 60)];
     assert.equal((await keeper().tick()).status, "idle");
@@ -224,7 +235,7 @@ describe("FundingKeeper.tick", () => {
       () =>
         new FundingKeeper({
           chain: { read: async () => ({ chainNow: 0, paused: false, hasRole: true, markets: [] }) },
-          sender: { address: SELF, submit: async () => ({}) as TxJob, wait: async () => ({}) as TxOutcome },
+          sender: { address: SELF, submit: async () => ({}) as TxJob, wait: async () => ({}) as TxOutcome, openJobs: async () => [] },
           engine: ENGINE,
           log: createLogger("t", "error", {}, () => {}),
           metrics: new Metrics(),

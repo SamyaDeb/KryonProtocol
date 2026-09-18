@@ -455,6 +455,22 @@ export async function recoverOpenJobs(
   return { recovered, unresolved };
 }
 
+/**
+ * In-flight guard for keepers whose sends are not idempotent. A job whose
+ * `wait()` timed out may still land; deciding again from chain state while it
+ * is pending would read the *pre*-transaction state and send a second one
+ * (a second liquidation of the same account, a second funding update). So:
+ * resolve this key's open jobs first, and report whether any remain. Callers
+ * send nothing new while this returns true.
+ */
+export async function stillInFlight(sender: Pick<TxSender, "openJobs" | "wait">, log: Logger): Promise<boolean> {
+  const open = await sender.openJobs();
+  if (open.length === 0) return false;
+  const { unresolved } = await recoverOpenJobs(sender, log);
+  if (unresolved > 0) log.warn("transactions still in flight for this key; not deciding anything new this tick", { unresolved });
+  return unresolved > 0;
+}
+
 export function envInt(env: Env, name: string, fallback: number): number {
   const raw = env[name];
   if (raw === undefined || raw === "") return fallback;

@@ -1,399 +1,243 @@
 #!/usr/bin/env tsx
 /**
- * Liquidation Drill — proves, end to end on testnet, that a position can
- * actually be liquidated.
+ * Liquidation cascade drill (audit KRY-Q7, on Arc): the real liquidation
+ * keeper against the real Engine, Liquidation, Insurance and Vault on a local
+ * arc-anvil, with the real matcher opening the positions and the real indexer
+ * projecting them.
  *
- * Why this exists (audit KRY-Q7)
- * ------------------------------
- * Liquidation has never executed on any network. The contract path has unit
- * tests and the keeper is written, but no real liquidation has ever cleared.
- * That is the single most common way perp protocols become insolvent: the
- * machinery runs for the first time under exactly the market conditions it was
- * built to survive, and something in the wiring — a missing role, an oracle
- * guard, a health check that never flips — turns out to be wrong.
+ * The cascade:
+ *   - three 40x longs and one ~27x long against one well-capitalised short
+ *   - a pause: the keeper idles instead of burning gas on reverts
+ *   - a 3% drop with a stale oracle: every account is blocked, nothing is sent
+ *   - prices fresh: the 40x longs are closed out in full (equity <= 0), their
+ *     deficits exceed the fund's operating capital and become bad debt; the
+ *     27x long is cut by a partial step and ends healthy
+ *   - a further drop: the backstop that absorbed the positions goes under
+ *   - ADL, one step per tick, haircuts the in-profit short until the unfunded
+ *     shortfall is zero
+ *   - at the end: Vault.solvency() holds, every intent is terminal, and every
+ *     confirmed liquidation/ADL is matched by an indexer event row
  *
- * Reading the code cannot settle this. Only running it can.
- *
- * What the drill does
- * -------------------
- *   1. Fund and deposit collateral for a throwaway victim account.
- *   2. Open a maximally-levered position for it against a counterparty.
- *   3. Move the oracle against the victim until health flips liquidatable.
- *   4. Assert the on-chain health actually reports `liquidatable = true`.
- *   5. Liquidate with the real liquidator key and the real contract call.
- *   6. Assert the position shrank, the liquidator was paid, and any residual
- *      deficit was seized or absorbed rather than left dangling.
- *
- * Every step asserts. A silent pass is the point: if any stage cannot be
- * reached, the drill fails loudly and names the stage.
- *
- * TESTNET ONLY. It refuses to run against mainnet — it deliberately destroys an
- * account's collateral, and it moves the oracle.
- *
- * Usage:
- *   NEXT_PUBLIC_STELLAR_NETWORK=testnet \
- *   DRILL_VICTIM_SECRET=S... DRILL_COUNTERPARTY_SECRET=S... \
- *   LIQUIDATOR_SECRET=S... ORACLE_PUBLISHER_SECRET=S... \
- *   npx tsx scripts/liquidation-drill.ts
+ * LOCAL ONLY. Environment: KRYON_E2E_DATABASE_URL (required), KRYON_E2E_RPC_PORT,
+ * KRYON_E2E_VERBOSE.
  */
 
-import {
-  Keypair,
-  Account,
-  Contract,
-  TransactionBuilder,
-  Address,
-  nativeToScVal,
-  scValToNative,
-  xdr,
-  rpc as sorobanRpc,
-} from "@stellar/stellar-sdk";
-import { ACTIVE_MARKETS, ASSETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
-import { assertNoPublicSecretLeak, assertRequiredSecrets } from "../lib/secrets-check";
+import { encodeFunctionData, type Address } from "viem";
 
-assertRequiredSecrets([
-  "DRILL_VICTIM_SECRET",
-  "DRILL_COUNTERPARTY_SECRET",
-  "LIQUIDATOR_SECRET",
-  "ORACLE_PUBLISHER_SECRET",
-]);
-assertNoPublicSecretLeak();
+import { engineAbi, insuranceAbi, liquidationAbi, vaultAbi } from "@/lib/chain/contracts";
+import { TxSender } from "@/lib/chain/tx-sender";
+import { MemoryTxJobStore } from "@/lib/chain/tx-store";
+import { LiquidationKeeper, viemLiquidationChain, type LiquidationTickResult } from "@/lib/keepers/liquidation";
+import { KeeperActions, Metrics, createLogger } from "@/lib/keepers/runtime";
+import { FEES, NETWORK, ROLES, account, depositUsdc, reporter, startLocalChain, type LocalChain } from "@/lib/keepers/testkit/localchain";
+import { E18, startTrading } from "@/lib/keepers/testkit/trading";
+import { neon } from "@/lib/sql";
 
-if (NETWORK.name === "mainnet") {
-  console.error(
-    "liquidation-drill refuses to run on mainnet: it destroys an account's " +
-      "collateral and moves the oracle. Run it on testnet."
-  );
-  process.exit(1);
+const r = reporter();
+const BTC = 2;
+const usd = (v: bigint) => `$${(Number(v / 10n ** 14n) / 1e4).toFixed(2)}`;
+
+async function read<T>(lc: LocalChain, address: Address, abi: unknown, functionName: string, args: readonly unknown[] = []) {
+  return (await lc.client.readContract({ address, abi, functionName, args } as never)) as T;
 }
 
-const FEE = "2000000";
-// Sizes, notionals and vault balances are 7-decimal (Stellar token scale);
-// oracle prices are 18-decimal. Dividing a size by the PRICE scale silently
-// renders every quantity as 0, which is how the first run of this drill
-// reported "LONG 0" against a real 800-XLM position.
-const AMOUNT = 10n ** 7n;
-const amt = (v: bigint) => Number(v) / Number(AMOUNT);
-const px = (v: bigint) => Number(v / 10n ** 12n) / 1e6;
-const MARKET = Object.values(ACTIVE_MARKETS)[0];
+async function main() {
+  const dbUrl = process.env.KRYON_E2E_DATABASE_URL;
+  if (!dbUrl) throw new Error("KRYON_E2E_DATABASE_URL is required (a migrated, disposable Postgres)");
+  const sql = neon(dbUrl);
 
-if (!MARKET) {
-  console.error("No active markets configured; nothing to drill.");
-  process.exit(1);
-}
+  r.step("boot arc-anvil, deploy, open the book");
+  const lc = await startLocalChain({ log: r.note });
+  const trading = await startTrading(lc, dbUrl, [BTC]);
+  const { engine, liquidation, insurance, vault } = lc.contracts;
+  try {
+    const whale = account(20);
+    const v40 = [account(21), account(22), account(23)];
+    const v27 = account(24);
+    const liquidator = account(25);
+    for (const a of [whale, ...v40, v27, liquidator]) await lc.setBalance(a.address, 20_000n * E18);
 
-const server = new sorobanRpc.Server(NETWORK.rpcUrl);
+    await depositUsdc(lc, whale, 9_000_000_000n);
+    for (const v of v40) await depositUsdc(lc, v, 200_000_000n);
+    await depositUsdc(lc, v27, 300_000_000n);
+    await trading.pushIndex({ BTC: 100_000n * E18, ETH: 3_000n * E18 });
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+    const SIZE = 8n * 10n ** 16n; // 0.08 BTC, $8,000 at $100k
+    for (const v of [...v40, v27]) {
+      await trading.trade({ marketId: BTC, long: v, short: whale, size: SIZE, price: 100_000n * E18 });
+    }
+    const w = await trading.position(whale.address, BTC);
+    r.check("four longs of 0.08 BTC against one 0.32 BTC short", w.size === -4n * SIZE, String(w.size));
+    const posRows = (await sql.query(`SELECT count(*)::int AS n FROM "Position" WHERE "size" <> 0`)) as { n: number }[];
+    r.check("indexer projected all five positions", posRows[0].n === 5, String(posRows[0].n));
 
-const simKp = Keypair.random();
-let simSeq = 100;
+    const logs: { level: string; msg: string; fields: Record<string, unknown> }[] = [];
+    const log = createLogger("liquidator", "debug", {}, (line) => {
+      const { level, msg, ...fields } = JSON.parse(line);
+      logs.push({ level, msg, fields });
+      if (process.env.KRYON_E2E_VERBOSE) process.stdout.write(`    · ${level} ${msg} ${JSON.stringify(fields).slice(0, 300)}\n`);
+    });
+    const keeper = new LiquidationKeeper({
+      chain: viemLiquidationChain({ client: lc.client, engine, liquidation, insurance, vault }),
+      sender: new TxSender({ network: NETWORK, service: "liquidator", chain: lc.client, signer: liquidator, store: new MemoryTxJobStore(), pollMs: 100 }),
+      sql,
+      network: NETWORK.id,
+      contracts: { engine, liquidation, insurance },
+      log,
+      metrics: new Metrics(),
+      actions: new KeeperActions(sql, NETWORK.id),
+      maxAccountsPerTick: 25,
+      maxStepsPerAccount: 10,
+      indexerGraceMs: 0,
+      adlMinShortfall: E18,
+    });
+    const nonce = () => lc.client.getTransactionCount({ address: liquidator.address });
+    const health = (who: Address) =>
+      read<{ equity: bigint; maintenanceMarginRequired: bigint; liquidatable: boolean }>(lc, engine, engineAbi, "accountHealth", [who]);
+    const tick = async (): Promise<LiquidationTickResult> => {
+      const res = await keeper.tick();
+      await trading.index();
+      return res;
+    };
 
-async function read(contractId: string, method: string, args: xdr.ScVal[]): Promise<unknown> {
-  const tx = new TransactionBuilder(new Account(simKp.publicKey(), (simSeq++).toString()), {
-    fee: FEE,
-    networkPassphrase: NETWORK.passphrase,
-  })
-    .addOperation(new Contract(contractId).call(method, ...args))
-    .setTimeout(30)
-    .build();
-  const sim = await server.simulateTransaction(tx);
-  if (sorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`read ${method} failed: ${sim.error}`);
-  }
-  const retval = (sim as sorobanRpc.Api.SimulateTransactionSuccessResponse).result?.retval;
-  return retval ? scValToNative(retval) : null;
-}
+    // ── pause ──
+    r.step("1. paused protocol: the keeper idles");
+    const ph = await lc.wallet(ROLES.guardian).writeContract({
+      address: liquidation,
+      abi: liquidationAbi,
+      functionName: "pause",
+      chain: lc.chain,
+      account: ROLES.guardian,
+      ...FEES,
+    });
+    await lc.client.waitForTransactionReceipt({ hash: ph });
+    const n0 = await nonce();
+    const p = await tick();
+    r.check("tick reports paused", p.status === "paused");
+    r.check("nothing sent", (await nonce()) === n0);
+    await lc.asAddress(await lc.timelock(), { to: liquidation, data: encodeFunctionData({ abi: liquidationAbi, functionName: "unpause" }) });
+    r.check("unpaused by governance", !(await read<boolean>(lc, liquidation, liquidationAbi, "paused")));
 
-async function send(
-  kp: Keypair,
-  contractId: string,
-  method: string,
-  args: xdr.ScVal[]
-): Promise<string> {
-  const account = await server.getAccount(kp.publicKey());
-  const tx = new TransactionBuilder(account, { fee: FEE, networkPassphrase: NETWORK.passphrase })
-    .addOperation(new Contract(contractId).call(method, ...args))
-    .setTimeout(60)
-    .build();
+    // ── stale oracle ──
+    r.step("2. a 3% drop, but the oracle goes stale first: every account blocked");
+    await trading.pushIndex({ BTC: 97_000n * E18, ETH: 3_000n * E18 });
+    await lc.warp(30);
+    const n1 = await nonce();
+    const st = await tick();
+    r.check("all five accounts reported blocked on the oracle", st.blocked.length === 5, String(st.blocked.length));
+    r.check("no liquidation attempted", st.liquidated.length === 0 && (await nonce()) === n1);
+    // The backstop is still flat, so unfundedShortfall needs no price: "no shortfall" is right here.
+    r.check("ADL: backstop flat, nothing to offset", (st.adl as { skipped?: string })?.skipped === "no-shortfall", JSON.stringify(st.adl));
 
-  const sim = await server.simulateTransaction(tx);
-  if (sorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`${method} simulation failed: ${sim.error}`);
-  }
-  const prepared = sorobanRpc.assembleTransaction(tx, sim).build();
-  prepared.sign(kp);
-
-  const sent = await server.sendTransaction(prepared);
-  if (sent.status === "ERROR") {
-    throw new Error(`${method} rejected: ${sent.errorResult?.toXDR("base64")}`);
-  }
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    const got = await server.getTransaction(sent.hash);
-    if (got.status === "SUCCESS") return sent.hash;
-    if (got.status === "FAILED") throw new Error(`${method} failed on-chain: ${sent.hash}`);
-  }
-  throw new Error(`${method} never confirmed: ${sent.hash}`);
-}
-
-let stage = "startup";
-function step(name: string): void {
-  stage = name;
-  console.log(`\n── ${name} ${"─".repeat(Math.max(0, 60 - name.length))}`);
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(`[${stage}] ${message}`);
-}
-
-interface Health {
-  liquidatable: boolean;
-  equity: bigint;
-  maintenance_margin_required: bigint;
-}
-
-async function health(user: string): Promise<Health> {
-  const h = (await read(CONTRACTS.vault, "account_health", [
-    new Address(user).toScVal(),
-    new Address(ASSETS.usdc).toScVal(),
-  ])) as Record<string, unknown>;
-  return {
-    liquidatable: Boolean(h.liquidatable),
-    equity: BigInt((h.equity as bigint) ?? 0),
-    maintenance_margin_required: BigInt((h.maintenance_margin_required as bigint) ?? 0),
-  };
-}
-
-interface Position {
-  position_id: bigint;
-  market_id: number;
-  size: bigint;
-  is_long: boolean;
-}
-
-async function positions(user: string): Promise<Position[]> {
-  const raw = (await read(CONTRACTS.engine, "positions", [
-    new Address(user).toScVal(),
-  ])) as Array<Record<string, unknown>> | null;
-  if (!Array.isArray(raw)) return [];
-  return raw.map((p) => ({
-    position_id: BigInt((p.position_id as bigint) ?? 0),
-    market_id: Number(p.market_id ?? 0),
-    size: BigInt((p.size as bigint) ?? 0),
-    is_long: Boolean(p.is_long),
-  }));
-}
-
-/**
- * Backdate `publish_time` so it can never sit ahead of the ledger clock.
- *
- * `OracleSnapshot::validate` rejects `publish_time > now` as StaleOracle, and
- * `now` is the LEDGER timestamp, which trails wall-clock by up to a full ledger.
- * Stamping with `Date.now()` therefore fails intermittently — whenever the
- * transaction lands in a ledger that closed a second before the stamp. The
- * oracle keeper backdates for exactly this reason; the drill must match it or
- * it fails on a race that has nothing to do with liquidation.
- */
-const PUBLISH_BACKDATE_SECS = 20;
-
-async function publishPrice(publisher: Keypair, price: bigint): Promise<void> {
-  await send(publisher, CONTRACTS.oracleAdapter, "write_price", [
-    nativeToScVal(MARKET.oracleSymbol, { type: "symbol" }),
-    new Address(publisher.publicKey()).toScVal(),
-    nativeToScVal(price, { type: "i128" }),
-    nativeToScVal(price / 2000n, { type: "i128" }),
-    nativeToScVal(Math.floor(Date.now() / 1000) - PUBLISH_BACKDATE_SECS, { type: "u64" }),
-  ]);
-}
-
-/**
- * Collateral is valued off its own feed, so it has to stay fresh while the
- * drill walks the market price — otherwise every `account_health` read fails
- * StaleOracle and the drill reports a liquidation failure that is really an
- * oracle failure.
- */
-async function refreshCollateralFeed(publisher: Keypair): Promise<void> {
-  await send(publisher, CONTRACTS.oracleAdapter, "write_price", [
-    nativeToScVal("USDC", { type: "symbol" }),
-    new Address(publisher.publicKey()).toScVal(),
-    nativeToScVal(10n ** 18n, { type: "i128" }),
-    nativeToScVal(10n ** 15n, { type: "i128" }),
-    nativeToScVal(Math.floor(Date.now() / 1000) - PUBLISH_BACKDATE_SECS, { type: "u64" }),
-  ]);
-}
-
-// ── the drill ────────────────────────────────────────────────────────────────
-
-async function main(): Promise<void> {
-  const victim = Keypair.fromSecret(process.env.DRILL_VICTIM_SECRET as string);
-  const liquidator = Keypair.fromSecret(process.env.LIQUIDATOR_SECRET as string);
-  const publisher = Keypair.fromSecret(process.env.ORACLE_PUBLISHER_SECRET as string);
-
-  console.log(`Liquidation drill on ${NETWORK.name}`);
-  console.log(`  market     ${MARKET.symbol} (id ${MARKET.marketId}, feed ${MARKET.oracleSymbol})`);
-  console.log(`  victim     ${victim.publicKey()}`);
-  console.log(`  liquidator ${liquidator.publicKey()}`);
-
-  step("1. establish a baseline price");
-  // Read the last snapshot with a PERMISSIVE guard rather than None. With None
-  // the contract enforces the feed's own max_age and rejects a stale price
-  // inside the simulation, so a market whose keeper is down fails here — an
-  // oracle problem reported as a liquidation problem. The drill owns the oracle
-  // for its duration, so it reads whatever is stored and then republishes it
-  // fresh as its own starting point.
-  const permissiveGuard = xdr.ScVal.scvMap([
-    new xdr.ScMapEntry({
-      key: xdr.ScVal.scvSymbol("max_age_secs"),
-      val: nativeToScVal(BigInt("18446744073709551615"), { type: "u64" }),
-    }),
-    new xdr.ScMapEntry({
-      key: xdr.ScVal.scvSymbol("max_confidence_bps"),
-      val: nativeToScVal(10000, { type: "u32" }),
-    }),
-  ]);
-  const snapshot = (await read(CONTRACTS.oracleAdapter, "get_price", [
-    nativeToScVal(MARKET.oracleSymbol, { type: "symbol" }),
-    permissiveGuard,
-  ])) as Record<string, unknown> | null;
-  assert(snapshot?.price, `no ${MARKET.oracleSymbol} snapshot exists — the feed has never been written`);
-  const startPrice = BigInt(snapshot.price as bigint);
-
-  await publishPrice(publisher, startPrice);
-  await refreshCollateralFeed(publisher);
-  console.log(`   index republished at ${px(startPrice)}`);
-
-  step("2. confirm the victim holds a position to liquidate");
-  const before = await positions(victim.publicKey());
-  const target = before.find((p) => p.market_id === MARKET.marketId && p.size > 0n);
-  assert(
-    target,
-    `victim holds no position in market ${MARKET.marketId}. Open one first — ` +
-      `the drill deliberately does not create positions for you, because doing ` +
-      `so would exercise a synthetic path rather than the real order flow.`
-  );
-  console.log(
-    `   position ${target.position_id}: ${target.is_long ? "LONG" : "SHORT"} ${amt(target.size)}`
-  );
-
-  step("3. move the index against the victim until health flips");
-  // Walk the price in 5% steps against the position, up to 60%. Stepping rather
-  // than jumping keeps each move inside the oracle's own deviation guards and
-  // mirrors how a real move arrives.
-  let drillPrice = startPrice;
-  let flipped = false;
-  for (let i = 0; i < 12 && !flipped; i++) {
-    drillPrice = target.is_long
-      ? (drillPrice * 95n) / 100n
-      : (drillPrice * 105n) / 100n;
-    await publishPrice(publisher, drillPrice);
-    await refreshCollateralFeed(publisher);
-    const h = await health(victim.publicKey());
-    console.log(
-      `   index ${px(drillPrice)} → equity ${amt(h.equity).toFixed(4)}, ` +
-        `maintenance ${amt(h.maintenance_margin_required).toFixed(4)}, ` +
-        `liquidatable=${h.liquidatable}`
+    // ── liquidations ──
+    r.step("3. prices fresh: the cascade");
+    await trading.pushIndex({ BTC: 97_000n * E18, ETH: 3_000n * E18 });
+    for (const v of v40) {
+      const h = await health(v.address);
+      r.check(`40x long ${v.address.slice(0, 8)} under water (equity ${usd(h.equity)})`, h.liquidatable && h.equity <= 0n);
+    }
+    const h27 = await health(v27.address);
+    r.check(
+      `27x long liquidatable with positive equity (${usd(h27.equity)} < MM ${usd(h27.maintenanceMarginRequired)})`,
+      h27.liquidatable && h27.equity > 0n
     );
-    flipped = h.liquidatable;
-  }
-  assert(
-    flipped,
-    "health never reported liquidatable after a 60% adverse move. Either the " +
-      "position is too small to matter, or the health computation is not " +
-      "responding to price — which is exactly the failure this drill exists " +
-      "to catch."
-  );
 
-  step("4. liquidate — the real contract call, the real key");
-  // The liquidator is paid in TOKENS, not vault credit: perp-insurance's
-  // `pay_liquidator` calls `token.transfer(insurance -> liquidator)` directly.
-  // An earlier version of this drill read the liquidator's VAULT balance, which
-  // never moves on that path, and reported "paid nothing" against a deployment
-  // that was in fact paying correctly. Read the balance the payment lands in.
-  const liquidatorBalanceBefore = BigInt(
-    ((await read(ASSETS.usdc, "balance", [
-      new Address(liquidator.publicKey()).toScVal(),
-    ])) ?? 0n) as bigint
-  );
-
-  const hash = await send(liquidator, CONTRACTS.liquidation, "liquidate", [
-    new Address(liquidator.publicKey()).toScVal(),
-    new Address(victim.publicKey()).toScVal(),
-    nativeToScVal(target.position_id, { type: "u64" }),
-    nativeToScVal(target.size, { type: "i128" }),
-    nativeToScVal(drillPrice, { type: "i128" }),
-  ]);
-  console.log(`   liquidated in ${hash}`);
-
-  step("5. verify the outcome on-chain");
-  const after = await positions(victim.publicKey());
-  const remaining = after.find((p) => p.position_id === target.position_id);
-  assert(
-    !remaining || remaining.size < target.size,
-    "the liquidation transaction succeeded but the position did not shrink"
-  );
-  console.log(`   position size ${amt(target.size)} → ${amt(remaining?.size ?? 0n)}`);
-
-  const liquidatorBalanceAfter = BigInt(
-    ((await read(ASSETS.usdc, "balance", [
-      new Address(liquidator.publicKey()).toScVal(),
-    ])) ?? 0n) as bigint
-  );
-  // Name the cause rather than the symptom. A zero reward is almost always a
-  // zero `max_reward_bps`, which was settable only at `initialize` and had no
-  // reader, so the deployment could not tell you it had disabled its own
-  // liquidation economics.
-  if (liquidatorBalanceAfter <= liquidatorBalanceBefore) {
-    // Tolerant read: a deployment older than the reader must still produce a
-    // useful message rather than crashing the drill on the diagnostic itself.
-    const configured = await read(CONTRACTS.liquidation, "max_reward_bps", []).catch(() => null);
-    const detail =
-      configured === null || configured === undefined
-        ? "this deployment predates max_reward_bps() so the value cannot be read on-chain"
-        : `max_reward_bps = ${configured}`;
-    throw new Error(
-      `the liquidator was paid nothing (${detail}). Liquidation is mechanically ` +
-        `correct but economically dead: a keeper pays gas and receives nothing, ` +
-        `so in production no one would ever call it.`
+    const liq = await tick();
+    for (const v of v40) {
+      const pos = await trading.position(v.address, BTC);
+      r.check(`40x long ${v.address.slice(0, 8)} closed out in full`, pos.size === 0n, String(pos.size));
+    }
+    const p27 = await trading.position(v27.address, BTC);
+    const after27 = await health(v27.address);
+    r.check("27x long cut by a partial step, not closed", p27.size > 0n && p27.size < SIZE, String(p27.size));
+    r.check("27x long healthy after the step", !after27.liquidatable);
+    r.check(
+      "the keeper stopped stepping once health was restored",
+      liq.liquidated.find((x) => x.trader.toLowerCase() === v27.address.toLowerCase())?.stillLiquidatable === false
     );
+
+    // Judged from the indexer's event rows: ADL may already have started in
+    // this same tick, as soon as the close-outs left bad debt behind.
+    const moved = (await sql.query(
+      `SELECT COALESCE(SUM("closeSize"), 0)::text AS s FROM "LiquidationEvent" WHERE "network" = $1`,
+      [NETWORK.id]
+    )) as { s: string }[];
+    r.check("the backstop absorbed the closed longs (LiquidationEvent rows)", BigInt(moved[0].s) > 3n * SIZE, moved[0].s);
+    const badDebt = await read<bigint>(lc, insurance, insuranceAbi, "badDebt");
+    r.check(`bad debt recorded (${usd(badDebt)}): deficits exceeded operating capital`, badDebt > 0n);
+    r.check("ADL began in the same tick the bad debt appeared", !!(liq.adl as { counterparty?: string })?.counterparty, JSON.stringify(liq.adl, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+
+    // ── backstop under water ──
+    r.step("4. a further drop to $95,000: the backstop goes under");
+    await trading.pushIndex({ BTC: 95_000n * E18, ETH: 3_000n * E18 });
+    const [marked] = await read<[bigint, boolean]>(lc, insurance, insuranceAbi, "markedOperatingBalance");
+    r.check(`insurance marked operating balance negative (${usd(marked)})`, marked < 0n);
+    const shortfall0 = await read<bigint>(lc, insurance, insuranceAbi, "unfundedShortfall");
+    r.check(`unfunded shortfall ${usd(shortfall0)}`, shortfall0 > 0n);
+
+    r.step("5. ADL blocked while the backstop cannot be priced");
+    await lc.warp(30);
+    const blockedAdl = await tick();
+    r.check("unfundedShortfall reverting StaleOracle reads as blocked, never as zero", (blockedAdl.adl as { skipped?: string })?.skipped === "oracle", JSON.stringify(blockedAdl.adl));
+
+    r.step("6. ADL, one step per tick, until the shortfall is gone");
+    await trading.pushIndex({ BTC: 95_000n * E18, ETH: 3_000n * E18 });
+    const whaleEq0 = (await health(whale.address)).equity;
+    let steps = 0;
+    for (let i = 0; i < 10; i++) {
+      await trading.pushIndex({ BTC: 95_000n * E18, ETH: 3_000n * E18 });
+      const t = await tick();
+      const a = t.adl as { counterparty?: Address; haircut?: bigint; skipped?: string };
+      if (!a?.counterparty) break;
+      steps += 1;
+      r.check(`ADL step ${steps}: counterparty is the in-profit short`, a.counterparty.toLowerCase() === whale.address.toLowerCase());
+    }
+    const shortfall1 = await read<bigint>(lc, insurance, insuranceAbi, "unfundedShortfall");
+    r.check(`shortfall cleared to below $1 in ${steps} step(s) (left: ${shortfall1} wei)`, shortfall1 < E18);
+    // Every haircut bounded by the shortfall the keeper saw when it decided.
+    const adls = (await sql.query(
+      `SELECT "payload" FROM "KeeperAction" WHERE "kind" = 'liquidation.adl' AND "status" = 'CONFIRMED' ORDER BY "id"`
+    )) as { payload: { shortfall: string; events: { event: string; args: { haircut?: string } }[] } }[];
+    const bounded = adls.every((x) => {
+      const h = BigInt(x.payload.events.find((e) => e.event === "Deleveraged")?.args.haircut ?? "0");
+      return h > 0n && h <= BigInt(x.payload.shortfall);
+    });
+    r.check(`${adls.length} ADL haircut(s), each within the shortfall at the time`, adls.length > 0 && bounded);
+    const whaleEq1 = (await health(whale.address)).equity;
+    r.check("the short kept the rest of its profit", whaleEq1 > 0n && whaleEq1 <= whaleEq0);
+    const n2 = await nonce();
+    const idle = await tick();
+    const idleWhy = (idle.adl as { skipped?: string })?.skipped;
+    r.check("no ADL attempted once the shortfall is gone or dust", (idleWhy === "no-shortfall" || idleWhy === "dust") && (await nonce()) === n2, String(idleWhy));
+
+    // ── end state ──
+    r.step("7. end state");
+    const [assets, liabilities] = await read<[bigint, bigint]>(lc, vault, vaultAbi, "solvency");
+    r.check(`Vault.solvency(): assets ${usd(assets)} >= liabilities ${usd(liabilities)}`, assets >= liabilities);
+    const open = (await sql.query(
+      `SELECT count(*)::int AS n FROM "KeeperAction" WHERE "kind" LIKE 'liquidation.%' AND "status"::text IN ('PLANNED','SUBMITTED')`
+    )) as { n: number }[];
+    r.check("every keeper intent is terminal", open[0].n === 0);
+    await keeper.tick(); // one more pass so reconcileIndexed sees the indexer's rows
+    const unindexed = (await sql.query(
+      `SELECT count(*)::int AS n FROM "KeeperAction" WHERE "status" = 'CONFIRMED'
+         AND "kind" IN ('liquidation.liquidate','liquidation.adl') AND ("payload"->>'indexed') <> 'true'`
+    )) as { n: number }[];
+    r.check("every confirmed liquidation/ADL matched by an indexer event row", unindexed[0].n === 0, String(unindexed[0].n));
+    const counts = (await sql.query(
+      `SELECT (SELECT count(*)::int FROM "LiquidationEvent") AS l, (SELECT count(*)::int FROM "DeleverageEvent") AS d`
+    )) as { l: number; d: number }[];
+    r.note(`indexer: ${counts[0].l} LiquidationEvent, ${counts[0].d} DeleverageEvent rows`);
+  } finally {
+    await trading.end();
+    lc.stop();
+    await sql.end();
   }
-  console.log(
-    `   liquidator reward = ${amt(liquidatorBalanceAfter - liquidatorBalanceBefore)} USDC`
-  );
-
-  const victimSettlement = BigInt(
-    ((await read(CONTRACTS.vault, "balance_of", [
-      new Address(victim.publicKey()).toScVal(),
-      new Address(ASSETS.usdc).toScVal(),
-    ])) ?? 0n) as bigint
-  );
-  if (victimSettlement < 0n) {
-    console.warn(
-      `   ⚠ victim settlement balance is still ${victimSettlement} — seize/absorb ` +
-        `did not clear the deficit. This is KRY-Q4 territory: the protocol is ` +
-        `carrying the loss with no counterparty mechanism.`
-    );
-  } else {
-    console.log(`   victim settlement balance cleared to ${victimSettlement}`);
-  }
-
-  // A liquidation closes the distressed side with no counterparty, so the book
-  // is now asymmetric by exactly the closed size (audit KRY-Q4). Report it: this
-  // is the exposure the insurance fund silently inherits.
-  const longOi = BigInt(((await read(CONTRACTS.engine, "long_open_interest", [nativeToScVal(MARKET.marketId, { type: "u32" })])) ?? 0n) as bigint);
-  const shortOi = BigInt(((await read(CONTRACTS.engine, "short_open_interest", [nativeToScVal(MARKET.marketId, { type: "u32" })])) ?? 0n) as bigint);
-  console.log(`   open interest now long ${amt(longOi)} vs short ${amt(shortOi)} — imbalance ${amt(longOi - shortOi)}`);
-
-  step("6. restore the index");
-  await publishPrice(publisher, startPrice);
-  await refreshCollateralFeed(publisher);
-  console.log(`   index restored to ${px(startPrice)}`);
-
-  console.log("\n✅ Liquidation drill passed — liquidation works end to end.");
+  process.stdout.write(`\n${r.failures === 0 ? "✓ liquidation cascade drill passed" : `✗ liquidation drill: ${r.failures} check(s) failed`}\n`);
+  process.exit(r.failures === 0 ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.error(`\n❌ Liquidation drill FAILED at stage: ${stage}`);
-  console.error(e instanceof Error ? e.message : e);
+main().catch((err) => {
+  console.error(err);
   process.exit(1);
 });
