@@ -71,23 +71,27 @@ Mismatches are classified as `indexer-lag` (self-healing), `not-in-receipt` (the
 is not the batch we recorded — a bug), `batch-failed` and `never-submitted`. All but the first are
 written as durable `KeeperAction` rows with status `SKIPPED`, meaning *deliberately not acted on*.
 
-### 1.5 GasSpend roll-up — guarded, not idempotent by nature
+### 1.5 GasSpend roll-up — derived, so idempotent
 
-**The hazard:** `GasSpend` is an additive upsert (`txCount + 1`, `gasUsed + EXCLUDED`). Processing
-one receipt twice inflates the day's numbers. Two reconcilers, or a reconciler racing the owning
-service's `TxSender.wait()`, both reach this code.
+**The hazard it replaced:** an additive upsert (`txCount + 1`) guarded by "only the process that
+moves the job to terminal adds its gas". That undercounts badly: the owning service's
+`TxSender.wait()` confirms nearly every job itself, writing the receipt without the guard, and those
+jobs never appear in the reconciler's `openJobs` pass. The matcher's gas would have been almost
+entirely missing from `GasSpend`, and `GasSpend` is what the refill and monitor read.
 
-**The guard:** `finalize()` moves the job to a terminal state with the open-status predicate
-*inside* the `UPDATE`:
+**The design:** `GasSpendRollup.recompute(days)` rebuilds whole days from `TxJob` with a single
+`INSERT ... SELECT ... GROUP BY ... ON CONFLICT DO UPDATE SET "txCount" = EXCLUDED."txCount", ...`.
+It counts `CONFIRMED` and `REVERTED` attempts (mined, so paid for) and skips `REPLACED`/`DROPPED`
+(never landed). The bucket is the job's `createdAt` day, which never changes. The reconciler runs it
+once per tick over yesterday, today and tomorrow; the extra day absorbs a host that is not running
+in UTC (and `bootstrap()` pins `TZ=UTC` anyway).
 
-```sql
-UPDATE "TxJob" SET "status" = $1 ... WHERE "id" = $6 AND "status" = ANY('{PENDING,SUBMITTED}')
-RETURNING "id"
-```
+Running it twice, or from two processes at once, writes the same numbers. Covered by
+`gas is rolled up for jobs the owning service confirmed itself` and
+`replaced and dropped attempts cost nothing; the roll-up is a set, not an add`.
 
-Postgres evaluates the predicate under row lock, so exactly one caller gets a row back. Only that
-caller rolls up the gas. Covered by `finalize is the transition owner exactly once` and
-`gas is rolled up once even if the tick runs twice`.
+`finalize()` still makes its terminal write compare-and-set, so that of two racing reconcilers
+exactly one logs the transition, but gas accounting no longer depends on it.
 
 ---
 
@@ -201,7 +205,7 @@ that may be retried freely.
 | Fee-bump replacement | N/A — needs the key | Owning process only |
 | Nonce-gap fill | No — races the second writer | Report only |
 | Re-settle fills | Unproven | Report only |
-| GasSpend roll-up | No — additive | Guarded by `finalize` |
+| GasSpend roll-up | Yes — recomputed from TxJob | Set, not add |
 | `updateFunding` | **No** — consumes the TWAP | Re-decide from `fundingState` |
 | `pushPrices` | Yes — overwrites our observation | Automatic, `publishTime` clamped forward |
 | `liquidate` | **No** — liquidates again | Re-decide from `accountHealth` |

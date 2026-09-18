@@ -1,13 +1,14 @@
 /**
  * One reconciler tick: drain every service key's open TxJobs to a terminal
- * state, then scan for fills the matcher left stranded.
+ * state, re-derive today's GasSpend, then scan for fills the matcher left
+ * stranded.
  *
  * The reconciler is the only process that looks at *all* service keys. Every
  * other keeper sees only its own.
  */
 
 import type { SqlClient } from "@/lib/sql";
-import type { GasSpendRollup, KeeperActions, Logger, Metrics } from "@/lib/keepers/runtime";
+import { recentUtcDays, type GasSpendRollup, type KeeperActions, type Logger, type Metrics } from "@/lib/keepers/runtime";
 import { openKeys, reconcileKey, type KeyReport, type ReconcilerChain } from "./jobs";
 import { scanUnaccountedFills, type FillMismatch } from "./fills";
 
@@ -47,7 +48,6 @@ export async function reconcileOnce(o: ReconcilerOptions): Promise<TickReport> {
           network: o.network,
           log: o.log,
           metrics: o.metrics,
-          gas: o.gas,
           now: o.now,
           stuckAfterMs: o.stuckAfterMs,
         },
@@ -55,6 +55,8 @@ export async function reconcileOnce(o: ReconcilerOptions): Promise<TickReport> {
       )
     );
   }
+
+  await o.gas.recompute(recentUtcDays(new Date(o.now ? o.now() : Date.now())));
 
   const mismatches = await scanUnaccountedFills({
     sql: o.sql,

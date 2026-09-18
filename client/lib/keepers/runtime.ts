@@ -20,9 +20,9 @@ import type { SqlClient } from "@/lib/sql";
 import { assertChainId, createArcPublicClient, serviceAccount } from "@/lib/chain/clients";
 import { PgTxJobStore } from "@/lib/chain/tx-store-pg";
 import { TxSender, type TxSenderOptions } from "@/lib/chain/tx-sender";
+import { serverContracts } from "@/lib/chain/contracts-env";
 import {
   arcNetwork,
-  serverContracts,
   serverNetworkId,
   type ArcNetwork,
   type Env,
@@ -280,10 +280,18 @@ export class KeeperActions {
  * Daily gas roll-up per service key. Arc's gas token is USDC, so `costWei` is
  * wei of the 18-decimal native USDC and divides by 1e18 to read as dollars.
  *
- * Keyed on (network, day, service, fromAddress) and applied as an upsert that
- * adds, so a reconciler that processes the same receipt twice would
- * double-count. Callers must only roll up a job on the transition into a
- * terminal state — `TxJob.status` is that guard.
+ * Derived, not accumulated: each call recomputes whole days from `TxJob`,
+ * which already carries `gasUsed` and `effectiveGasPrice` for every mined
+ * attempt. That matters because most jobs are confirmed by the owning
+ * service's own `TxSender.wait()` and never pass through the reconciler, so
+ * an "add on my transition" counter would miss nearly all of them. A
+ * recompute is also idempotent, so repeated ticks and racing processes
+ * cannot double-count.
+ *
+ * Only CONFIRMED and REVERTED attempts are counted: those are the ones that
+ * were mined and paid for. A REPLACED or DROPPED attempt never landed. The
+ * day is the job's UTC `createdAt`, which never changes after insert, so a
+ * job cannot move between days.
  */
 export class GasSpendRollup {
   constructor(
@@ -291,32 +299,39 @@ export class GasSpendRollup {
     private readonly network: string
   ) {}
 
-  async add(entry: {
-    day: Date;
-    service: string;
-    fromAddress: Address;
-    gasUsed: bigint;
-    effectiveGasPrice: bigint;
-  }): Promise<void> {
-    const cost = entry.gasUsed * entry.effectiveGasPrice;
+  /** Recompute the given days (default: yesterday, today and tomorrow, UTC). */
+  async recompute(days: string[] = recentUtcDays(new Date())): Promise<void> {
     await this.sql.query(
       `INSERT INTO "GasSpend" ("network", "day", "service", "fromAddress", "txCount", "gasUsed", "costWei", "updatedAt")
-       VALUES ($1, $2::date, $3, $4, 1, $5, $6, now())
+       SELECT "network", "createdAt"::date, "service", lower("fromAddress"),
+              COUNT(*), SUM("gasUsed"), SUM("gasUsed" * "effectiveGasPrice"), now()
+       FROM "TxJob"
+       WHERE "network" = $1
+         AND "createdAt"::date = ANY($2::date[])
+         AND "status"::text IN ('CONFIRMED', 'REVERTED')
+         AND "gasUsed" IS NOT NULL AND "effectiveGasPrice" IS NOT NULL
+       GROUP BY 1, 2, 3, 4
        ON CONFLICT ("network", "day", "service", "fromAddress") DO UPDATE SET
-         "txCount" = "GasSpend"."txCount" + 1,
-         "gasUsed" = "GasSpend"."gasUsed" + EXCLUDED."gasUsed",
-         "costWei" = "GasSpend"."costWei" + EXCLUDED."costWei",
+         "txCount" = EXCLUDED."txCount",
+         "gasUsed" = EXCLUDED."gasUsed",
+         "costWei" = EXCLUDED."costWei",
          "updatedAt" = now()`,
-      [
-        this.network,
-        utcDay(entry.day),
-        entry.service,
-        entry.fromAddress.toLowerCase(),
-        entry.gasUsed.toString(),
-        cost.toString(),
-      ]
+      [this.network, days]
     );
   }
+}
+
+/**
+ * The days a tick recomputes. Yesterday covers a job created before midnight
+ * and mined after it. Tomorrow covers the host's clock: node-postgres writes a
+ * `Date` into a `timestamp` column as host-local wall time, so on a host not
+ * running in UTC a job's `createdAt::date` can sit a day ahead. With the
+ * window at ±1 day that shifts which bucket a job lands in, never whether it
+ * is counted. Services should still run with TZ=UTC.
+ */
+export function recentUtcDays(now: Date): string[] {
+  const day = 86_400_000;
+  return [-day, 0, day].map((d) => utcDay(new Date(now.getTime() + d)));
 }
 
 /** YYYY-MM-DD in UTC. Local dates would split a day differently per host. */
@@ -358,6 +373,12 @@ export async function bootstrap(o: BootstrapOptions): Promise<KeeperContext> {
   const log = createLogger(o.service, o.logLevel ?? (env.LOG_LEVEL as LogLevel) ?? "info", {
     network: network.id,
   });
+  // node-postgres writes a Date into a `timestamp` column as host-local wall
+  // time. Pin UTC so TxJob.createdAt and the GasSpend day agree on every host.
+  if (process.env.TZ !== "UTC") {
+    if (process.env.TZ) log.warn("overriding TZ to UTC", { was: process.env.TZ });
+    process.env.TZ = "UTC";
+  }
   await assertChainId(client, network);
   log.info("chain id verified", { chainId: network.chainId });
   return {

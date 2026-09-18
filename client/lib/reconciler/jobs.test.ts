@@ -188,11 +188,15 @@ describe("reconcileKey", { skip: !url }, () => {
   const statusOf = async (id: string) =>
     (await sql.query(`SELECT "status"::text AS s, "gasUsed", "effectiveGasPrice", "blockNumber", "error" FROM "TxJob" WHERE "id" = $1`, [id]))[0];
 
-  const run = (state: FakeState, now = Date.now()) =>
-    reconcileKey(
-      { chain: fakeChain(state), sql, network: NETWORK, log, metrics, gas, now: () => now, stuckAfterMs: 60_000 },
+  // One key pass followed by the per-tick roll-up, as `reconcileOnce` does.
+  const run = async (state: FakeState, now = Date.now()) => {
+    const report = await reconcileKey(
+      { chain: fakeChain(state), sql, network: NETWORK, log, metrics, now: () => now, stuckAfterMs: 60_000 },
       { address: KEY, service: SERVICE }
     );
+    await gas.recompute();
+    return report;
+  };
 
   test("confirmed: records gas, block and a GasSpend roll-up", async () => {
     const job = await insertJob({ nonce: 0 });
@@ -231,6 +235,43 @@ describe("reconcileKey", { skip: !url }, () => {
 
     const spend = await sql.query(`SELECT "txCount" FROM "GasSpend"`);
     assert.equal(Number(spend[0].txCount), 1);
+  });
+
+  test("gas is rolled up for jobs the owning service confirmed itself", async () => {
+    // The common case: the matcher's TxSender.wait() saw the receipt first, so
+    // the job is already terminal and never appears in the reconciler's pass.
+    const job = await insertJob({ nonce: 0 });
+    await sql.query(
+      `UPDATE "TxJob" SET "status" = 'CONFIRMED', "gasUsed" = 50000, "effectiveGasPrice" = 20000000000,
+         "blockNumber" = 100 WHERE "id" = $1`,
+      [job.id]
+    );
+    const state: FakeState = { minedNonce: 1, receipts: new Map(), mempool: new Set(), broadcasts: [] };
+    await run(state);
+
+    const spend = await sql.query(`SELECT "txCount", "gasUsed", "costWei" FROM "GasSpend"`);
+    assert.equal(spend.length, 1);
+    assert.equal(Number(spend[0].txCount), 1);
+    assert.equal(BigInt(spend[0].gasUsed), 50_000n);
+    assert.equal(BigInt(spend[0].costWei), 50_000n * 20_000_000_000n);
+  });
+
+  test("replaced and dropped attempts cost nothing; the roll-up is a set, not an add", async () => {
+    const mined = await insertJob({ nonce: 0 });
+    const replaced = await insertJob({ nonce: 1 });
+    await sql.query(
+      `UPDATE "TxJob" SET "status" = 'REVERTED', "gasUsed" = 30000, "effectiveGasPrice" = 1 WHERE "id" = $1`,
+      [mined.id]
+    );
+    await sql.query(`UPDATE "TxJob" SET "status" = 'REPLACED' WHERE "id" = $1`, [replaced.id]);
+
+    await gas.recompute();
+    await gas.recompute();
+
+    const spend = await sql.query(`SELECT "txCount", "gasUsed" FROM "GasSpend"`);
+    assert.equal(spend.length, 1);
+    assert.equal(Number(spend[0].txCount), 1);
+    assert.equal(BigInt(spend[0].gasUsed), 30_000n);
   });
 
   test("finalize is the transition owner exactly once", async () => {

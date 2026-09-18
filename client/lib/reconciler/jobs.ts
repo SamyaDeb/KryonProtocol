@@ -30,7 +30,7 @@ import type { Address, Hex, TransactionReceipt } from "viem";
 import type { SqlClient } from "@/lib/sql";
 import { decodeRevert } from "@/lib/chain/settlement";
 import { OPEN_TX_STATUSES, type TxJob, type TxJobStatus } from "@/lib/chain/tx-store";
-import { GasSpendRollup, errorMessage, type Logger, type Metrics } from "@/lib/keepers/runtime";
+import { errorMessage, type Logger, type Metrics } from "@/lib/keepers/runtime";
 
 /** The RPC surface the reconciler uses. A fake chain in tests implements this. */
 export interface ReconcilerChain {
@@ -72,7 +72,6 @@ export interface ReconcileDeps {
   network: string;
   log: Logger;
   metrics: Metrics;
-  gas: GasSpendRollup;
   now?: () => number;
   /** A job open longer than this with no receipt is reported stuck. */
   stuckAfterMs?: number;
@@ -144,11 +143,11 @@ async function openJobsFor(sql: SqlClient, network: string, address: Address): P
  * Move a job to a terminal state **only if it is still open**, and report
  * whether this call is the one that did it.
  *
- * This is the guard that makes the GasSpend roll-up safe. The roll-up is an
- * additive upsert, so counting the same receipt twice inflates the day's gas.
- * Two reconcilers racing, or one reconciler racing the owning service's
- * `TxSender.wait()`, both land here; exactly one gets `true` back, because the
- * status predicate is evaluated inside the UPDATE.
+ * Two reconcilers racing both land here and exactly one gets `true` back,
+ * because the status predicate is evaluated inside the UPDATE; the winner is
+ * the one that logs the transition. The owning service's `TxSender.wait()`
+ * writes without this guard, which is harmless: both sides record the same
+ * receipt, and GasSpend is derived from TxJob rather than counted here.
  */
 export async function finalize(
   sql: SqlClient,
@@ -327,16 +326,9 @@ async function resolveNonce(
       error,
     });
 
-    // Gas is spent whether or not the call succeeded, and only the transition
-    // owner rolls it up (see `finalize`).
+    // Gas is not rolled up here: `GasSpendRollup.recompute` derives it from
+    // TxJob once per tick, which also covers jobs the owning service confirmed.
     if (transitioned) {
-      await deps.gas.add({
-        day: new Date(nowMs),
-        service: attempt.service,
-        fromAddress: attempt.fromAddress,
-        gasUsed: receipt.gasUsed,
-        effectiveGasPrice: receipt.effectiveGasPrice,
-      });
       if (confirmed) {
         log.info("job confirmed", {
           id: attempt.id,
