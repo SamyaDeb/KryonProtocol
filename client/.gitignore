@@ -92,3 +92,6 @@ scripts/setup-usdc-settlement.ts
 #
 # The ad-hoc drill and debug scripts stay ignored (see above); those are the
 # things that genuinely should not ship.
+
+# npm run dev:stack — local deployment record
+/.dev-stack/
