@@ -107,7 +107,9 @@ export async function startLocalChain(opts: { port?: number; blockTime?: number;
   if (opts.blockTime) args.push("--block-time", String(opts.blockTime));
   const proc: ChildProcess = spawn("arc-anvil", args, { stdio: ["ignore", "ignore", "pipe"] });
   proc.stderr?.on("data", (d) => process.stderr.write(`anvil: ${d}`));
-  const client = createPublicClient({ chain, transport: http(rpc) }) as PublicClient;
+  // cacheTime 0: viem caches getBlockNumber for 4s by default, which lets the
+  // in-process indexer read a stale head and stop short of blocks a drill just mined.
+  const client = createPublicClient({ chain, transport: http(rpc), cacheTime: 0 }) as PublicClient;
   let up = false;
   for (let i = 0; i < 60 && !up; i++) {
     try {

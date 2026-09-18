@@ -121,6 +121,19 @@ visible in the mark quality.
   TWAP and is wrong twice over.
 - `dt = 0` (equal block timestamps) must not revert: Arc timestamps are non-decreasing, not
   strictly increasing. `updateFromPremium` handles it; the keeper must not treat it as an error.
+- **Cadence stays under an hour.** One update charges `min(elapsed, 3600)`, so a keeper that fires
+  hourly loses whatever jitter pushes it past 3600s, on every update. `FUNDING_DUE_AFTER_SECS`
+  defaults to 3300 and the keeper refuses anything at or above 3600. Updates are prorated, so the
+  earlier update charges exactly its elapsed time and nothing is lost.
+- **Same-second calls are skipped, not sent.** The keeper plans from `fundingState.lastUpdate`
+  against the latest block's timestamp and skips `elapsed <= 0` rather than relying on the
+  contract's no-op, because the no-op still consumes the TWAP window.
+- A market's first settled trade starts its funding clock. The keeper's `lastUpdate == 0` path
+  only fires for a market that has never traded.
+
+Proven on arc-anvil by `scripts/funding-drill.ts`: every index move matches
+`rate * min(elapsed, 3600) / 3600` exactly, a 2.5h gap charges one hour and is not chased, and a
+stale oracle is reported in pre-flight without sending.
 
 ---
 
@@ -228,6 +241,37 @@ zero.
 again but moves no funds and changes no recorded debt. It also requires `positionCount(trader) == 0`,
 so it cannot run against an account still being unwound. This is the one call in the keeper set
 that may be retried freely.
+
+**The in-flight guard.** "Re-read health, decide again" has one hole: a liquidation whose
+`wait()` timed out may still land, and health read while it is pending shows the account still
+under water. Deciding again would send a second liquidation at the next nonce, and both would land.
+So the keeper calls `runtime.stillInFlight` first: it drives this key's open jobs to a mined
+outcome and sends nothing new while any remain. The funding keeper and keeper-refill use the same
+guard for the same reason.
+
+**ADL dust.** `adl` caps the close so the haircut never exceeds the shortfall. Once the shortfall is
+dust, that cap rounds to zero and the call reverts `NoBadDebtToOffset`. Retrying would fail the
+pre-flight every tick forever, so ADL is skipped below `ADL_MIN_SHORTFALL_USDC` (default $1). The
+cascade drill ends with 309 wei of shortfall left, which is exactly this case.
+
+**Observed on the drill, by design of the frozen contracts:** ADL starts in the same tick that
+close-outs create bad debt. While the backstop itself is under water, `unfundedShortfall` stays at
+the recorded bad debt (`badDebt - max(marked, 0)` with `marked < 0`), so the total haircut across
+steps can exceed the recorded bad debt: the backstop's own losses are socialised too. Each single
+haircut is still bounded by the shortfall when it was taken (checked by the drill). This is the
+audited `Insurance`/`Liquidation` semantics, recorded here so nobody reads it as a keeper bug.
+
+Proven on arc-anvil by `scripts/liquidation-drill.ts`: pause, stale-oracle block, full close-outs,
+a partial step that stops once healthy, bad debt, the backstop going under, ADL blocked while
+unpriceable, ADL to dust, solvency intact, and every confirmed action matched by an indexer row.
+
+### 4b. keeper-refill
+
+Each top-up is decided from the target's live balance, so an in-flight transfer (balance not yet
+raised) would draw a second one. The same in-flight guard applies. A top-up whose confirmation
+timed out stays `SUBMITTED`, and the per-target daily cap counts both `CONFIRMED` and
+`SUBMITTED`, so a runaway keeper cannot draw more than its allowance. The funder knows target
+addresses, never target keys.
 
 ---
 

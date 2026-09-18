@@ -104,6 +104,33 @@ module.exports = {
       out_file: "./logs/reconciler.log",
       error_file: "./logs/reconciler.error.log",
     },
+    // Funding: one KEEPER_ROLE key, a little under hourly per market.
+    {
+      name: "kryon-funding",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/funding-keeper.ts",
+      cwd: __dirname,
+      restart_delay: 10000,
+      max_restarts: 10,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/funding.log",
+      error_file: "./logs/funding.error.log",
+    },
+    // Gas top-ups for every service key above. An unattended keeper with an
+    // empty gas balance fails silently, so this runs with the keepers.
+    {
+      name: "kryon-refill",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/keeper-refill.ts --execute --loop",
+      cwd: __dirname,
+      restart_delay: 30000,
+      max_restarts: 10,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/refill.log",
+      error_file: "./logs/refill.error.log",
+    },
     {
       name: "kryon-monitor",
       script: "npx",
