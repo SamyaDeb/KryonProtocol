@@ -271,6 +271,10 @@ jobs:
         working-directory: client
         run: npm run drill:oracle
 
+      - name: Funding keeper drill
+        working-directory: client
+        run: npm run drill:funding
+
   # ---------------------------------------------------------------------------
   # Solidity suite on arc-foundry (pinned). Build sizes, unit/invariant tests,
   # differential fuzz vs the Rust reference, storage-layout diff, Slither.

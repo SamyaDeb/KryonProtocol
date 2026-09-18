@@ -29,7 +29,8 @@
     "contracts:upgrade": "tsx scripts/upgrade-contracts.ts",
     "wagmi:generate": "wagmi generate",
     "test:e2e:matcher": "tsx scripts/matcher-e2e.ts",
-    "drill:oracle": "tsx scripts/oracle-drill.ts"
+    "drill:oracle": "tsx scripts/oracle-drill.ts",
+    "drill:funding": "tsx scripts/funding-drill.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

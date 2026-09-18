@@ -104,6 +104,19 @@ module.exports = {
       out_file: "./logs/reconciler.log",
       error_file: "./logs/reconciler.error.log",
     },
+    // Funding: one KEEPER_ROLE key, a little under hourly per market.
+    {
+      name: "kryon-funding",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/funding-keeper.ts",
+      cwd: __dirname,
+      restart_delay: 10000,
+      max_restarts: 10,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/funding.log",
+      error_file: "./logs/funding.error.log",
+    },
     {
       name: "kryon-monitor",
       script: "npx",

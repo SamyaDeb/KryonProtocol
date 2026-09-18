@@ -121,6 +121,19 @@ visible in the mark quality.
   TWAP and is wrong twice over.
 - `dt = 0` (equal block timestamps) must not revert: Arc timestamps are non-decreasing, not
   strictly increasing. `updateFromPremium` handles it; the keeper must not treat it as an error.
+- **Cadence stays under an hour.** One update charges `min(elapsed, 3600)`, so a keeper that fires
+  hourly loses whatever jitter pushes it past 3600s, on every update. `FUNDING_DUE_AFTER_SECS`
+  defaults to 3300 and the keeper refuses anything at or above 3600. Updates are prorated, so the
+  earlier update charges exactly its elapsed time and nothing is lost.
+- **Same-second calls are skipped, not sent.** The keeper plans from `fundingState.lastUpdate`
+  against the latest block's timestamp and skips `elapsed <= 0` rather than relying on the
+  contract's no-op, because the no-op still consumes the TWAP window.
+- A market's first settled trade starts its funding clock. The keeper's `lastUpdate == 0` path
+  only fires for a market that has never traded.
+
+Proven on arc-anvil by `scripts/funding-drill.ts`: every index move matches
+`rate * min(elapsed, 3600) / 3600` exactly, a 2.5h gap charges one hour and is not chased, and a
+stale oracle is reported in pre-flight without sending.
 
 ---
 

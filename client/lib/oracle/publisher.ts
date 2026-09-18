@@ -24,11 +24,10 @@ import { decodeEventLog, hexToString, type Address, type Hex, type TransactionRe
 
 import { oracleAdapterAbi } from "@/lib/chain/contracts";
 import { encodePushPrices } from "@/lib/chain/oracle";
-import { decodeRevert } from "@/lib/chain/settlement";
 import type { TxJob } from "@/lib/chain/tx-store";
 import type { TxOutcome, TxRequest } from "@/lib/chain/tx-sender";
 import { errorMessage, type KeeperActions, type Logger, type Metrics } from "@/lib/keepers/runtime";
-import { extractRevertData } from "@/lib/reconciler/jobs";
+import { decodeError } from "@/lib/keepers/reverts";
 
 import { aggregate, type AggregateOptions, type AggregateResult } from "./aggregate";
 import {
@@ -121,11 +120,6 @@ export function classifyRevert(errorName: string | null): RevertClass {
     default:
       return "unknown";
   }
-}
-
-export function decodeError(err: unknown): { errorName: string | null; errorArgs: readonly unknown[] } {
-  const data = extractRevertData(err);
-  return data ? decodeRevert(data) : { errorName: null, errorArgs: [] };
 }
 
 /** `bytes32("BTC")` → "BTC". */
