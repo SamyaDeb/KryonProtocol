@@ -13,7 +13,7 @@ import type { HDAccount } from "viem/accounts";
 import { engineAbi, oracleAdapterAbi, riskParamsAbi } from "@/lib/chain/contracts";
 import { oracleId } from "@/lib/chain/networks";
 import { TxSender } from "@/lib/chain/tx-sender";
-import { MemoryTxJobStore } from "@/lib/chain/tx-store";
+import { MemoryTxJobStore, type TxJobStore } from "@/lib/chain/tx-store";
 import { pgDb, type Db } from "@/lib/indexer/db";
 import { ContractRegistry } from "@/lib/indexer/decode";
 import { Indexer, publicClientSource } from "@/lib/indexer/indexer";
@@ -42,7 +42,13 @@ export interface Trading {
   end(): Promise<void>;
 }
 
-export async function startTrading(lc: LocalChain, dbUrl: string, marketIds: number[]): Promise<Trading> {
+export async function startTrading(
+  lc: LocalChain,
+  dbUrl: string,
+  marketIds: number[],
+  /** Where the matcher's TxJobs go; Postgres when the reconciler should see them. */
+  store: TxJobStore = new MemoryTxJobStore()
+): Promise<Trading> {
   const db = pgDb(dbUrl);
   // Start from nothing: every indexer-derived table (the indexer's own list),
   // the event log, and the service tables. Other suites share this database.
@@ -87,7 +93,7 @@ export async function startTrading(lc: LocalChain, dbUrl: string, marketIds: num
     service: "matcher",
     chain: lc.client,
     signer: ROLES.operator,
-    store: new MemoryTxJobStore(),
+    store,
     pollMs: 100,
   });
   let nonce = 1n;

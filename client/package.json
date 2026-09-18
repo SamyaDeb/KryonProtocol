@@ -30,7 +30,8 @@
     "wagmi:generate": "wagmi generate",
     "test:e2e:matcher": "tsx scripts/matcher-e2e.ts",
     "drill:oracle": "tsx scripts/oracle-drill.ts",
-    "drill:funding": "tsx scripts/funding-drill.ts"
+    "drill:funding": "tsx scripts/funding-drill.ts",
+    "test:e2e:keepers": "tsx scripts/keepers-e2e.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
