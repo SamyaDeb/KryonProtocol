@@ -29,11 +29,12 @@ export interface TradeKey {
   logIndex: number;
 }
 
-const FILL_COLUMNS = `"fillId", "status", "rejectReason", "marketId", "maker", "taker",
-  "makerOrderHash", "takerOrderHash", "takerIsBuy",
-  "size"::text AS "size", "price"::text AS "price",
-  "makerFee"::text AS "makerFee", "takerFee"::text AS "takerFee",
-  "txHash", "blockNumber"::text AS "blockNumber", "logIndex", "createdAt", "updatedAt"`;
+/** `f` is the row: every statement below selects `FROM "Fill" f` or an alias of it. */
+const FILL_COLUMNS = `f."fillId", f."status", f."rejectReason", f."marketId", f."maker", f."taker",
+  f."makerOrderHash", f."takerOrderHash", f."takerIsBuy",
+  f."size"::text AS "size", f."price"::text AS "price",
+  f."makerFee"::text AS "makerFee", f."takerFee"::text AS "takerFee",
+  f."txHash", f."blockNumber"::text AS "blockNumber", f."logIndex", f."createdAt", f."updatedAt"`;
 
 export interface StreamFill extends FillView {
   logIndex: number | null;
@@ -55,9 +56,11 @@ export async function latestTradeKey(
   marketId: number
 ): Promise<TradeKey | null> {
   const rows = await q.query(
-    `SELECT "blockNumber"::text AS "blockNumber", "logIndex" FROM "Fill"
-     WHERE "network" = $1 AND "marketId" = $2 AND "status" = 'SETTLED'
-     ORDER BY "blockNumber" DESC, "logIndex" DESC
+    // ORDER BY names the TABLE's columns, never the ::text output alias: an
+    // output-column reference sorts block "9" after "12", lexically.
+    `SELECT f."blockNumber"::text AS "blockNumber", f."logIndex" FROM "Fill" f
+     WHERE f."network" = $1 AND f."marketId" = $2 AND f."status" = 'SETTLED'
+     ORDER BY f."blockNumber" DESC, f."logIndex" DESC
      LIMIT 1`,
     [network, marketId]
   );
@@ -74,10 +77,10 @@ export async function listTradesAfter(
   limit: number
 ): Promise<StreamFill[]> {
   const rows = await q.query(
-    `SELECT ${FILL_COLUMNS} FROM "Fill"
-     WHERE "network" = $1 AND "marketId" = $2 AND "status" = 'SETTLED'
-       AND ($3::bigint IS NULL OR ("blockNumber", "logIndex") > ($3::bigint, $4::int))
-     ORDER BY "blockNumber" ASC, "logIndex" ASC
+    `SELECT ${FILL_COLUMNS} FROM "Fill" f
+     WHERE f."network" = $1 AND f."marketId" = $2 AND f."status" = 'SETTLED'
+       AND ($3::bigint IS NULL OR (f."blockNumber", f."logIndex") > ($3::bigint, $4::int))
+     ORDER BY f."blockNumber" ASC, f."logIndex" ASC
      LIMIT $5`,
     [network, marketId, after ? after.blockNumber.toString() : null, after ? after.logIndex : 0, limit]
   );

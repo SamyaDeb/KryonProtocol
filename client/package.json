@@ -13,6 +13,7 @@
     "db:seed-markets": "tsx --env-file=.env.local scripts/seed-markets.ts",
     "dev:matcher": "tsx --env-file=.env.local scripts/matcher-service.ts",
     "dev:ws": "tsx --env-file=.env.local scripts/ws-server.ts",
+    "dev:stats": "tsx --env-file=.env.local scripts/stats-aggregator.ts",
     "dev:reconciler": "tsx --env-file=.env.local scripts/settlement-reconciler.ts",
     "dev:liquidator": "tsx --env-file=.env.local scripts/liquidation-keeper.ts",
     "dev:monitor": "tsx --env-file=.env.local scripts/monitor.ts",

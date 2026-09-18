@@ -1,109 +1,78 @@
 /**
- * oracle-activity.ts — shared "does the protocol need fresh prices?" check,
- * used by the oracle keeper (publish gating) and the monitor (so the
- * freshness alert understands deliberate idleness).
+ * "Does the protocol need fresh prices right now?" — the shared check behind
+ * the oracle publisher's idle gating and the monitor's freshness alert, so a
+ * deliberately idle feed is not reported as a broken one.
  *
  * The protocol needs a fresh on-chain price whenever ANY of:
- *   1. an order is resting/unfilled (matcher band check),
- *   2. a settlement TxJob is in flight (executes against the oracle),
- *   3. any position is open (funding accrual + liquidation scanning),
- *   4. the vault holds deposits (withdrawal health checks read the oracle —
- *      a dormant depositor must always be able to exit).
+ *   1. an order is working (the matcher's band check reads the oracle),
+ *   2. a settlement transaction is in flight (it executes against the oracle),
+ *   3. any position is open (funding accrual and liquidation scanning),
+ *   4. the vault holds collateral — a withdrawal's health check reads the
+ *      oracle, so a dormant depositor must always be able to exit.
  *
- * Every check FAILS OPEN: an unreachable DB or RPC reports "active" so an
- * infra outage can never silently stale the oracle while funds are at stake.
+ * All four are answered from the indexer's projections: `Account.ledgerBalance`
+ * is the vault ledger as of the last indexed block, so the previous chain
+ * deployment's simulated `total_deposited` call is no longer needed.
+ *
+ * Every check FAILS OPEN. An unreachable database reports "active", so an
+ * infrastructure outage can never quietly stale the oracle while funds are at
+ * stake. A reason containing "-error" is how a caller tells a real signal from
+ * an unanswered one.
  */
 
-import {
-  Account,
-  Address,
-  Contract,
-  Keypair,
-  TransactionBuilder,
-  scValToNative,
-  rpc as sorobanRpc,
-} from "@stellar/stellar-sdk";
-import { ASSETS, CONTRACTS, NETWORK } from "@/lib/stellar/legacy-config";
-
-type NeonSql = (strings: TemplateStringsArray, ...params: unknown[]) => Promise<Record<string, unknown>[]>;
+import type { ArcNetworkId } from "@/lib/network";
+import type { Queryable } from "@/lib/queries/client";
 
 export interface ActivityStatus {
   active: boolean;
   reasons: string[];
 }
 
-/** DB-side signals: open orders, in-flight settlements, open positions. */
-async function dbSignals(sql: NeonSql): Promise<string[]> {
-  const reasons: string[] = [];
-  const nowSecs = Math.floor(Date.now() / 1000);
-  try {
-    const orders = await sql`
-      SELECT 1 FROM "Order"
-      WHERE cancelled = false
-        AND CAST("filledSize" AS NUMERIC) < CAST(size AS NUMERIC)
-        AND "expiryTs" > ${nowSecs}
-      LIMIT 1`;
-    if (orders.length > 0) reasons.push("open-orders");
-  } catch (e) {
-    reasons.push(`order-check-error:${(e as Error).message?.slice(0, 40)}`);
-  }
-  try {
-    const jobs = await sql`
-      SELECT 1 FROM "TxJob" WHERE status IN ('QUEUED', 'SUBMITTED') LIMIT 1`;
-    if (jobs.length > 0) reasons.push("pending-settlements");
-  } catch (e) {
-    reasons.push(`txjob-check-error:${(e as Error).message?.slice(0, 40)}`);
-  }
-  try {
-    const positions = await sql`
-      SELECT 1 FROM "Position" WHERE CAST(size AS NUMERIC) <> 0 LIMIT 1`;
-    if (positions.length > 0) reasons.push("open-positions");
-  } catch (e) {
-    reasons.push(`position-check-error:${(e as Error).message?.slice(0, 40)}`);
-  }
-  return reasons;
+interface Signal {
+  reason: string;
+  sql: string;
+  params: (network: ArcNetworkId, nowSec: bigint) => unknown[];
 }
 
-/** On-chain signal: vault.total_deposited(USDC) > 0, via free simulated read. */
-async function vaultDepositsSignal(server: sorobanRpc.Server): Promise<string[]> {
-  try {
-    // Read-only simulation: a synthetic account with a fake sequence is enough.
-    const account = new Account(Keypair.random().publicKey(), "0");
-    const tx = new TransactionBuilder(account, {
-      fee: "100",
-      networkPassphrase: NETWORK.passphrase,
-    })
-      .addOperation(
-        new Contract(CONTRACTS.vault).call(
-          "total_deposited",
-          new Address(ASSETS.usdc).toScVal()
-        )
-      )
-      .setTimeout(30)
-      .build();
-    const sim = await server.simulateTransaction(tx);
-    if (sorobanRpc.Api.isSimulationError(sim)) {
-      return [`vault-check-error:${sim.error?.slice(0, 40)}`];
-    }
-    const retval = (sim as sorobanRpc.Api.SimulateTransactionSuccessResponse).result?.retval;
-    const total = retval ? (scValToNative(retval) as bigint) : 0n;
-    return total > 0n ? ["vault-deposits"] : [];
-  } catch (e) {
-    return [`vault-check-error:${(e as Error).message?.slice(0, 40)}`];
-  }
-}
+const SIGNALS: Signal[] = [
+  {
+    reason: "open-orders",
+    sql: `SELECT 1 FROM "Order"
+          WHERE "network" = $1 AND "status" = ANY('{OPEN,PARTIALLY_FILLED}'::"OrderStatus"[]) AND "expiry" > $2
+          LIMIT 1`,
+    params: (network, nowSec) => [network, nowSec.toString()],
+  },
+  {
+    reason: "pending-settlements",
+    sql: `SELECT 1 FROM "TxJob" WHERE "network" = $1 AND "status" IN ('PENDING', 'SUBMITTED', 'REPLACED') LIMIT 1`,
+    params: (network) => [network],
+  },
+  {
+    reason: "open-positions",
+    sql: `SELECT 1 FROM "Position" WHERE "network" = $1 AND "size" <> 0 LIMIT 1`,
+    params: (network) => [network],
+  },
+  {
+    reason: "vault-deposits",
+    sql: `SELECT 1 FROM "Account" WHERE "network" = $1 AND "ledgerBalance" > 0 LIMIT 1`,
+    params: (network) => [network],
+  },
+];
 
-/**
- * True activity check. Any reason string containing "-error" means a signal
- * source was unreachable — treated as active (fail-open).
- */
+/** Whether anything on `network` still depends on a fresh price. */
 export async function checkProtocolActivity(
-  sql: NeonSql,
-  server: sorobanRpc.Server
+  q: Queryable,
+  network: ArcNetworkId,
+  nowSec: bigint = BigInt(Math.floor(Date.now() / 1000))
 ): Promise<ActivityStatus> {
-  const reasons = [
-    ...(await dbSignals(sql)),
-    ...(await vaultDepositsSignal(server)),
-  ];
+  const reasons: string[] = [];
+  for (const signal of SIGNALS) {
+    try {
+      const rows = await q.query(signal.sql, signal.params(network, nowSec));
+      if (rows.length > 0) reasons.push(signal.reason);
+    } catch (e) {
+      reasons.push(`${signal.reason}-error:${(e as Error).message?.slice(0, 40)}`);
+    }
+  }
   return { active: reasons.length > 0, reasons };
 }

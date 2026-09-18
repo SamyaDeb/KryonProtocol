@@ -27,6 +27,11 @@
 
 import { neon } from "../lib/sql";
 import { checkProtocolActivity } from "../lib/oracle-activity";
+// The activity check is now Arc-side and network-scoped (lib/oracle-activity.ts
+// reads the indexer's projections). This call site is the minimum change that
+// keeps this legacy monitor compiling; the Arc monitor rewrite owns what it
+// should become.
+import { serverNetworkId } from "../lib/chain/networks";
 import { WebSocket } from "ws";
 import { Contract, TransactionBuilder, Keypair, Account, rpc as sorobanRpc, nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { CONTRACTS, NETWORK, ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
@@ -163,7 +168,7 @@ async function checkOracleFreshness(): Promise<string> {
       // The keeper suspends publishing when nothing on-chain needs a price
       // (no orders/settlements/positions/deposits). Staleness while idle is
       // deliberate, not an incident — alert only if the protocol is active.
-      const activity = await checkProtocolActivity(db() as never, server);
+      const activity = await checkProtocolActivity(db() as never, serverNetworkId());
       if (!activity.active) {
         results.push(`${market.oracleSymbol}=idle (${ageS}s old, publishing suspended)`);
         continue;

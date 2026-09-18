@@ -132,6 +132,18 @@ module.exports = {
       error_file: "./logs/refill.error.log",
     },
     {
+      name: "kryon-stats",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/stats-aggregator.ts",
+      cwd: __dirname,
+      restart_delay: 10000,
+      max_restarts: 20,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/stats.log",
+      error_file: "./logs/stats.error.log",
+    },
+    {
       name: "kryon-monitor",
       script: "npx",
       args: "tsx --env-file=.env.local scripts/monitor.ts",
