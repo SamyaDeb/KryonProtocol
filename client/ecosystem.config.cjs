@@ -6,6 +6,11 @@
 
 module.exports = {
   apps: [
+    // Two oracle publishers, so the adapter's quorum (minPublishers = 2 on
+    // mainnet) is real. Each needs its own key: the second layers
+    // .env.oracle-2.local over .env.local, and that file holds only
+    // ORACLE_PUBLISHER_PRIVATE_KEY and ORACLE_START_OFFSET_MS. In production run
+    // them on separate hosts; one host running both is for local testing.
     {
       name: "kryon-oracle",
       script: "npx",
@@ -17,6 +22,18 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       out_file: "./logs/oracle.log",
       error_file: "./logs/oracle.error.log",
+    },
+    {
+      name: "kryon-oracle-2",
+      script: "npx",
+      args: "tsx --env-file=.env.local --env-file=.env.oracle-2.local scripts/oracle-keeper.ts",
+      cwd: __dirname,
+      restart_delay: 5000,
+      max_restarts: 20,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/oracle-2.log",
+      error_file: "./logs/oracle-2.error.log",
     },
     // One shard per process: one operator key, one set of markets. To run a
     // second shard, copy this entry with a different name, MATCHER_MARKETS and

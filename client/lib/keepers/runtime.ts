@@ -418,6 +418,43 @@ export function createSender(o: SenderOptions): TxSender {
 
 // ─── env helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Startup recovery: before a keeper signs anything new, drive every job this
+ * key left open (a crash between broadcast and receipt) to a mined outcome.
+ * Only `wait()`: the same signed bytes, or the owner's own fee bump at the
+ * same nonce. Nothing is re-decided, so nothing can be sent twice. A job that
+ * still will not resolve is left for the reconciler and reported.
+ */
+export async function recoverOpenJobs(
+  sender: Pick<TxSender, "openJobs" | "wait">,
+  log: Logger
+): Promise<{ recovered: number; unresolved: number }> {
+  const jobs = await sender.openJobs();
+  const newest = new Map<number, (typeof jobs)[number]>();
+  for (const j of jobs) {
+    const prev = newest.get(j.nonce);
+    if (!prev || j.createdAt.getTime() >= prev.createdAt.getTime()) newest.set(j.nonce, j);
+  }
+  let recovered = 0;
+  let unresolved = 0;
+  for (const job of [...newest.values()].sort((a, b) => a.nonce - b.nonce)) {
+    try {
+      const out = await sender.wait(job);
+      recovered += 1;
+      log.info("recovered open job", { id: job.id, label: job.label, nonce: job.nonce, status: out.receipt.status });
+    } catch (err) {
+      unresolved += 1;
+      log.warn("open job unresolved at startup; left for the reconciler", {
+        id: job.id,
+        nonce: job.nonce,
+        error: errorMessage(err),
+      });
+    }
+  }
+  if (jobs.length > 0) log.info("startup recovery complete", { open: jobs.length, recovered, unresolved });
+  return { recovered, unresolved };
+}
+
 export function envInt(env: Env, name: string, fallback: number): number {
   const raw = env[name];
   if (raw === undefined || raw === "") return fallback;

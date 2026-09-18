@@ -151,9 +151,43 @@ because the aggregate is recomputed from the publisher set each time, and `_aggr
 observations still inside `cfg.maxAge`.
 
 **The constraint:** `publishTime` must be **strictly greater** than our own previous observation's
-(`if (publishTime <= prev.publishTime) revert StaleOracle`). Back-dating by
-`PUBLISH_TIME_BACKDATE_SECS` to stay behind the block timestamp can therefore collide with our own
-last push. The publisher clamps forward to `prev.publishTime + 1` rather than sending a revert.
+(`if (publishTime <= prev.publishTime) revert StaleOracle`). The batch `publishTime` is
+`min(chain time, wall clock) - ORACLE_BACKDATE_SECS`, which can collide with our own last push when
+two ticks land in the same second. The publisher **holds that feed for one tick** (`publish-time`)
+rather than clamping forward: `prev.publishTime + 1` can be ahead of the block timestamp, and a
+future `publishTime` reverts the whole batch.
+
+The same strict-monotonic rule is what makes every transport-level retry safe. An observation can
+be stored at most once per `publishTime`, so a rebroadcast, a fee-bump replacement or a
+reconciler rebroadcast of the same push either lands once or reverts `StaleOracle`. It can never be
+applied twice.
+
+### 3.2a Fee-bump replacement of a push — same payload, bounded by `maxAge`
+
+The publisher's `TxSender` rebroadcasts after 1s and replaces after 3s (not the 3s/10s defaults),
+and gives up waiting after 12s. The replacement carries the **same** `publishTime`. If it lands
+after `maxAge` (15s) it reverts `StaleOracle` and costs gas only. The next tick signs a fresh push
+at the next nonce with a new `publishTime`. That is new intent, not a retry.
+
+### 3.2b Predicted skips we still send — quorum and spread
+
+The publisher mirrors `_aggregate` before every send (`lib/oracle/guards.ts`) and **holds** feeds
+the contract would reject whatever the other publishers do (jump, divergence, not-monotonic), plus
+its own local guards (sources, source disagreement, confidence wider than `getPrice` accepts,
+divergence from the Chainlink reference, USDC de-peg).
+
+It still **sends** when the predicted skip is `QuorumNotMet` or `SpreadTooWide`, because both are
+disagreements between our fresh observation and the other publishers' older ones, and our stored
+observation is what resolves them. If both publishers held for spread, any move wider than
+`maxSpreadBps` between their pushes would leave both observations to expire, and the feed would
+go stale on an ordinary move. The drill proves the send-through: a 1.5% move converges on the
+second publisher's push with `getPrice` never going stale (`scripts/oracle-drill.ts` §2a).
+
+### 3.2c Startup recovery
+
+On start the publisher calls `recoverOpenJobs`: `wait()` on each open job for its key, which is
+only a rebroadcast or its own fee bump at the same nonce. Nothing is re-decided. A job that still
+won't resolve is left for the reconciler.
 
 ### 3.3 Re-anchor after an outage — deliberate, and logged
 
