@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/features/wallet/useWallet";
-import { useLocalOrders } from "@/stores/orders";
-import { getPositions } from "@/lib/stellar/contracts";
-import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
-import { useOrderReconciliation } from "@/features/trade/hooks/useOrderReconciliation";
+import { useAccountState, useOwnFillStream } from "@/features/account/chain";
+import { useOpenOrders, useOrderHistory, usePositions } from "@/features/account/queries";
+import { useMarkets } from "@/features/markets/directory";
 import { PositionsTable } from "./PositionsTable";
 import { OpenOrdersTable } from "./OpenOrdersTable";
 import { OrderHistoryTable } from "./OrderHistoryTable";
@@ -26,32 +24,28 @@ const LinesIcon = () => (
 type TabKey = "Positions" | "Open Orders" | "Trade History" | "Order History" | "Funding History";
 
 export function BottomPanel({ marketId }: { marketId: number }) {
-  useOrderReconciliation();
   const [activeTab, setActiveTab] = useState<TabKey>("Positions");
   const [marketFilter, setMarketFilter] = useState<number | "all">(marketId);
   const [sideFilter, setSideFilter] = useState<"both" | "long" | "short">("both");
   const [marketMenu, setMarketMenu] = useState(false);
   const [sideMenu, setSideMenu] = useState(false);
-  const { address, connected } = useWallet();
-  const allOrders = useLocalOrders((s) => s.orders);
-
-  // Shared positions query (same key as PositionsTable — cache hit, no double-fetch)
-  const { data: allPositions = [] } = useQuery({
-    queryKey: ["positions", address],
-    queryFn: () => getPositions(address!),
-    enabled: !!address && connected,
-    refetchInterval: 10_000,
-  });
+  const { address } = useWallet();
+  const { list: markets } = useMarkets();
+  const { data: positions = [] } = usePositions(address);
+  const { data: orders = [] } = useOpenOrders(address);
+  const { data: history = [] } = useOrderHistory(address);
+  const account = useAccountState(address);
+  // Live fills: notices on settle/reject, and fresh positions and balances.
+  useOwnFillStream(address, account.queryKey);
 
   const matchMarket = (mId: number) => marketFilter === "all" || mId === marketFilter;
   const matchSide = (isLong: boolean) => sideFilter === "both" || (sideFilter === "long") === isLong;
 
-  const positionCount = allPositions.filter((p) => matchMarket(p.marketId) && matchSide(p.isLong)).length;
-  const orderCount = allOrders.filter((o) => o.status === "pending" && matchMarket(o.marketId) && matchSide(o.isLong)).length;
-  const orderHistoryCount = allOrders.filter((o) => matchMarket(o.marketId) && matchSide(o.isLong)).length;
+  const positionCount = positions.filter((p) => p.size !== 0n && matchMarket(p.marketId) && matchSide(p.size > 0n)).length;
+  const orderCount = orders.filter((o) => matchMarket(o.marketId) && matchSide(o.isLong)).length;
+  const orderHistoryCount = history.filter((o) => matchMarket(o.marketId)).length;
 
-  const marketLabel =
-    marketFilter === "all" ? "All" : Object.values(ACTIVE_MARKETS).find((m) => m.marketId === marketFilter)?.symbol ?? "All";
+  const marketLabel = marketFilter === "all" ? "All" : markets.find((m) => m.marketId === marketFilter)?.symbol ?? "All";
   const sideLabel = sideFilter === "both" ? "Both" : sideFilter === "long" ? "Long" : "Short";
 
   const TABS: { key: TabKey; count: number | null }[] = [
@@ -101,7 +95,7 @@ export function BottomPanel({ marketId }: { marketId: number }) {
                 {/* max-h + scroll: the list is eight entries long now. */}
                 <div className="absolute right-0 top-full mt-1 z-50 max-h-[280px] w-[160px] overflow-y-auto rounded-[8px] border border-[#334155] bg-[#212128] p-1 shadow-[0_10px_30px_rgba(0,0,0,.5)]">
                   <MenuItem active={marketFilter === "all"} onClick={() => { setMarketFilter("all"); setMarketMenu(false); }}>All markets</MenuItem>
-                  {Object.values(ACTIVE_MARKETS).map((m) => (
+                  {markets.map((m) => (
                     <MenuItem key={m.marketId} active={marketFilter === m.marketId} onClick={() => { setMarketFilter(m.marketId); setMarketMenu(false); }}>
                       {m.symbol}
                     </MenuItem>
@@ -141,7 +135,7 @@ export function BottomPanel({ marketId }: { marketId: number }) {
         {activeTab === "Positions" && <PositionsTable marketFilter={marketFilter} sideFilter={sideFilter} />}
         {activeTab === "Open Orders" && <OpenOrdersTable marketFilter={marketFilter} sideFilter={sideFilter} />}
         {activeTab === "Trade History" && <TradeHistoryTable marketFilter={marketFilter} />}
-        {activeTab === "Order History" && <OrderHistoryTable marketFilter={marketFilter} sideFilter={sideFilter} />}
+        {activeTab === "Order History" && <OrderHistoryTable marketFilter={marketFilter} />}
         {activeTab === "Funding History" && <FundingHistoryTable marketFilter={marketFilter} />}
       </div>
     </div>

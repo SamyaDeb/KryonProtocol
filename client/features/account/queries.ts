@@ -198,3 +198,14 @@ export function useFills(address: string | null | undefined) {
 export function useFunding(address: string | null | undefined) {
   return useAccountQuery(accountKeys.funding, (a) => `/api/funding?address=${a}&limit=100`, parseFunding, address, 30_000);
 }
+
+/** Every order in every status, newest first (`status=all`). */
+export function useOrderHistory(address: string | null | undefined) {
+  return useAccountQuery(
+    (network, a) => ["order-history", network, a.toLowerCase()] as const,
+    (a) => `/api/orders/list?address=${a}&status=all&limit=200`,
+    parseOrders,
+    address,
+    15_000
+  );
+}

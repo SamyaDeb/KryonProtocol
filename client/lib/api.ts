@@ -19,7 +19,7 @@
 
 import { ACTIVE_NETWORK_ID, NETWORK_PARAM, type ArcNetworkId } from "@/lib/network";
 
-function withNetwork(path: string, network: ArcNetworkId = ACTIVE_NETWORK_ID): string {
+export function withNetwork(path: string, network: ArcNetworkId = ACTIVE_NETWORK_ID): string {
   // Relative paths only; `URL` needs a base, and callers pass "/api/...".
   const [pathname, query = ""] = path.split("?");
   const params = new URLSearchParams(query);

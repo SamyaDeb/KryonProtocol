@@ -1,245 +1,192 @@
 "use client";
 
-import { useWallet } from "@/features/wallet/useWallet";
-import { useLocalOrders } from "@/stores/orders";
-import { cancelOrder as cancelOnChain } from "@/lib/stellar/contracts";
-import { cancelOrderOnMatcher } from "@/lib/market/matcher";
-import { priceToHuman, amountToHuman, formatMarketUsd, formatMarketSize } from "@/lib/stellar/legacy-format";
-
-import { logoFor } from "@/components/common/AssetLogos";
-import { marketById } from "@/components/common/MarketCell";
-import { useMarketDirectory } from "@/features/markets/directory";
-import { toast } from "sonner";
 import { useState } from "react";
+import { toast } from "sonner";
 
+import { MarketCell } from "@/components/common/MarketCell";
+import { useOpenOrders, type AccountOrder } from "@/features/account/queries";
+import { useTrading } from "@/features/account/useTrading";
+import { useMarkets } from "@/features/markets/directory";
+import { useWallet } from "@/features/wallet/useWallet";
+import { formatPrice, formatSize } from "@/lib/format";
+import { describeTxError } from "@/lib/market/errors";
+import { displayFor } from "@/lib/markets";
+
+/**
+ * Working orders: what the matcher can still trade (`/api/orders/list`).
+ * Filled and pending amounts come from the API, which owns the definition of
+ * remaining size; nothing is recomputed here.
+ *
+ * Two ways to cancel, and the UI says which is which:
+ *   - "Cancel" signs an off-chain cancel: free and instant, but it only stops
+ *     the matcher. The signed order itself stays valid on chain.
+ *   - "Cancel on chain" calls the gateway's `cancelUpTo`: one transaction, and
+ *     every order listed is dead for good whatever happens off chain.
+ */
 export function OpenOrdersTable({
   marketFilter,
-  sideFilter,
+  sideFilter = "both",
 }: {
   marketFilter: number | "all";
-  sideFilter: "both" | "long" | "short";
+  sideFilter?: "both" | "long" | "short";
 }) {
-  const { address, connected } = useWallet();
-  // Row formatters resolve market ids synchronously; subscribe so they re-render once it loads.
-  useMarketDirectory();
-  const { orders, cancelOrder } = useLocalOrders();
+  const { address, connected, ready } = useWallet();
+  const { data: orders = [], isError } = useOpenOrders(address);
+  const trading = useTrading(address);
+  const { byId } = useMarkets();
+  const [requested, setRequested] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const visible = orders.filter(
+  if (!connected || !address) return <Empty text="Connect a wallet to view open orders" />;
+  if (isError && orders.length === 0) return <Empty text="Open orders are unavailable right now; retrying." />;
+
+  const rows = orders.filter(
     (o) =>
-      o.status === "pending" &&
-      o.owner === address &&
       (marketFilter === "all" || o.marketId === marketFilter) &&
       (sideFilter === "both" || (sideFilter === "long") === o.isLong)
   );
+  if (rows.length === 0) return <Empty text="No open orders" />;
 
-  if (!connected || !address) {
-    return <Empty text="Connect a wallet to view open orders" />;
-  }
-  if (visible.length === 0) {
-    return <Empty text="No open orders" />;
-  }
-
-  const cols = ["Market", "Type", "Side", "Size", "Price", "Reduce", "Status", ""];
-
-  const makeCancel = (order: (typeof visible)[number]) => async () => {
+  async function cancelOne(o: AccountOrder) {
+    setBusy(o.orderHash);
     try {
-      await cancelOnChain(address, order.nonce, order.expiryTs);
-      await cancelOrderOnMatcher(address, order.nonce);
-      cancelOrder(order.nonce, address);
-      toast.success("Order cancelled");
+      const r = await trading.cancel(o.nonce);
+      if (r.ok) {
+        setRequested((s) => new Set(s).add(o.orderHash));
+        toast.success("Cancel requested. The matcher will no longer fill this order.");
+      } else toast.error(r.message);
     } catch (e) {
-      toast.error(`Cancel failed: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(describeTxError(e));
+    } finally {
+      setBusy(null);
     }
-  };
+  }
+
+  async function cancelAll() {
+    setBusy("all");
+    try {
+      const r = await trading.cancelAll(marketFilter === "all" ? 0 : marketFilter);
+      if (r.ok) {
+        setRequested(new Set(rows.map((o) => o.orderHash)));
+        toast.success(`Cancel requested for ${r.cancelled} order${r.cancelled === 1 ? "" : "s"}.`);
+      } else toast.error(r.message);
+    } catch (e) {
+      toast.error(describeTxError(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function cancelOnChain() {
+    // One past the highest nonce shown kills every one of them, in every market.
+    const top = orders.reduce((m, o) => (o.nonce > m ? o.nonce : m), 0n) + 1n;
+    setBusy("chain");
+    try {
+      await trading.cancelOnChainUpTo(top);
+      toast.success("Cancelled on chain: every order placed so far is now unfillable.");
+    } catch (e) {
+      toast.error(describeTxError(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const cols = ["Time", "Market", "Side", "Price", "Size", "Filled", "Expires", "Status", ""];
 
   return (
-    <>
-      {/* Desktop: dense table */}
-      <table className="hidden w-full text-[12px] tabular lg:table">
-        <thead>
-          <tr className="text-[10px] text-[#737373] font-semibold uppercase tracking-wider">
-            {cols.map((h, i) => (
-              <th
-                key={h || `act-${i}`}
-                className={`py-[9px] whitespace-nowrap ${i === 0 ? "pl-4 pr-2 text-left" : i === cols.length - 1 ? "pr-4 pl-2 text-right" : "px-3 text-right"}`}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((order) => (
-            <OrderRow key={String(order.nonce)} order={order} onCancel={makeCancel(order)} />
-          ))}
-        </tbody>
-      </table>
-
-      {/* Mobile: stacked cards */}
-      <div className="flex flex-col gap-2 p-3 lg:hidden">
-        {visible.map((order) => (
-          <OrderCard key={String(order.nonce)} order={order} onCancel={makeCancel(order)} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-type OrderType = ReturnType<typeof useLocalOrders.getState>["orders"][number];
-
-function orderView(order: OrderType) {
-  const market = marketById(order.marketId);
-  const baseSymbol = market?.baseAsset ?? `#${order.marketId}`;
-  const quoteAsset = market?.quoteAsset ?? "USDC";
-  const isMarket = order.limitPrice === 0n;
-  return {
-    baseSymbol,
-    quoteAsset,
-    isMarket,
-    priceDisplay: isMarket
-      ? "Market"
-      : market
-      ? formatMarketUsd(market, order.limitPrice)
-      : `$${priceToHuman(order.limitPrice).toFixed(4)}`,
-    sizeDisplay: market
-      ? formatMarketSize(market, order.size)
-      : amountToHuman(order.size).toFixed(4),
-    sideBadge: order.isLong
-      ? "bg-[rgba(31,174,91,0.12)] text-[#1fae5b]"
-      : "bg-[rgba(227,76,76,0.12)] text-[#e34c4c]",
-  };
-}
-
-function OrderCard({ order, onCancel }: { order: OrderType; onCancel: () => void }) {
-  const [cancelling, setCancelling] = useState(false);
-  const v = orderView(order);
-  return (
-    <div className="rounded-[10px] border border-[#2A2A31] bg-[#212128] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          {logoFor(v.baseSymbol, 16)}
-          <span className="font-semibold text-[#f5f5f5]">
-            {v.baseSymbol}
-            <span className="text-[#737373] font-normal">/{v.quoteAsset}</span>
-          </span>
-          <span className={`rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${v.sideBadge}`}>
-            {order.isLong ? "LONG" : "SHORT"}
-          </span>
-        </div>
+    <div className="flex flex-col">
+      <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-2">
         <button
-          className="shrink-0 rounded-[6px] border border-[#334155] px-3 py-1.5 text-[12px] font-semibold text-[#a3a3a3] transition-colors hover:border-[#e34c4c]/40 hover:bg-[#e34c4c]/10 hover:text-[#e34c4c] disabled:opacity-50"
-          disabled={cancelling}
-          onClick={async () => {
-            setCancelling(true);
-            await onCancel();
-            setCancelling(false);
-          }}
+          onClick={() => void cancelAll()}
+          disabled={!ready || busy !== null}
+          className="rounded-[6px] border border-[#334155] bg-[#212128] px-3 py-1 text-[11.5px] font-semibold text-[#f5f5f5] transition-colors hover:border-[#475569] disabled:opacity-40"
+          title="Signed off-chain cancel: free and instant, stops the matcher"
         >
-          {cancelling ? "…" : "Cancel"}
+          {busy === "all" ? "Cancelling…" : marketFilter === "all" ? "Cancel all" : "Cancel all in market"}
+        </button>
+        <button
+          onClick={() => void cancelOnChain()}
+          disabled={!ready || busy !== null}
+          className="rounded-[6px] border border-[#7c2d12] bg-[#2a1a12] px-3 py-1 text-[11.5px] font-semibold text-[#fdba74] transition-colors hover:brightness-110 disabled:opacity-40"
+          title="OrderGateway.cancelUpTo: one transaction (USDC gas). Every order you have placed so far, in every market, becomes permanently unfillable."
+        >
+          {busy === "chain" ? "Confirm in wallet…" : "Cancel all on chain"}
         </button>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12.5px] tabular">
-        <CardField label="Type">{v.isMarket ? "Market" : "Limit"}</CardField>
-        <CardField label="Status" align="right">
-          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 border border-amber-500/20">
-            Pending
-          </span>
-        </CardField>
-        <CardField label="Size"><span className="text-[#f5f5f5]">{v.sizeDisplay}</span></CardField>
-        <CardField label="Price" align="right"><span className="text-[#f5f5f5]">{v.priceDisplay}</span></CardField>
-        {order.reduceOnly && (
-          <CardField label="Reduce">
-            <span className="rounded border border-[#334155] px-1.5 py-0.5 text-[10px] text-[#a3a3a3]">Reduce Only</span>
-          </CardField>
-        )}
+      <div className="overflow-x-auto no-scrollbar">
+        <table className="w-full min-w-[760px] text-[12px] tabular">
+          <thead>
+            <tr className="text-[10px] font-semibold uppercase tracking-wider text-[#737373]">
+              {cols.map((h, i) => (
+                <th
+                  key={h || "action"}
+                  className={`whitespace-nowrap py-[9px] ${i === 0 ? "pl-4 pr-2 text-left" : i === 1 ? "px-3 text-left" : i === cols.length - 1 ? "pl-2 pr-4 text-right" : "px-3 text-right"}`}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => {
+              const p = byId[o.marketId] ?? displayFor(`#${o.marketId}`);
+              const isRequested = requested.has(o.orderHash);
+              const status = o.nonceInvalidated
+                ? "Cancelled on chain"
+                : o.expired
+                  ? "Expired"
+                  : isRequested
+                    ? "Cancel requested"
+                    : o.pendingSize > 0n
+                      ? "Settling"
+                      : o.filledSize > 0n
+                        ? "Partly filled"
+                        : "Open";
+              return (
+                <tr key={o.orderHash} className="border-t border-[#2A2A31] transition-colors hover:bg-white/[0.02]">
+                  <td className="py-[10px] pl-4 pr-2 text-left text-[#a3a3a3]">
+                    {new Date(o.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </td>
+                  <td className="px-3 py-[10px] text-left">
+                    <MarketCell marketId={o.marketId} size={15} className="font-semibold text-[#f5f5f5]" />
+                  </td>
+                  <td className={`px-3 py-[10px] text-right font-medium ${o.isLong ? "text-[#1fae5b]" : "text-[#e34c4c]"}`}>
+                    {o.isLong ? "Buy" : "Sell"}
+                    {o.reduceOnly && <span className="ml-1 text-[10px] text-[#a3a3a3]">RO</span>}
+                  </td>
+                  <td className="px-3 py-[10px] text-right text-[#f5f5f5]">{formatPrice(p, o.limitPrice)}</td>
+                  <td className="px-3 py-[10px] text-right text-[#f5f5f5]">{formatSize(p, o.size)}</td>
+                  <td className="px-3 py-[10px] text-right text-[#a3a3a3]" title="Settled on chain, plus any fill still settling">
+                    {formatSize(p, o.filledSize)}
+                    {o.pendingSize > 0n && <span className="text-[#fbbf24]"> +{formatSize(p, o.pendingSize)}</span>}
+                  </td>
+                  <td className="px-3 py-[10px] text-right text-[#a3a3a3]">
+                    {new Date(Number(o.expiry) * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td className={`px-3 py-[10px] text-right ${isRequested || o.nonceInvalidated ? "text-[#fbbf24]" : "text-[#a3a3a3]"}`}>{status}</td>
+                  <td className="py-[10px] pl-2 pr-4 text-right">
+                    <button
+                      onClick={() => void cancelOne(o)}
+                      disabled={!ready || busy !== null || isRequested || o.nonceInvalidated}
+                      className="rounded-[5px] border border-[#334155] px-2 py-[2px] text-[11px] font-semibold text-[#f5f5f5] transition-colors hover:border-[#e34c4c] hover:text-[#e34c4c] disabled:opacity-40"
+                    >
+                      {busy === o.orderHash ? "…" : "Cancel"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
-}
-
-function CardField({
-  label,
-  children,
-  align = "left",
-}: {
-  label: string;
-  children: React.ReactNode;
-  align?: "left" | "right";
-}) {
-  return (
-    <div className={`flex flex-col gap-0.5 ${align === "right" ? "items-end text-right" : "items-start"}`}>
-      <span className="text-[10px] uppercase tracking-wider text-[#737373]">{label}</span>
-      <span className="font-medium text-[#a3a3a3]">{children}</span>
-    </div>
-  );
-}
-
-function OrderRow({
-  order,
-  onCancel,
-}: {
-  order: ReturnType<typeof useLocalOrders.getState>["orders"][number];
-  onCancel: () => void;
-}) {
-  const [cancelling, setCancelling] = useState(false);
-
-  const v = orderView(order);
-  const { baseSymbol, isMarket, priceDisplay, sizeDisplay } = v;
-
-  const sideBadge = v.sideBadge;
-
-  return (
-    <tr className="border-t border-[#2A2A31] hover:bg-white/[0.02] transition-colors">
-      <td className="pl-4 pr-2 py-[10px] text-left">
-        <div className="flex items-center gap-2">
-          {logoFor(baseSymbol, 16)}
-          <span className="font-semibold text-[#f5f5f5]">
-            {baseSymbol}
-            <span className="text-[#737373] font-normal">/{v.quoteAsset}</span>
-          </span>
-        </div>
-      </td>
-      <td className="px-3 py-[10px] text-right text-[#a3a3a3]">{isMarket ? "Market" : "Limit"}</td>
-      <td className="px-3 py-[10px] text-right">
-        <span className={`rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${sideBadge}`}>
-          {order.isLong ? "LONG" : "SHORT"}
-        </span>
-      </td>
-      <td className="px-3 py-[10px] text-right text-[#f5f5f5] font-medium">{sizeDisplay}</td>
-      <td className="px-3 py-[10px] text-right text-[#f5f5f5] font-medium">{priceDisplay}</td>
-      <td className="px-3 py-[10px] text-right">
-        {order.reduceOnly ? (
-          <span className="text-[10px] border border-[#334155] text-[#a3a3a3] px-1.5 py-0.5 rounded">Reduce</span>
-        ) : (
-          <span className="text-[#737373]">—</span>
-        )}
-      </td>
-      <td className="px-3 py-[10px] text-right">
-        <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">
-          Pending
-        </span>
-      </td>
-      <td className="pr-4 pl-2 py-[10px] text-right">
-        <button
-          className="px-3 py-1.5 text-[12px] font-semibold rounded-[6px] border border-[#334155] text-[#a3a3a3] hover:text-[#e34c4c] hover:border-[#e34c4c]/40 hover:bg-[#e34c4c]/10 disabled:opacity-50 transition-colors"
-          disabled={cancelling}
-          onClick={async () => {
-            setCancelling(true);
-            await onCancel();
-            setCancelling(false);
-          }}
-        >
-          {cancelling ? "…" : "Cancel"}
-        </button>
-      </td>
-    </tr>
   );
 }
 
 function Empty({ text }: { text: string }) {
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-[#a3a3a3]">
-      <span className="text-[13px] text-[#a3a3a3]">{text}</span>
+      <span className="text-[13px]">{text}</span>
     </div>
   );
 }

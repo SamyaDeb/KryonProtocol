@@ -198,7 +198,7 @@ export default function PortfolioPage() {
           <div className="min-h-[200px]">
             {tab === "Positions" && <PositionsTable marketFilter="all" sideFilter="both" />}
             {tab === "Open Orders" && <OpenOrdersTable marketFilter="all" sideFilter="both" />}
-            {tab === "Order History" && <OrderHistoryTable marketFilter="all" sideFilter="both" />}
+            {tab === "Order History" && <OrderHistoryTable marketFilter="all" />}
             {tab === "Trade History" && <TradeHistoryTable marketFilter="all" />}
             {tab === "Balances" && <BalancesTab connected={connected} address={address} />}
           </div>

@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 
 import { TopNav } from "@/components/common/TopNav";
 import { MarketDataProvider } from "@/features/trade/components/MarketDataProvider";
-import { SettlementModal } from "@/features/trade/components/SettlementModal";
 import { TradeTerminalGrid } from "@/features/trade/components/TradeTerminalGrid";
 import { db } from "@/lib/db";
 import { canonicalSymbol } from "@/lib/markets";
@@ -64,8 +63,7 @@ export default async function TradePage({ params }: { params: Promise<{ market: 
 
   return (
     <MarketDataProvider marketId={resolved.marketId}>
-      <SettlementModal />
-      {shell(<TradeTerminalGrid marketId={resolved.marketId} symbol={resolved.symbol} />)}
+      {shell(<TradeTerminalGrid marketId={resolved.marketId} />)}
     </MarketDataProvider>
   );
 }

@@ -9,16 +9,12 @@ import { OrderEntry } from "@/features/trade/components/OrderEntry";
 import { TradeChart } from "@/features/trade/components/TradeChart";
 import { useTradeSettings } from "@/stores/settings";
 import { useMarkets } from "@/features/markets/directory";
-// The order ticket still takes the previous chain's MarketConfig; signed
-// trading replaces it (Phase 4 PR 5), and this import goes with it.
-import { MARKETS } from "@/lib/stellar/legacy-config";
 
 type MobileTab = "chart" | "book" | "ticket" | "positions";
 
-export function TradeTerminalGrid({ marketId, symbol }: { marketId: number; symbol: string }) {
+export function TradeTerminalGrid({ marketId }: { marketId: number }) {
   const { byId, error } = useMarkets();
   const market = byId[marketId];
-  const legacyMarket = MARKETS[symbol];
   const hideOrderBook = useTradeSettings((s) => s.hideOrderBook);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chart");
   // `side` is lifted here so the mobile bottom bar can open the ticket pre-set
@@ -102,11 +98,7 @@ export function TradeTerminalGrid({ marketId, symbol }: { marketId: number; symb
         className={`${vis("ticket")} relative flex-col border border-[#2A2A31] bg-[#19191A] pb-[max(16px,env(safe-area-inset-bottom))] lg:flex lg:overflow-y-auto lg:pb-0`}
       >
         <AccountBar />
-        {legacyMarket ? (
-          <OrderEntry market={legacyMarket} side={side} setSide={setSide} />
-        ) : (
-          <div className="p-4 text-[12px] text-[#a3a3a3]">Order entry is not available for this market yet.</div>
-        )}
+        <OrderEntry market={market} side={side} setSide={setSide} />
       </div>
 
       {/* ── Positions / open orders / history ── */}
