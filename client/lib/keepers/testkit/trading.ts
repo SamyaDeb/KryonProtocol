@@ -37,6 +37,10 @@ export interface Trading {
   pushIndex(prices: Record<string, bigint>): Promise<void>;
   /** Maker sells to taker (taker long) or buys from taker, at `price`, for `size`. */
   trade(o: { marketId: number; long: HDAccount; short: HDAccount; size: bigint; price: bigint }): Promise<void>;
+  /** Rest one signed order in the book (no match). Returns its hash. */
+  place(o: { who: HDAccount; marketId: number; isLong: boolean; size: bigint; price: bigint }): Promise<Hex>;
+  /** One matcher tick over `marketId`, then index what it settled. */
+  match(marketId: number): Promise<void>;
   index(): Promise<void>;
   position(who: Address, marketId: number): Promise<{ size: bigint; openNotional: bigint }>;
   end(): Promise<void>;
@@ -181,6 +185,23 @@ export async function startTrading(
       await matcher.tick();
       const [l, s] = await Promise.all([t.position(o.long.address, o.marketId), t.position(o.short.address, o.marketId)]);
       if (l.size <= 0n || s.size >= 0n) throw new Error(`trade did not settle (long ${l.size}, short ${s.size})`);
+      await t.index();
+    },
+    async place(o) {
+      return placeOrder(o.who, o.marketId, o.isLong, o.size, o.price, new Date());
+    },
+    async match(marketId) {
+      const matcher = new Matcher({
+        db,
+        network: NETWORK,
+        contracts: lc.contracts,
+        chain: lc.client,
+        sender,
+        marketIds: [marketId],
+        log: matcherLog,
+        pollMs: 100,
+      });
+      await matcher.tick();
       await t.index();
     },
     async index() {

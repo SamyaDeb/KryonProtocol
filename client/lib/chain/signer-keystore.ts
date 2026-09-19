@@ -51,9 +51,14 @@ function unhex(value: string, field: string): Uint8Array {
   return hexToBytes(v as Hex);
 }
 
+/** The KDF input: the passphrase, NFKC-normalised, as UTF-8 (what geth does). */
+function kdfInput(secret: string): Buffer {
+  return Buffer.from(secret.normalize("NFKC"), "utf8");
+}
+
 function deriveKey(ks: KeystoreV3, passphrase: string): Buffer {
   const { kdf, kdfparams } = ks.crypto;
-  const pass = Buffer.from(passphrase.normalize("NFKC"), "utf8");
+  const input = kdfInput(passphrase);
   if (kdf === "scrypt") {
     const p = kdfparams as ScryptParams;
     if (p.dklen !== 32) throw new Error("keystore: dklen must be 32");
@@ -64,14 +69,14 @@ function deriveKey(ks: KeystoreV3, passphrase: string): Buffer {
       throw new Error("keystore: scrypt r/p out of range");
     }
     const salt = unhex(p.salt, "salt");
-    return scryptSync(pass, salt, 32, { N: p.n, r: p.r, p: p.p, maxmem: 256 * p.n * p.r + 64 * 1024 * 1024 });
+    return scryptSync(input, salt, 32, { N: p.n, r: p.r, p: p.p, maxmem: 256 * p.n * p.r + 64 * 1024 * 1024 });
   }
   if (kdf === "pbkdf2") {
     const p = kdfparams as Pbkdf2Params;
     if (p.dklen !== 32) throw new Error("keystore: dklen must be 32");
     if (p.prf !== "hmac-sha256") throw new Error("keystore: only hmac-sha256 is supported");
     if (!Number.isInteger(p.c) || p.c < 1 || p.c > MAX_PBKDF2_C) throw new Error("keystore: pbkdf2 c out of range");
-    return pbkdf2Sync(pass, unhex(p.salt, "salt"), p.c, 32, "sha256");
+    return pbkdf2Sync(input, unhex(p.salt, "salt"), p.c, 32, "sha256");
   }
   throw new Error(`keystore: unsupported kdf "${String(kdf)}"`);
 }
@@ -139,7 +144,7 @@ export function encryptKeystore(privateKey: Hex, passphrase: string, o: EncryptO
   const salt = randomBytes(32);
   const iv = randomBytes(16);
   const kdfparams: ScryptParams = { dklen: 32, n, r: 8, p: 1, salt: salt.toString("hex") };
-  const derived = scryptSync(Buffer.from(passphrase.normalize("NFKC"), "utf8"), salt, 32, {
+  const derived = scryptSync(kdfInput(passphrase), salt, 32, {
     N: n,
     r: 8,
     p: 1,
