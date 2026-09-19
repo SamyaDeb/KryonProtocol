@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMarketStore } from "@/stores/market";
-import type { OrderBookLevel } from "@/lib/market/matcher";
+import { aggregateSide, spreadOf, tickToWei, type BookRow as Row } from "@/lib/market/book";
+import { formatFixed } from "@/lib/format";
+import type { ArcMarket } from "@/features/markets/directory";
 import { UsdcLogo, logoFor } from "@/components/common/AssetLogos";
-import type { MarketConfig } from "@/lib/stellar/legacy-config";
 import { Shuffle } from "lucide-react";
 const CaretIcon = () => (
   <svg width={9} height={9} viewBox="0 0 12 12" fill="currentColor">
@@ -14,32 +15,10 @@ const CaretIcon = () => (
 
 type ViewMode = "both" | "asks" | "bids";
 
-interface LevelRow {
-  price: number;
-  metric: number; // size in base or quote, per denomination
-  cum: number;
-}
-
-// Aggregate raw book levels into price buckets of `tick`.
-function groupByTick(levels: OrderBookLevel[], tick: number, isBid: boolean): { price: number; size: number }[] {
-  const map = new Map<string, number>();
-  for (const l of levels) {
-    const p = parseFloat(l.price);
-    const s = parseFloat(l.size);
-    if (!isFinite(p) || !isFinite(s)) continue;
-    const bucket = isBid ? Math.floor(p / tick) * tick : Math.ceil(p / tick) * tick;
-    const key = bucket.toFixed(8);
-    map.set(key, (map.get(key) ?? 0) + s);
-  }
-  const out = [...map.entries()].map(([k, size]) => ({ price: parseFloat(k), size }));
-  out.sort((a, b) => (isBid ? b.price - a.price : a.price - b.price));
-  return out;
-}
-
-export function OrderBook({ market }: { market: MarketConfig }) {
+export function OrderBook({ market }: { market: ArcMarket }) {
   const marketId = market.marketId;
   // The aggregation ladder is per asset — a $0.20 tick ladder is useless on a
-  // $77,000 book. Comes from MarketConfig.tickSizes.
+  // $77,000 book. Comes from the market's display metadata (lib/markets.ts).
   const TICKS = market.tickSizes;
   const [activeTab, setActiveTab] = useState<"Order Book" | "Trades">("Order Book");
   const [hover, setHover] = useState<HoverState>(null);
@@ -62,40 +41,27 @@ export function OrderBook({ market }: { market: MarketConfig }) {
   // Enough decimals to render the chosen tick, but never fewer than the
   // market's own display precision.
   const priceDecimals = Math.max(market.priceDecimals, Math.ceil(-Math.log10(tick)));
-  const tradeMetric = (price: string, size: string) => {
-    const p = parseFloat(price);
-    const s = parseFloat(size);
-    if (!isFinite(p) || !isFinite(s)) return 0;
-    return denomQuote ? p * s : s;
-  };
+  // Trade and level amounts: base size, or quote notional (size × price).
+  const amountOf = (price: bigint, size: bigint) => (denomQuote ? (size * price) / 10n ** 18n : size);
+  const amountText = (v: bigint) =>
+    denomQuote || market.sizeDecimals === 0
+      ? formatFixed(v, 18, v >= 1000n * 10n ** 18n ? 0 : 2)
+      : formatFixed(v, 18, market.sizeDecimals);
+  const priceText = (p: bigint) => formatFixed(p, 18, priceDecimals);
 
-  // Group → slice → cumulative on the chosen denomination metric.
-  const toRows = (levels: { price: number; size: number }[]): LevelRow[] => {
-    let run = 0;
-    return levels.slice(0, depth).map(({ price, size }) => {
-      const metric = denomQuote ? price * size : size;
-      run += metric;
-      return { price, metric, cum: run };
-    });
-  };
+  const tickWei = useMemo(() => tickToWei(tick), [tick]);
+  const asks = aggregateSide(book?.asks ?? [], tickWei, "ask", { depth, quote: denomQuote });
+  const bids = aggregateSide(book?.bids ?? [], tickWei, "bid", { depth, quote: denomQuote });
 
-  const asks = toRows(groupByTick(book?.asks ?? [], tick, false));
-  const bids = toRows(groupByTick(book?.bids ?? [], tick, true));
-
-  const maxDepth = Math.max(
-    asks.length ? asks[asks.length - 1].cum : 0,
-    bids.length ? bids[bids.length - 1].cum : 0,
-    1
-  );
+  const lastTotal = (rows: Row[]) => (rows.length ? rows[rows.length - 1].total : 0n);
+  const maxDepth = [lastTotal(asks), lastTotal(bids), 1n].reduce((a, b) => (a > b ? a : b));
 
   const displayAsks = [...asks].reverse(); // highest at top, best ask near spread
 
-  const bestAsk = asks[0]?.price ?? null;
-  const bestBid = bids[0]?.price ?? null;
-  const spreadAbs = bestAsk !== null && bestBid !== null ? (bestAsk - bestBid).toFixed(priceDecimals) : null;
-  const midPrice = bestAsk !== null && bestBid !== null ? (bestAsk + bestBid) / 2 : null;
-  const spreadPct =
-    spreadAbs && midPrice ? ((parseFloat(spreadAbs) / midPrice) * 100).toFixed(3) + "%" : "0.000%";
+  // Spread from the raw book, not the bucketed rows: bucketing widens it.
+  const spread = spreadOf(book);
+  const spreadAbs = spread ? priceText(spread.spread) : null;
+  const spreadPct = spread ? `${formatFixed(spread.spreadPpm, 6, 3, { grouping: false })}%` : "—";
 
   const tabCls = (active: boolean) =>
     `flex-1 h-full text-center text-[13px] font-semibold relative transition-colors ${
@@ -104,7 +70,7 @@ export function OrderBook({ market }: { market: MarketConfig }) {
         : "text-[#a3a3a3] hover:text-[#f5f5f5]"
     }`;
 
-  const onPriceClick = (price: number) => setSelectedPrice(marketId, price);
+  const onPriceClick = (price: bigint) => setSelectedPrice(marketId, price);
 
   const Asks = (
     <div className="flex-1 overflow-y-auto flex flex-col" style={{ scrollbarWidth: "none" }}>
@@ -121,7 +87,8 @@ export function OrderBook({ market }: { market: MarketConfig }) {
               side="ask"
               maxCum={maxDepth}
               highlight={hl}
-              priceDecimals={priceDecimals}
+              priceText={priceText}
+              amountText={amountText}
               onClick={() => onPriceClick(a.price)}
               onEnter={() => setHover({ side: "ask", idx: displayIdx })}
               onLeave={() => setHover(null)}
@@ -146,7 +113,8 @@ export function OrderBook({ market }: { market: MarketConfig }) {
               side="bid"
               maxCum={maxDepth}
               highlight={hl}
-              priceDecimals={priceDecimals}
+              priceText={priceText}
+              amountText={amountText}
               onClick={() => onPriceClick(b.price)}
               onEnter={() => setHover({ side: "bid", idx: i })}
               onLeave={() => setHover(null)}
@@ -264,27 +232,17 @@ export function OrderBook({ market }: { market: MarketConfig }) {
                 <span className="text-[11px] text-[#737373]">No trades yet</span>
               </div>
             ) : (
-              trades.map((t, i) => (
+              trades.map((t) => (
                 <div
-                  key={i}
+                  key={t.fillId}
                   className="grid grid-cols-3 font-mono text-[11.5px] hover:bg-white/[0.02] cursor-pointer"
                   style={{ padding: "4px 8px" }}
-                  onClick={() => setSelectedPrice(marketId, parseFloat(t.price))}
+                  onClick={() => setSelectedPrice(marketId, t.price)}
                 >
-                  <span
-                    className={
-                      t.side === "buy"
-                        ? "text-[#54bd7c]"
-                        : t.side === "sell"
-                          ? "text-[#e06a6a]"
-                          : "text-[#a3a3a3]"
-                    }
-                  >
-                    {parseFloat(t.price).toFixed(market.priceDecimals)}
+                  <span className={t.side === "buy" ? "text-[#54bd7c]" : "text-[#e06a6a]"}>
+                    {formatFixed(t.price, 18, market.priceDecimals)}
                   </span>
-                  <span className="text-right text-[#f5f5f5]">
-                    {fmt(tradeMetric(t.price, t.size))}
-                  </span>
+                  <span className="text-right text-[#f5f5f5]">{amountText(amountOf(t.price, t.size))}</span>
                   <span className="text-right text-[#a3a3a3]">
                     {new Date(t.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -309,30 +267,29 @@ function formatTick(t: number): string {
   return t.toFixed(Math.max(0, Math.ceil(-Math.log10(t))));
 }
 
-function fmt(n: number): string {
-  return n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toFixed(2);
-}
-
 function BookRow({
   level,
   side,
   maxCum,
   highlight,
-  priceDecimals,
+  priceText,
+  amountText,
   onClick,
   onEnter,
   onLeave,
 }: {
-  level: LevelRow;
+  level: Row;
   side: "ask" | "bid";
-  maxCum: number;
+  maxCum: bigint;
   highlight: boolean;
-  priceDecimals: number;
+  priceText: (p: bigint) => string;
+  amountText: (v: bigint) => string;
   onClick: () => void;
   onEnter: () => void;
   onLeave: () => void;
 }) {
-  const barPct = (level.cum / maxCum) * 100;
+  // Basis points of the deepest total, to keep the width math in integers.
+  const barPct = Number((level.total * 10_000n) / maxCum) / 100;
 
   return (
     <div
@@ -350,10 +307,10 @@ function BookRow({
       />
       {highlight && <div className="absolute inset-0 bg-white/[0.08] z-[1]" />}
       <span className={`relative z-10 ${side === "ask" ? "text-[#ff5d5d]" : "text-[#42e783]"}`}>
-        {level.price.toFixed(priceDecimals)}
+        {priceText(level.price)}
       </span>
-      <span className="relative z-10 text-right text-[#f5f5f5]">{fmt(level.metric)}</span>
-      <span className="relative z-10 text-right text-[#f5f5f5]">{fmt(level.cum)}</span>
+      <span className="relative z-10 text-right text-[#f5f5f5]">{amountText(level.amount)}</span>
+      <span className="relative z-10 text-right text-[#f5f5f5]">{amountText(level.total)}</span>
     </div>
   );
 }

@@ -3,73 +3,38 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { MarketConfig } from "@/lib/stellar/legacy-config";
+
 import { logoFor, UsdcLogo } from "@/components/common/AssetLogos";
-import { formatChangePercent, formatMarketUsd, formatVolume } from "@/lib/stellar/legacy-format";
+import { displayPrice, maxLeverage, useMarkets, type ArcMarket } from "@/features/markets/directory";
+import { useNetwork } from "@/features/network/NetworkContext";
 import { apiFetch } from "@/lib/api";
+import { formatChange, formatCompactUsd, formatRateBps, formatUsdPrice } from "@/lib/format";
+import { stats24hFromCandles } from "@/lib/market/book";
+import { notional } from "@/lib/math";
 
-function leverageLabel(bps: number) {
-  return `${Math.round(bps / 10_000)}x`;
-}
-
-interface Row {
-  lastPrice: bigint;
-  volume: bigint;
-  longOI: bigint;
-  shortOI: bigint;
-  changePct: number | null;
-}
-
-/**
- * Live figures per market. `/api/markets/[id]` supplies indexed price / volume
- * / OI; the 24h change comes from Binance, matching what MarketDataProvider
- * uses on the trade terminal.
- */
-async function fetchRow(market: MarketConfig): Promise<Row | null> {
-  const [statsRes, tickerRes] = await Promise.allSettled([
-    apiFetch(`/api/markets/${market.marketId}`, { cache: "no-store" }),
-    fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${market.priceSourceSymbol}`, { cache: "no-store" }),
-  ]);
-
-  let stats: Record<string, unknown> = {};
-  if (statsRes.status === "fulfilled" && statsRes.value.ok) {
-    stats = (await statsRes.value.json()) as Record<string, unknown>;
-  }
-
-  let changePct: number | null = null;
-  let binanceLast = 0n;
-  if (tickerRes.status === "fulfilled" && tickerRes.value.ok) {
-    const t = (await tickerRes.value.json()) as { priceChangePercent: string; lastPrice: string };
-    const pct = parseFloat(t.priceChangePercent);
-    changePct = Number.isFinite(pct) ? pct : null;
-    const last = parseFloat(t.lastPrice);
-    if (Number.isFinite(last) && last > 0) binanceLast = BigInt(Math.round(last * 1e18));
-  }
-
-  const indexed = BigInt(String(stats["last_price"] ?? "0"));
-  return {
-    // Fall back to the Binance last price when nothing has traded on-venue yet
-    // — a market with an empty Fill table would otherwise show "—" forever.
-    lastPrice: indexed > 0n ? indexed : binanceLast,
-    volume: BigInt(String(stats["volume"] ?? "0")),
-    longOI: BigInt(String(stats["long_open_interest"] ?? "0")),
-    shortOI: BigInt(String(stats["short_open_interest"] ?? "0")),
-    changePct,
-  };
-}
-
-function MarketRow({ market }: { market: MarketConfig }) {
+/** 24h open from the market's own settled fills; 0 when nothing traded. */
+function useOpen24h(marketId: number): bigint {
+  const { network } = useNetwork();
   const { data } = useQuery({
-    queryKey: ["markets-page-row", market.marketId],
-    queryFn: () => fetchRow(market),
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    queryKey: ["open24h", network, marketId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/markets/${marketId}/candles?tf=3600&limit=25`, { cache: "no-store" }, network);
+      return res.ok ? stats24hFromCandles(await res.json(), Date.now()).open : 0n;
+    },
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
+  return data ?? 0n;
+}
 
-  const oi = data ? data.longOI + data.shortOI : null;
+function MarketRow({ market }: { market: ArcMarket }) {
+  const price = displayPrice(market);
+  const open24h = useOpen24h(market.marketId);
+  const change = open24h > 0n && price > 0n ? formatChange(open24h, price) : null;
+  const oiUsd = notional(market.longOpenInterest + market.shortOpenInterest, market.indexPrice);
 
   return (
-    <div className="flex flex-col gap-3 border-b border-[#2A2A31] px-4 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02] md:grid md:grid-cols-[1.5fr_.9fr_.7fr_.9fr_.9fr_.6fr_.7fr] md:items-center md:gap-0">
+    <div className="flex flex-col gap-3 border-b border-[#2A2A31] px-4 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02] md:grid md:grid-cols-[1.5fr_.9fr_.7fr_.9fr_.9fr_.6fr_1fr_.7fr] md:items-center md:gap-0">
       <div className="flex items-center justify-between gap-2 md:block">
         <div className="flex flex-col gap-1">
           <span className="flex items-center gap-2 text-[14px] font-semibold">
@@ -78,6 +43,7 @@ function MarketRow({ market }: { market: MarketConfig }) {
           </span>
           <span className="text-[12px] text-[#a3a3a3]">
             {market.baseAsset} perpetual settled in {market.quoteAsset}
+            {!market.active && <span className="ml-2 text-[#fdba74]">· Paused</span>}
           </span>
         </div>
         <Link
@@ -90,31 +56,33 @@ function MarketRow({ market }: { market: MarketConfig }) {
 
       <div className="grid grid-cols-2 gap-y-2 text-[13px] md:contents">
         <MarketStat label="Price">
-          <span className="font-mono text-[#f5f5f5]">
-            {data ? formatMarketUsd(market, data.lastPrice) : "—"}
-          </span>
+          <span className="font-mono text-[#f5f5f5]">{formatUsdPrice(market, price)}</span>
         </MarketStat>
         <MarketStat label="24h">
           <span
             className={`font-mono ${
-              data?.changePct == null
-                ? "text-[#737373]"
-                : data.changePct >= 0
-                ? "text-[#1fae5b]"
-                : "text-[#ff4d5f]"
+              change === null ? "text-[#737373]" : change.startsWith("-") ? "text-[#ff4d5f]" : "text-[#1fae5b]"
             }`}
           >
-            {data?.changePct == null ? "—" : formatChangePercent(data.changePct)}
+            {change ?? "—"}
           </span>
         </MarketStat>
         <MarketStat label="24h Volume">
-          <span className="font-mono text-[#f5f5f5]">{data ? formatVolume(data.volume) : "—"}</span>
+          <span className="font-mono text-[#f5f5f5]">{formatCompactUsd(market.volume24h, 18)}</span>
         </MarketStat>
         <MarketStat label="Open Interest">
-          <span className="font-mono text-[#f5f5f5]">{oi !== null ? formatVolume(oi) : "—"}</span>
+          <span className="font-mono text-[#f5f5f5]">{formatCompactUsd(oiUsd, 18)}</span>
         </MarketStat>
         <MarketStat label="Leverage">
-          <span className="font-mono text-[#f5f5f5]">{leverageLabel(market.maxLeverageBps)}</span>
+          <span className="font-mono text-[#f5f5f5]">{maxLeverage(market)}x</span>
+        </MarketStat>
+        <MarketStat label="Fees">
+          <span
+            className="font-mono text-[12px] text-[#a3a3a3]"
+            title="Maker / taker, in basis points of notional"
+          >
+            {formatRateBps(market.makerRate)} / {formatRateBps(market.takerRate)}
+          </span>
         </MarketStat>
       </div>
 
@@ -141,8 +109,10 @@ function MarketStat({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-export function MarketsTable({ markets }: { markets: MarketConfig[] }) {
+export function MarketsTable() {
   const [query, setQuery] = useState("");
+  const { list, isLoading, error } = useMarkets();
+  const markets = list;
 
   const visible = useMemo(() => {
     const q = query.trim().toUpperCase();
@@ -150,8 +120,15 @@ export function MarketsTable({ markets }: { markets: MarketConfig[] }) {
     return markets.filter((m) => m.symbol.includes(q) || m.baseAsset.includes(q));
   }, [markets, query]);
 
+  const activeCount = markets.filter((m) => m.active).length;
+
   return (
     <>
+      {markets.length > 0 && (
+        <div className="self-start rounded-[6px] border border-[#2A2A31] bg-[#212128] px-3 py-2 text-[12px] text-[#a3a3a3]">
+          {activeCount} active{markets.length > activeCount ? ` · ${markets.length - activeCount} paused` : ""}
+        </div>
+      )}
       {markets.length > 4 && (
         <input
           value={query}
@@ -164,25 +141,31 @@ export function MarketsTable({ markets }: { markets: MarketConfig[] }) {
 
       <div className="overflow-hidden rounded-[10px] border border-[#2A2A31] bg-[#212128]">
         {/* Column header — desktop only */}
-        <div className="hidden grid-cols-[1.5fr_.9fr_.7fr_.9fr_.9fr_.6fr_.7fr] border-b border-[#2A2A31] px-4 py-3 text-[11px] uppercase tracking-[.08em] text-[#737373] md:grid">
+        <div className="hidden grid-cols-[1.5fr_.9fr_.7fr_.9fr_.9fr_.6fr_1fr_.7fr] border-b border-[#2A2A31] px-4 py-3 text-[11px] uppercase tracking-[.08em] text-[#737373] md:grid">
           <div>Market</div>
           <div>Price</div>
           <div>24h</div>
           <div>24h Volume</div>
           <div>Open Interest</div>
           <div>Leverage</div>
+          <div>Fees (maker / taker)</div>
           <div className="text-right">Action</div>
         </div>
 
-        {visible.length === 0 ? (
-          <div className="px-4 py-8 text-center text-[13px] text-[#737373]">
-            No markets match “{query}”
+        {error && markets.length === 0 ? (
+          <div className="px-4 py-8 text-center text-[13px] text-[#ff9b9b]">
+            Markets are unavailable right now. The indexer or API may be down; retrying.
           </div>
+        ) : isLoading && markets.length === 0 ? (
+          <div className="px-4 py-8 text-center text-[13px] text-[#737373]">Loading markets…</div>
+        ) : markets.length === 0 ? (
+          <div className="px-4 py-8 text-center text-[13px] text-[#737373]">
+            No markets are listed on this network yet.
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="px-4 py-8 text-center text-[13px] text-[#737373]">No markets match “{query}”</div>
         ) : (
-          // useQuery has no data on the server render or the first client
-          // paint, so every live cell renders "—" in both — no hydration gate
-          // needed.
-          visible.map((market) => <MarketRow key={market.symbol} market={market} />)
+          visible.map((market) => <MarketRow key={market.marketId} market={market} />)
         )}
       </div>
 

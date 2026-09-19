@@ -33,6 +33,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         low: toFloat(c.low),
         close: toFloat(c.close),
         volume: toFloat(c.volume),
+        // Exact 1e18 values; the numbers above are for chart libraries.
+        open_raw: c.open.toString(),
+        high_raw: c.high.toString(),
+        low_raw: c.low.toString(),
+        close_raw: c.close.toString(),
+        volume_raw: c.volume.toString(),
       })),
       { headers: { "Cache-Control": "no-store" } }
     );

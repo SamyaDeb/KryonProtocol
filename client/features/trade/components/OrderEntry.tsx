@@ -93,10 +93,10 @@ export function OrderEntry({
 
   // Picking a price in the order book / trades feed loads it as a limit price.
   useEffect(() => {
-    if (selectedPrice != null && selectedPrice > 0) {
+    if (selectedPrice != null && selectedPrice > 0n) {
       queueMicrotask(() => {
         setOrderType("limit");
-        setLimitPrice(toPriceInput(market, selectedPrice));
+        setLimitPrice(toPriceInput(market, priceToHuman(selectedPrice)));
       });
     }
   }, [selectedPrice, market]);
@@ -123,7 +123,7 @@ export function OrderEntry({
   const midPriceHuman: number | null = (() => {
     if (rawMarkPrice && rawMarkPrice > 0n) return priceToHuman(rawMarkPrice);
     if (book?.asks[0] && book?.bids[0]) {
-      return (parseFloat(book.asks[0].price) + parseFloat(book.bids[0].price)) / 2;
+      return (priceToHuman(book.asks[0].price) + priceToHuman(book.bids[0].price)) / 2;
     }
     return null;
   })();
@@ -135,8 +135,8 @@ export function OrderEntry({
   const midDisplay = midPriceHuman !== null ? formatMarketPrice(market, midPriceHuman) : "—";
 
   const execPrice = orderType === "market" ? midPriceHuman ?? 0 : limitPriceNum;
-  const bestAsk = book?.asks[0] ? parseFloat(book.asks[0].price) : null;
-  const bestBid = book?.bids[0] ? parseFloat(book.bids[0].price) : null;
+  const bestAsk = book?.asks[0] ? priceToHuman(book.asks[0].price) : null;
+  const bestBid = book?.bids[0] ? priceToHuman(book.bids[0].price) : null;
   const baseSizeNum = sizeInQuote && execPrice > 0 ? sizeNum / execPrice : sizeNum;
 
   const orderValue = baseSizeNum > 0 && execPrice > 0

@@ -156,7 +156,7 @@ function ChartOverlay({
             )}
           </div>
           <OverlayRow label="Entry" value={px(position.entryPrice)} tone="#f5f5f5" />
-          <OverlayRow label="Liq." value={px(position.liquidationPrice)} tone="#fbbf24" />
+          {position.liquidationPrice ? <OverlayRow label="Liq." value={px(position.liquidationPrice)} tone="#fbbf24" /> : null}
           {position.tpPrice ? <OverlayRow label="TP" value={px(position.tpPrice)} tone="#1fae5b" /> : null}
           {position.slPrice ? <OverlayRow label="SL" value={px(position.slPrice)} tone="#e34c4c" /> : null}
         </>

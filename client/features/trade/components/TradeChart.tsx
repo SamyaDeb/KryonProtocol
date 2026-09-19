@@ -1,77 +1,52 @@
 "use client"
 
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useWallet } from "@/features/wallet/useWallet";
-import { useLocalOrders } from '@/stores/orders'
-import { useMarketStore } from '@/stores/market'
-import { getPositions } from '@/lib/stellar/contracts'
+/**
+ * The chart plus this account's overlays for the market on screen.
+ *
+ * The chart itself is TradingView's view of the market's reference venue
+ * (lib/markets.ts `tvSymbol`). The oracle index is a median of those venues,
+ * so it is the right price context, and on a young venue our own candles
+ * (/api/markets/:id/candles) are too sparse to chart. Overlays are Kryon's:
+ * the position from /api/positions and resting orders from /api/orders/list.
+ *
+ * Overlay numbers are floats because the chart library draws with them; they
+ * are display only and nothing is signed from them.
+ */
+
 import { KryonChart } from '@/features/chart/components/KryonChart'
-import { priceToHuman, amountToHuman } from '@/lib/stellar/legacy-format'
-import { calcLiqPrice } from '@/lib/stellar/legacy-math'
-import type { MarketConfig } from '@/lib/stellar/legacy-config'
-import type { PositionOverlay, OrderOverlay } from '@/features/chart/types'
+import type { OrderOverlay, PositionOverlay } from '@/features/chart/types'
+import { useOpenOrders, usePositions } from '@/features/account/queries'
+import { useWallet } from '@/features/wallet/useWallet'
+import type { ArcMarket } from '@/features/markets/directory'
+import { toChartNumber } from '@/lib/format'
+import { unrealizedPnl } from '@/lib/math'
+import { useMarketStore } from '@/stores/market'
 
-interface Props {
-  /**
-   * The full market config. Previously this took `symbol` plus an optional
-   * `marketId` defaulting to 1, so any caller that forgot to pass one silently
-   * charted XLM-PERP's position and orders over another market's candles.
-   */
-  market: MarketConfig
-}
+export function TradeChart({ market }: { market: ArcMarket }) {
+  const { address } = useWallet()
+  const mark = useMarketStore((s) => s.markPrices[market.marketId])
+  const { data: positions = [] } = usePositions(address)
+  const { data: orders = [] } = useOpenOrders(address)
 
-export function TradeChart({ market }: Props) {
-  const marketIdNum = market.marketId
-  const { address, connected } = useWallet()
-  const markPrices = useMarketStore((s) => s.markPrices)
+  const pos = positions.find((p) => p.marketId === market.marketId && p.size !== 0n)
 
-  const allOrders = useLocalOrders((s) => s.orders)
-  const pendingOrders = useMemo(
-    () => allOrders.filter((o) => o.marketId === marketIdNum && o.status === 'pending' && o.limitPrice > 0n),
-    [allOrders, marketIdNum]
-  )
+  let positionOverlay: PositionOverlay | undefined
+  if (pos) {
+    const price = mark ?? pos.entryPrice
+    positionOverlay = {
+      side: pos.size > 0n ? 'long' : 'short',
+      entryPrice: toChartNumber(pos.entryPrice, 18),
+      unrealizedPnl: toChartNumber(unrealizedPnl(pos.size, pos.openNotional, price), 18),
+    }
+  }
 
-  const { data: allPositions = [] } = useQuery({
-    queryKey: ['positions', address],
-    queryFn: () => getPositions(address!),
-    enabled: !!address && connected,
-    refetchInterval: 10_000,
-  })
-
-  const rawPos = allPositions.find((p) => p.marketId === marketIdNum)
-
-  // Build position overlay for the chart (entry, liq, mark lines)
-  const positionOverlay: PositionOverlay | undefined = (() => {
-    if (!rawPos || rawPos.entryPrice <= 0n || rawPos.margin <= 0n) return undefined
-    const entryPrice = priceToHuman(rawPos.entryPrice)
-    const sizeHuman = amountToHuman(rawPos.size)
-    const marginHuman = amountToHuman(rawPos.margin)
-    // notional (USD) = size_base × entry_usd  →  leverage = notional / margin_usd
-    const notional = sizeHuman * entryPrice
-    const leverage = Math.max(1, Math.round(notional / Math.max(marginHuman, 0.0001)))
-    const liqRaw = calcLiqPrice(rawPos.isLong, rawPos.entryPrice, leverage, market.maintenanceMarginBps)
-    const liquidationPrice = priceToHuman(liqRaw)
-    const markRaw = markPrices[marketIdNum]
-    const markHuman = markRaw ? priceToHuman(markRaw) : entryPrice
-    const unrealizedPnl = rawPos.isLong
-      ? (markHuman - entryPrice) * sizeHuman
-      : (entryPrice - markHuman) * sizeHuman
-    return {
-      side: rawPos.isLong ? 'long' : 'short',
-      entryPrice,
-      liquidationPrice,
-      unrealizedPnl,
-      leverage,
-    } satisfies PositionOverlay
-  })()
-
-  // Build order overlays (limit orders only — market orders have no price line)
-  const orderOverlays: OrderOverlay[] = pendingOrders.map((o) => ({
-    price: priceToHuman(o.limitPrice),
-    side: o.isLong ? 'buy' : 'sell',
-    size: amountToHuman(o.size),
-  }))
+  const orderOverlays: OrderOverlay[] = orders
+    .filter((o) => o.marketId === market.marketId && o.remainingSize > 0n)
+    .map((o) => ({
+      price: toChartNumber(o.limitPrice, 18),
+      side: o.isLong ? 'buy' : 'sell',
+      size: toChartNumber(o.remainingSize, 18),
+    }))
 
   return (
     <div className="h-full min-h-0">
