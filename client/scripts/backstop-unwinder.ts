@@ -28,10 +28,13 @@ import { loadServiceSigner } from "@/lib/chain/signer";
 import { BackstopUnwinder, pgBackstopBook, viemBackstopChain } from "@/lib/keepers/backstop";
 import { bootstrap, envInt, runLoop } from "@/lib/keepers/runtime";
 import { erc1271CheckerFor } from "@/lib/validation";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "backstop-unwinder";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("backstop-unwinder");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");

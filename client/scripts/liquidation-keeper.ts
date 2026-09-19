@@ -26,10 +26,13 @@
 import { neon } from "@/lib/sql";
 import { LiquidationKeeper, viemLiquidationChain } from "@/lib/keepers/liquidation";
 import { bootstrap, createSender, envInt, recoverOpenJobs, runLoop } from "@/lib/keepers/runtime";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "liquidator";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("liquidation-keeper");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");

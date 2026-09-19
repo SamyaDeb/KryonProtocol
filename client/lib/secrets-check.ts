@@ -101,3 +101,21 @@ export function assertNoPublicSecretLeak(): void {
     process.exit(1);
   }
 }
+
+/** Name fragments that never belong in a browser-bundled variable. */
+const SECRET_NAME = /SECRET|PRIVATE_KEY|MNEMONIC|KEYSTORE|_TOKEN$|DATABASE_URL|API_KEY/;
+/** A raw 32-byte hex key, or a Stellar secret seed. */
+const SECRET_VALUE = /^(0x)?[0-9a-fA-F]{64}$|^S[A-Z2-7]{55}$/;
+
+/**
+ * NEXT_PUBLIC_* variables that look like secrets, by name or by value. Pure:
+ * returns the offending names (never the values) so callers can report them.
+ */
+export function publicSecretLeaks(env: Record<string, string | undefined>): string[] {
+  const leaks: string[] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith("NEXT_PUBLIC_")) continue;
+    if (SECRET_NAME.test(key.slice("NEXT_PUBLIC_".length)) || (value && SECRET_VALUE.test(value.trim()))) leaks.push(key);
+  }
+  return leaks.sort();
+}

@@ -131,6 +131,34 @@ module.exports = {
       out_file: "./logs/refill.log",
       error_file: "./logs/refill.error.log",
     },
+    // Backstop unwinder: signs Insurance-owned reduce-only orders with the
+    // BACKSTOP_SIGNER_ROLE key; sends no transactions. Idle until governance
+    // sets unwind limits and grants the role.
+    {
+      name: "kryon-backstop",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/backstop-unwinder.ts",
+      cwd: __dirname,
+      restart_delay: 10000,
+      max_restarts: 20,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/backstop.log",
+      error_file: "./logs/backstop.error.log",
+    },
+    // Fee-tier bot: FEE_TIER_ROLE key. Dry run unless FEE_TIER_BOT_ENABLED=true.
+    {
+      name: "kryon-fee-tier",
+      script: "npx",
+      args: "tsx --env-file=.env.local scripts/fee-tier-bot.ts",
+      cwd: __dirname,
+      restart_delay: 30000,
+      max_restarts: 10,
+      autorestart: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      out_file: "./logs/fee-tier.log",
+      error_file: "./logs/fee-tier.error.log",
+    },
     // The monitor: read-only, no key. It watches every service above, so it
     // runs last and restarts eagerly — the one process whose silence nobody
     // else would notice.

@@ -13,6 +13,9 @@
 
 import { after, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NextRequest } from "next/server";
 
 import type { Query } from "@/lib/indexer/db";
@@ -51,11 +54,25 @@ async function call(h: Handler, path: string, params: Record<string, string> = {
 
 describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () => {
   let s: ScratchDb;
+  let deploymentDir = "";
   const r = {} as Record<string, Handler>;
 
   before(async () => {
     s = await createScratchDb("api_routes");
     routeEnv(s);
+    // /api/ready checks the web configuration (lib/config-check.ts): the
+    // offered network needs a deployment record, so give it a fixture one.
+    deploymentDir = mkdtempSync(join(tmpdir(), "kryon-api-routes-"));
+    const record = join(deploymentDir, "arc-local.json");
+    writeFileSync(
+      record,
+      JSON.stringify({
+        chainId: 5042002,
+        timelock: addr(9),
+        proxies: { vault: addr(1), engine: addr(2), gateway: addr(8), oracle: addr(3), liquidation: addr(4), insurance: addr(5), risk: addr(6), feeRouter: addr(7) },
+      })
+    );
+    process.env.KRYON_DEPLOYMENT_FILE_ARC_LOCAL = record;
     // Imported only now: `@/lib/network` fixes the allowed networks at load.
     const load = async (p: string) => (await import(p)).GET as Handler;
     r.markets = await load("@/app/api/markets/route");
@@ -75,6 +92,8 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
   });
 
   after(async () => {
+    if (deploymentDir) rmSync(deploymentDir, { recursive: true, force: true });
+    delete process.env.KRYON_DEPLOYMENT_FILE_ARC_LOCAL;
     if (!s) return;
     await closeRouteDb();
     await s.drop();

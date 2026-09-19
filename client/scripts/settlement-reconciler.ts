@@ -32,10 +32,13 @@
 import { neon } from "@/lib/sql";
 import { bootstrap, envInt, runLoop } from "@/lib/keepers/runtime";
 import { reconcileOnce } from "@/lib/reconciler";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "reconciler";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("reconciler");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
