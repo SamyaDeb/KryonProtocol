@@ -4,6 +4,10 @@ updates:
     directory: /client
     schedule:
       interval: weekly
+    # A release must be public for a few days before it is proposed, so a
+    # compromised publish is usually caught and yanked first.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       client-minor-patch:
@@ -29,6 +33,10 @@ updates:
     directory: /kryon-protocol
     schedule:
       interval: weekly
+    # A release must be public for a few days before it is proposed, so a
+    # compromised publish is usually caught and yanked first.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       protocol-minor-patch:
@@ -36,15 +44,49 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: github-actions
-    directory: /
+  # The Rust reference model and kryon-ref (the differential-test oracle).
+  - package-ecosystem: cargo
+    directory: /kryon-protocol
     schedule:
       interval: weekly
+    # A release must be public for a few days before it is proposed, so a
+    # compromised publish is usually caught and yanked first.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Actions are pinned to full commit SHAs with a `# vX.Y.Z` comment; Dependabot
+  # bumps the SHA and the comment together. The composite actions under
+  # .github/actions/ are listed so their pins are kept current too.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    # A release must be public for a few days before it is proposed, so a
+    # compromised publish is usually caught and yanked first.
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /docs
     schedule:
       interval: weekly
+    # A release must be public for a few days before it is proposed, so a
+    # compromised publish is usually caught and yanked first.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       docs-minor-patch:

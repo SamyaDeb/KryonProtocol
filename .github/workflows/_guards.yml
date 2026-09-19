@@ -1,0 +1,40 @@
+name: guards
+
+# Repository-wide guards. Cheap greps that run on every change, docs-only
+# included, so nothing that must never land can slip past the path filter.
+#
+# To add a guard: add a job here (contents: read, a timeout, no secrets). It
+# reports under `guards / <job name>` and is gated by `ci-gate` through the
+# `guards` job in ci.yml, with no change to branch protection.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Separation guard: no tracked file may reference the previous deployment's
+  # hosts, hosting-provider project/team ids, Cloudflare account or VM address. Each literal is written with a
+  # character class so this file does not match its own pattern.
+  # ---------------------------------------------------------------------------
+  separation-guard:
+    name: separation-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: No references to the previous deployment
+        env:
+          PATTERN: 'kryonprotocol[.]live|client-eight-mu-7[1]|kryon-client[.]kryon[.]workers[.]dev|kryonprotocol[.]vercel[.]app|prj_[A-Za-z0-9]{20,}|team_[A-Za-z0-9]{20,}|samyadebs-project[s]|b8a23edf0ffbfe1137d1d672b001723[8]|92[.]4[.]91[.]3[0]'
+        run: |
+          if git grep -nE "$PATTERN"; then
+            echo "::error::Tracked files reference the previous deployment (see matches above)."
+            exit 1
+          fi
+          echo "clean"

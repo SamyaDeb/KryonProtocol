@@ -1,481 +1,262 @@
 name: ci
 
 # Continuous integration for the Kryon Perps DEX monorepo.
-# Modular jobs (client / contracts / prisma / security) run in parallel so
-# unrelated changes still get full coverage without serializing the pipeline.
+#
+# This file only orchestrates. Each area lives in a reusable workflow
+# (`_<area>.yml`, `on: workflow_call`), `changes` decides which areas a pull
+# request touches, and `ci-gate` is the one check branch protection requires.
+#
+# Adding a job: put it in the matching `_<area>.yml` (it is then gated through
+# that area's caller job below), or add a new `_<area>.yml`, call it here, and
+# add the caller to `ci-gate`'s `needs:` and its gate.sh arguments. A job
+# outside `ci-gate` does not block merges. See docs/engineering/CI_CD.md.
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
 
-# Least-privilege by default. Individual jobs add scopes only if they need them.
-# This overrides any permissive repo/org default (which can otherwise be write-all).
-permissions:
-  contents: read
+# Nothing by default; every job grants itself what it needs.
+permissions: {}
 
-# Cancel superseded runs on the same ref/PR to save runner minutes, but never
-# cancel a push to main mid-flight.
+# Cancel superseded runs of the same pull request to save runner minutes. Never
+# cancel a push to main or a merge-queue run mid-flight.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Separation guard: no tracked file may reference the previous deployment's
-  # hosts, hosting-provider project/team ids, Cloudflare account or VM address. Each literal is written with a
-  # character class so this file does not match its own pattern.
+  # Path filter. Pull requests skip the areas they do not touch; pushes to main
+  # and merge-queue runs always run everything, so main is verified in full.
+  # The rules (and why they fail safe) are in .github/scripts/changes.sh.
   # ---------------------------------------------------------------------------
-  separation-guard:
-    name: separation-guard
+  changes:
+    name: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+      evm: ${{ steps.filter.outputs.evm }}
+      rust: ${{ steps.filter.outputs.rust }}
+      prisma: ${{ steps.filter.outputs.prisma }}
+      integration: ${{ steps.filter.outputs.integration }}
+      security: ${{ steps.filter.outputs.security }}
     steps:
+      # For a pull request the checkout is the test merge commit; its first
+      # parent is the base branch tip, so HEAD^1..HEAD is exactly the PR's diff.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          fetch-depth: 2
           persist-credentials: false
 
-      - name: No references to the previous deployment
+      - name: Classify changed paths
+        id: filter
         env:
-          PATTERN: 'kryonprotocol[.]live|client-eight-mu-7[1]|kryon-client[.]kryon[.]workers[.]dev|kryonprotocol[.]vercel[.]app|prj_[A-Za-z0-9]{20,}|team_[A-Za-z0-9]{20,}|samyadebs-project[s]|b8a23edf0ffbfe1137d1d672b001723[8]|92[.]4[.]91[.]3[0]'
+          EVENT: ${{ github.event_name }}
         run: |
-          if git grep -nE "$PATTERN"; then
-            echo "::error::Tracked files reference the previous deployment (see matches above)."
-            exit 1
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            # Everything: main and the merge queue are never path-filtered.
+            echo ".github/workflows/ci.yml" > "$RUNNER_TEMP/changed.txt"
           fi
-          echo "clean"
-
-  # ---------------------------------------------------------------------------
-  # Frontend: lint, typecheck, unit tests, and a real Next.js build.
-  # ---------------------------------------------------------------------------
-  client:
-    name: client (lint · typecheck · test · build)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: client
-    env:
-      KRYON_TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_test
-    # The TxJobStore, indexer and matcher suites skip themselves without a
-    # database. That is right locally and wrong here: skipping in CI means the
-    # settlement and matching paths that own money are never exercised.
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: kryon_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      # Local composite actions require the repo on disk first.
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup
-        uses: ./.github/actions/setup-client
-
-      - name: Migrate the test database
-        # Every migration in order. A glob passed straight to `psql -f` silently
-        # applies only the first file and hands the rest to psql as connection
-        # arguments, which stopped being harmless the moment a second migration
-        # existed.
-        run: |
-          for f in ../kryon-protocol/prisma/migrations/*/migration.sql; do
-            echo "applying $f"
-            psql "$KRYON_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
-          done
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      # The client's node:test suites had no runner and no script, so they had
-      # never executed despite CI being green. Run them.
-      - name: Unit and database tests
-        run: npm test
-
-      - name: Build
-        run: npm run build
-
-      # Upload the build (minus the cache) for debugging. always() + ignore keeps
-      # this from masking or failing on an earlier build error.
-      - name: Upload build artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-next-build
-          path: |
-            client/.next/
-            !client/.next/cache/**
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # ---------------------------------------------------------------------------
-  # Rust reference model (protocol-core, risk-engine) and the kryon-ref ffi
-  # binary the Solidity differential tests call.
-  # ---------------------------------------------------------------------------
-  reference-model:
-    name: reference model (fmt · clippy · test)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: kryon-protocol
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      # Pinned; MUST match kryon-protocol/rust-toolchain.toml.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
-        with:
-          components: rustfmt,clippy
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: kryon-protocol
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (warnings = errors)
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Test
-        run: cargo test --workspace --locked
-
-  # ---------------------------------------------------------------------------
-  # Matcher end-to-end: the real matching service against a local arc-anvil,
-  # a real deployment and a real Postgres. This is the only job where an order
-  # is signed, matched, batched and settled the whole way through, so a change
-  # that breaks settlement fails here rather than on testnet.
-  # ---------------------------------------------------------------------------
-  matcher-e2e:
-    name: matcher e2e (arc-anvil · deploy · settle)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      ARC_FOUNDRY_VERSION: v0.8.0-1
-      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_e2e
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: kryon_e2e
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Install arc-foundry (checksum verified)
-        working-directory: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          V="$ARC_FOUNDRY_VERSION"
-          T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T.sha256"
-          sha256sum -c "$T.sha256"
-          tar -xzf "$T"
-          mkdir -p "$HOME/.local/bin"
-          mv forge "$HOME/.local/bin/arc-forge"
-          mv cast "$HOME/.local/bin/arc-cast"
-          mv anvil "$HOME/.local/bin/arc-anvil"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Setup client
-        uses: ./.github/actions/setup-client
-
-      - name: Migrate the end-to-end database
-        run: |
-          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
-            echo "applying $f"
-            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
-          done
-
-      - name: Run the matcher end to end
-        working-directory: client
-        run: npm run test:e2e:matcher
-
-  # ---------------------------------------------------------------------------
-  # Keeper drills: each keeper's real code against a local arc-anvil and a real
-  # deployment, driven through the failure modes it exists to handle (quorum
-  # loss, re-anchor, divergence, de-peg, ...). Local only; the drills refuse a
-  # non-loopback RPC.
-  # ---------------------------------------------------------------------------
-  keeper-drills:
-    name: keeper drills (arc-anvil)
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      ARC_FOUNDRY_VERSION: v0.8.0-1
-      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_drills
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: kryon_drills
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Install arc-foundry (checksum verified)
-        working-directory: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          V="$ARC_FOUNDRY_VERSION"
-          T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T.sha256"
-          sha256sum -c "$T.sha256"
-          tar -xzf "$T"
-          mkdir -p "$HOME/.local/bin"
-          mv forge "$HOME/.local/bin/arc-forge"
-          mv cast "$HOME/.local/bin/arc-cast"
-          mv anvil "$HOME/.local/bin/arc-anvil"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Setup client
-        uses: ./.github/actions/setup-client
-
-      - name: Migrate the drill database
-        run: |
-          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
-            echo "applying $f"
-            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
-          done
-
-      - name: Oracle publisher drill
-        working-directory: client
-        run: npm run drill:oracle
-
-      - name: Funding keeper drill
-        working-directory: client
-        run: npm run drill:funding
-
-      - name: Liquidation cascade drill
-        working-directory: client
-        run: npm run drill:liquidation
-
-      - name: Monitor drill (every fault class fires its alert)
-        working-directory: client
-        run: npm run drill:monitor
-
-      - name: Keepers end-to-end gate (deposit, trade, funding, liquidation, ADL, fee claim, withdraw)
-        working-directory: client
-        run: npm run test:e2e:keepers
-
-  # ---------------------------------------------------------------------------
-  # Solidity suite on arc-foundry (pinned). Build sizes, unit/invariant tests,
-  # differential fuzz vs the Rust reference, storage-layout diff, Slither.
-  # The full job set (coverage, gas diff, fork tests) lands with Step 6.
-  # ---------------------------------------------------------------------------
-  evm:
-    name: evm (arc-foundry · test · differential · layout · slither)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      ARC_FOUNDRY_VERSION: v0.8.0-1
-    defaults:
-      run:
-        working-directory: kryon-protocol/evm
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Install arc-foundry (checksum verified)
-        working-directory: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          V="$ARC_FOUNDRY_VERSION"
-          T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
-          curl -fsSLO "https://github.com/circlefin/arc-foundry/releases/download/$V/$T.sha256"
-          sha256sum -c "$T.sha256"
-          tar -xzf "$T"
-          mkdir -p "$HOME/.local/bin"
-          mv forge "$HOME/.local/bin/arc-forge"
-          mv cast "$HOME/.local/bin/arc-cast"
-          mv anvil "$HOME/.local/bin/arc-anvil"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: kryon-protocol
-
-      - name: Build (sizes must stay under 24KB)
-        run: arc-forge build --sizes
-
-      - name: Unit, upgrade and invariant tests
-        run: arc-forge test
-
-      - name: Differential fuzz vs Rust reference (G1)
-        run: |
-          (cd .. && cargo build -p kryon-ref --release --locked)
-          FOUNDRY_PROFILE=differential arc-forge test
-
-      - name: Storage-layout diff
-        run: ./script/storage-layout.sh --check
-
-      # crytic-compile shells out to `forge config`; point that name at
-      # arc-forge for this step only so Slither analyses the Arc build.
-      - name: Slither (fail on High/Medium)
-        run: |
-          mkdir -p "$RUNNER_TEMP/forge-shim"
-          ln -sf "$(command -v arc-forge)" "$RUNNER_TEMP/forge-shim/forge"
-          export PATH="$RUNNER_TEMP/forge-shim:$PATH"
-          arc-forge build --build-info --skip "test/**" --skip "script/**" --force
-          pipx run --spec slither-analyzer==0.11.6 slither . --foundry-out-directory out \
-            --ignore-compile --filter-paths "lib/|test/|script/" \
-            --exclude-informational --exclude-low --fail-medium
-
-  # ---------------------------------------------------------------------------
-  # Database schema: validate + generate the Prisma client.
-  # ---------------------------------------------------------------------------
-  prisma:
-    name: prisma (validate · generate · drift)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: kryon-protocol
-    # Dummy URLs: `prisma validate`/`generate` parse the schema only — no DB is
-    # contacted — but the datasource block requires the env vars to be present.
-    # The drift check replays migrations into the EMPTY service container below
-    # (never a real database) and diffs the result against schema.prisma.
-    env:
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon
-      DIRECT_URL: postgresql://ci:ci@localhost:5432/kryon
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: kryon
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: kryon-protocol/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci --no-audit --fund=false
-
-      - name: Validate schema
-        run: npx prisma validate
-
-      - name: Generate client
-        run: npx prisma generate
-
-      # Migrations replayed into the empty CI postgres must produce exactly
-      # schema.prisma — catches ad-hoc prod SQL and schema edits that skipped
-      # `prisma migrate dev`. Exit code 2 (= drift) fails the job.
-      - name: Migration drift check (empty shadow)
-        run: |
-          npx prisma migrate diff \
-            --from-migrations prisma/migrations \
-            --to-schema-datamodel prisma/schema.prisma \
-            --shadow-database-url "$DATABASE_URL" \
-            --exit-code
-
-  # ---------------------------------------------------------------------------
-  # Dependency vulnerability scan. NON-BLOCKING: advisory databases change daily,
-  # so a hard-failing `npm audit` makes green builds non-deterministic and can
-  # freeze deploys on an unrelated advisory. Findings go to the job summary;
-  # Dependabot + dependency-review.yml do the actual gating.
-  # ---------------------------------------------------------------------------
-  security:
-    name: security (npm audit — advisory)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci --no-audit --fund=false
-
-      - name: Audit (report only)
-        working-directory: client
-        run: |
-          set +e
-          npm audit --audit-level=high --omit=dev > audit.txt 2>&1
+          .github/scripts/changes.sh < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
           {
-            echo "### npm audit (client, prod deps, high+)"
-            echo ""
+            echo "### Changed paths ($EVENT)"
             echo '```'
-            cat audit.txt
+            head -200 "$RUNNER_TEMP/changed.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # Always succeed: this job informs, it does not block the pipeline.
-          exit 0
+
+  guards:
+    name: guards
+    needs: changes
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_guards.yml
+
+  client:
+    name: client
+    needs: changes
+    if: ${{ needs.changes.outputs.client == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_client.yml
+
+  reference-model:
+    name: reference model
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_reference-model.yml
+
+  evm:
+    name: evm
+    needs: changes
+    if: ${{ needs.changes.outputs.evm == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_evm.yml
+
+  prisma:
+    name: prisma
+    needs: changes
+    if: ${{ needs.changes.outputs.prisma == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_prisma.yml
+
+  integration:
+    name: integration
+    needs: changes
+    if: ${{ needs.changes.outputs.integration == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_integration.yml
+
+  security:
+    name: security
+    needs: changes
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_security.yml
+    with:
+      audit: ${{ needs.changes.outputs.security == 'true' }}
+
+  # ---------------------------------------------------------------------------
+  # The merge gate. Branch protection requires this check alone. It fails if any
+  # needed job failed or was cancelled, and treats a job the path filter skipped
+  # on purpose as passed.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: ci-gate
+    if: ${{ always() }}
+    needs: [changes, guards, client, reference-model, evm, prisma, integration, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: All needed jobs passed or were intentionally skipped
+        env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R_GUARDS: ${{ needs.guards.result }}
+          R_CLIENT: ${{ needs.client.result }}
+          R_REFERENCE: ${{ needs.reference-model.result }}
+          R_EVM: ${{ needs.evm.result }}
+          R_PRISMA: ${{ needs.prisma.result }}
+          R_INTEGRATION: ${{ needs.integration.result }}
+          R_SECURITY: ${{ needs.security.result }}
+        run: |
+          .github/scripts/gate.sh \
+            "changes=$R_CHANGES" "guards=$R_GUARDS" "client=$R_CLIENT" \
+            "reference-model=$R_REFERENCE" "evm=$R_EVM" "prisma=$R_PRISMA" \
+            "integration=$R_INTEGRATION" "security=$R_SECURITY"
+
+  # ---------------------------------------------------------------------------
+  # TRANSITIONAL. Jobs inside reusable workflows report as "<caller> / <job>",
+  # so the five check names branch protection requires today would never
+  # report. These aliases carry the exact old names and mirror their area's
+  # result until protection is switched to `ci-gate` alone; then delete them.
+  # ---------------------------------------------------------------------------
+  legacy-separation-guard:
+    name: separation-guard
+    if: ${{ always() }}
+    needs: [changes, guards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R: ${{ needs.guards.result }}
+        run: .github/scripts/gate.sh "changes=$R_CHANGES" "guards=$R"
+
+  legacy-client:
+    name: client (lint · typecheck · test · build)
+    if: ${{ always() }}
+    needs: [changes, client]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R: ${{ needs.client.result }}
+        run: .github/scripts/gate.sh "changes=$R_CHANGES" "client=$R"
+
+  legacy-reference-model:
+    name: reference model (fmt · clippy · test)
+    if: ${{ always() }}
+    needs: [changes, reference-model]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R: ${{ needs.reference-model.result }}
+        run: .github/scripts/gate.sh "changes=$R_CHANGES" "reference-model=$R"
+
+  legacy-evm:
+    name: evm (arc-foundry · test · differential · layout · slither)
+    if: ${{ always() }}
+    needs: [changes, evm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R: ${{ needs.evm.result }}
+        run: .github/scripts/gate.sh "changes=$R_CHANGES" "evm=$R"
+
+  legacy-prisma:
+    name: prisma (validate · generate · drift)
+    if: ${{ always() }}
+    needs: [changes, prisma]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R: ${{ needs.prisma.result }}
+        run: .github/scripts/gate.sh "changes=$R_CHANGES" "prisma=$R"

@@ -1,0 +1,57 @@
+# Reusable composite action: install the pinned arc-foundry toolchain
+# (arc-forge, arc-cast, arc-anvil) with checksum verification.
+#
+# The expected SHA-256 is recorded here, in the repository, rather than fetched
+# next to the tarball: a compromised release could replace both files, but it
+# cannot change a hash that review has already accepted. Bumping the version
+# means bumping the hash in the same PR.
+#
+# The tarball is cached by version, so reruns skip the download, but the hash is
+# checked on every run, cached or not.
+#
+# NOTE: the consuming job MUST run actions/checkout BEFORE calling this action.
+name: Setup arc-foundry
+description: Install the pinned arc-foundry release (checksum verified) and put arc-forge/arc-cast/arc-anvil on PATH.
+
+inputs:
+  version:
+    description: arc-foundry release tag.
+    default: v0.8.0-1
+  sha256:
+    description: Expected SHA-256 of the x86_64-unknown-linux-gnu tarball for that release.
+    default: e12feade22e9c276c4e10b3a9e2573e75ef9dcd652f237f9eb6408b7eb52c5f0
+
+runs:
+  using: composite
+  steps:
+    - name: Restore arc-foundry tarball
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/arc-foundry-dl
+        key: arc-foundry-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ inputs.sha256 }}
+
+    - name: Install arc-foundry (checksum verified)
+      shell: bash
+      env:
+        V: ${{ inputs.version }}
+        EXPECTED: ${{ inputs.sha256 }}
+        DL: ${{ runner.temp }}/arc-foundry-dl
+      # GITHUB_PATH gets a fixed directory this step just populated; no input
+      # reaches it.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        T="arc-foundry-$V-x86_64-unknown-linux-gnu.tar.gz"
+        mkdir -p "$DL"
+        if [ ! -f "$DL/$T" ]; then
+          curl -fsSL --retry 3 -o "$DL/$T" "https://github.com/circlefin/arc-foundry/releases/download/$V/$T"
+        fi
+        echo "$EXPECTED  $DL/$T" | sha256sum -c -
+        X="$RUNNER_TEMP/arc-foundry-x"
+        rm -rf "$X" && mkdir -p "$X"
+        tar -xzf "$DL/$T" -C "$X"
+        mkdir -p "$HOME/.local/bin"
+        mv "$X/forge" "$HOME/.local/bin/arc-forge"
+        mv "$X/cast" "$HOME/.local/bin/arc-cast"
+        mv "$X/anvil" "$HOME/.local/bin/arc-anvil"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"

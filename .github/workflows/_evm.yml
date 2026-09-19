@@ -1,0 +1,105 @@
+name: evm
+
+# Solidity suite on arc-foundry (pinned in setup-arc-foundry). Build sizes,
+# unit/invariant tests, differential fuzz vs the Rust reference, storage-layout
+# diff, Slither. The full nightly profile and the fork suite run from
+# scheduled workflows, not here.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  evm:
+    name: evm (arc-foundry · test · differential · layout · slither)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: kryon-protocol/evm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup arc-foundry
+        uses: ./.github/actions/setup-arc-foundry
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.89.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: kryon-protocol
+
+      - name: Forge cache key
+        id: forge-key
+        uses: ./.github/actions/forge-cache-key
+
+      # Forge's own cache is content-addressed: a restored out/ + cache/ only
+      # saves recompiling files whose inputs are unchanged, never skips one
+      # that changed. The exact key includes every source file, so a hit means
+      # nothing changed at all.
+      - name: Restore forge build cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            kryon-protocol/evm/out
+            kryon-protocol/evm/cache
+          key: ${{ steps.forge-key.outputs.key }}
+          restore-keys: ${{ steps.forge-key.outputs.restore-prefix }}
+
+      # With a restored build cache forge may skip compilation; the size table
+      # must still be printed (and checked) from the cached artifacts. Fail if
+      # it is not, so the cache can never silently skip the 24KB gate.
+      - name: Build (sizes must stay under 24KB)
+        run: |
+          set -o pipefail
+          arc-forge build --sizes | tee "$RUNNER_TEMP/sizes.txt"
+          grep -q "Runtime Size" "$RUNNER_TEMP/sizes.txt" || {
+            echo "::error::arc-forge build --sizes printed no size table"
+            exit 1
+          }
+
+      - name: Unit, upgrade and invariant tests
+        run: arc-forge test
+
+      # Saved here, before Slither's forced partial rebuild overwrites out/,
+      # so the cache holds the full default-profile build. Only pushes to main
+      # save: main's caches are the ones every PR can restore, and a PR (or a
+      # merge-queue ref) can never write a cache another branch reads.
+      - name: Save forge build cache
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            kryon-protocol/evm/out
+            kryon-protocol/evm/cache
+          key: ${{ steps.forge-key.outputs.key }}
+
+      - name: Differential fuzz vs Rust reference (G1)
+        run: |
+          (cd .. && cargo build -p kryon-ref --release --locked)
+          FOUNDRY_PROFILE=differential arc-forge test
+
+      - name: Storage-layout diff
+        run: ./script/storage-layout.sh --check
+
+      # crytic-compile shells out to `forge config`; point that name at
+      # arc-forge for this step only so Slither analyses the Arc build.
+      - name: Slither (fail on High/Medium)
+        run: |
+          mkdir -p "$RUNNER_TEMP/forge-shim"
+          ln -sf "$(command -v arc-forge)" "$RUNNER_TEMP/forge-shim/forge"
+          export PATH="$RUNNER_TEMP/forge-shim:$PATH"
+          arc-forge build --build-info --skip "test/**" --skip "script/**" --force
+          pipx run --spec slither-analyzer==0.11.6 slither . --foundry-out-directory out \
+            --ignore-compile --filter-paths "lib/|test/|script/" \
+            --exclude-informational --exclude-low --fail-medium

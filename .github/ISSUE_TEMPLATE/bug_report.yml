@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in the app, services or tooling behaves wrongly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issues do not belong here.** If this could put funds or keys at risk, report it privately as described in SECURITY.md instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web app
+        - Matcher / settlement
+        - Keepers (oracle, funding, liquidation, refill)
+        - Indexer / WebSocket / stats
+        - Monitor
+        - Contracts
+        - CI/CD / deploy
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - arc-local (dev stack)
+        - Arc testnet
+        - Arc mainnet
+        - Not network specific
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release tag, image digest or commit SHA, if known.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Remove private keys, API tokens and personal data first.
+      render: text

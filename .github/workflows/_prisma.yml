@@ -1,0 +1,72 @@
+name: prisma
+
+# Database schema: validate, generate the Prisma client, and check that the
+# migrations reproduce schema.prisma exactly.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  prisma:
+    name: prisma (validate · generate · drift)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: kryon-protocol
+    # Dummy URLs: `prisma validate`/`generate` parse the schema only — no DB is
+    # contacted — but the datasource block requires the env vars to be present.
+    # The drift check replays migrations into the EMPTY service container below
+    # (never a real database) and diffs the result against schema.prisma.
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/kryon
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: kryon-protocol/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Validate schema
+        run: npx prisma validate
+
+      - name: Generate client
+        run: npx prisma generate
+
+      # Migrations replayed into the empty CI postgres must produce exactly
+      # schema.prisma — catches ad-hoc prod SQL and schema edits that skipped
+      # `prisma migrate dev`. Exit code 2 (= drift) fails the job.
+      - name: Migration drift check (empty shadow)
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --exit-code

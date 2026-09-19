@@ -1,0 +1,38 @@
+# Composite action: the cache key for kryon-protocol/evm's out/ and cache/.
+#
+#   restore-prefix = forge-<os>-<arc-forge version, foundry.toml, submodule SHAs>-
+#   key            = <restore-prefix><hash of src/, test/, script/, config/>
+#
+# A change to the compiler, the config or any library invalidates everything;
+# a source change still restores the nearest build for forge to update
+# incrementally. Requires arc-forge on PATH (run setup-arc-foundry first).
+name: Forge cache key
+description: Compute the forge build-cache key for kryon-protocol/evm.
+
+outputs:
+  key:
+    description: Exact cache key.
+    value: ${{ steps.k.outputs.key }}
+  restore-prefix:
+    description: Prefix for restore-keys.
+    value: ${{ steps.k.outputs.prefix }}
+
+runs:
+  using: composite
+  steps:
+    - id: k
+      shell: bash
+      env:
+        SOURCES: ${{ hashFiles('kryon-protocol/evm/src/**', 'kryon-protocol/evm/test/**', 'kryon-protocol/evm/script/**', 'kryon-protocol/evm/config/**') }}
+      run: |
+        set -euo pipefail
+        env_hash=$(
+          {
+            arc-forge --version
+            cat "$GITHUB_WORKSPACE/kryon-protocol/evm/foundry.toml"
+            git -C "$GITHUB_WORKSPACE" submodule status --recursive
+          } | sha256sum | cut -c1-16
+        )
+        prefix="forge-${RUNNER_OS}-${env_hash}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${SOURCES}" >> "$GITHUB_OUTPUT"
