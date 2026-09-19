@@ -17,8 +17,9 @@
  * Mainnet never uses this: its governance, guardian and treasury are Safes
  * and its service keys live in KMS (infra/signers/README.md).
  *
- * Nothing leaves this machine. The script refuses to overwrite a key, writes
- * files readable by you only, and prints no private key. Without
+ * Nothing leaves this machine. Every file is created exclusively (never
+ * overwriting an existing key or passphrase), readable by you only, and no
+ * private key is printed. Without
  * --passphrase-file it generates a random passphrase into DIR/passphrase.
  *
  * Output: addresses, the env lines each service needs (keystore mode), and
@@ -28,7 +29,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -72,16 +73,37 @@ const value = (name: string) => {
 const OUT = resolve(value("--out") ?? join(homedir(), ".kryon", "arc-testnet"));
 const TOML = resolve(import.meta.dirname, "../../kryon-protocol/infra/deploy/environments/arc-testnet.toml");
 
+/**
+ * Create `path` with `contents`, failing if it already exists.
+ *
+ * Exclusive create (O_CREAT|O_EXCL) rather than "check, then write": the
+ * check-then-write pair can be raced, and overwriting a key that already
+ * holds testnet funds — or a passphrase that unlocks one — destroys it.
+ */
+function writeNew(path: string, contents: string, what: string): void {
+  let fd: number;
+  try {
+    fd = openSync(path, "wx", 0o600);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`refusing to overwrite ${what}: ${path}`);
+    }
+    throw e;
+  }
+  try {
+    writeFileSync(fd, contents);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function main() {
   mkdirSync(OUT, { recursive: true, mode: 0o700 });
-  const clash = KEYS.map((k) => join(OUT, `${k.file}.json`)).filter(existsSync);
-  if (clash.length > 0) throw new Error(`refusing to overwrite existing keys:\n  ${clash.join("\n  ")}`);
 
   let passFile = value("--passphrase-file");
   if (!passFile) {
     passFile = join(OUT, "passphrase");
-    if (existsSync(passFile)) throw new Error(`${passFile} exists; pass it with --passphrase-file`);
-    writeFileSync(passFile, randomBytes(32).toString("base64url"), { mode: 0o600 });
+    writeNew(passFile, randomBytes(32).toString("base64url"), "the passphrase file");
   }
   passFile = resolve(passFile);
   const passphrase = readFileSync(passFile, "utf8").trim();
@@ -91,8 +113,7 @@ function main() {
   for (const k of KEYS) {
     const pk = generatePrivateKey();
     const path = join(OUT, `${k.file}.json`);
-    writeFileSync(path, JSON.stringify(encryptKeystore(pk, passphrase)), { mode: 0o600 });
-    chmodSync(path, 0o600);
+    writeNew(path, JSON.stringify(encryptKeystore(pk, passphrase)), `the ${k.file} keystore`);
     made.push({ ...k, address: privateKeyToAccount(pk).address, path });
     process.stdout.write(".");
   }
