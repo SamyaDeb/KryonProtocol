@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { STELLAR_EXPERT_URL } from "@/lib/stellar/legacy-config";
 import { MarketCell } from "@/components/common/MarketCell";
 import { apiFetch } from "@/lib/api";
@@ -14,7 +14,7 @@ interface FundingPayment {
 }
 
 export function FundingHistoryTable({ marketFilter }: { marketFilter: number | "all" }) {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
 
   const { data: payments = [] } = useQuery<FundingPayment[]>({
     queryKey: ["funding", address],

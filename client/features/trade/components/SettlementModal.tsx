@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { marketById } from "@/components/common/MarketCell";
+import { useMarketDirectory } from "@/features/markets/directory";
 import { priceFor, sizeFor } from "@/lib/format";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { freighterSignAuthEntry, isOnExpectedNetwork } from "@/lib/stellar/freighter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -92,7 +93,9 @@ function usePendingSettlements(address: string | null) {
 }
 
 export function SettlementModal() {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
+  // Row formatters resolve market ids synchronously; subscribe so they re-render once it loads.
+  useMarketDirectory();
   const { fills, dismiss } = useFillNotifications(connected ? address : null);
   const { pending, refresh } = usePendingSettlements(connected ? address : null);
 

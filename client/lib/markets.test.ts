@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { displayFor, MARKET_DISPLAY, type MarketDisplay } from "@/lib/markets";
+import { canonicalSymbol, DEFAULT_MARKET_SYMBOL, displayFor, MARKET_DISPLAY, type MarketDisplay } from "@/lib/markets";
 
 const entries = Object.entries(MARKET_DISPLAY);
 
@@ -127,4 +127,13 @@ test("the fallback satisfies the same invariants as the table", () => {
     assert.ok(d.priceDecimals >= decimalsNeeded, `${symbol}: cannot render its own finest tick`);
     assert.ok(d.displayName.length > 0 || symbol === "", `${symbol}: empty displayName`);
   }
+});
+
+test("the indexer's feed-named symbol resolves to the UI's -PERP entry", () => {
+  // The indexer names a market after its oracle feed: bytes32("BTC") → "BTC".
+  assert.equal(displayFor("BTC"), MARKET_DISPLAY["BTC-PERP"]);
+  assert.equal(displayFor("btc-perp"), MARKET_DISPLAY["BTC-PERP"]);
+  assert.equal(canonicalSymbol("ETH"), "ETH-PERP");
+  assert.equal(displayFor("DOGE").symbol, "DOGE-PERP", "unknown markets still get the canonical name");
+  assert.ok(MARKET_DISPLAY[DEFAULT_MARKET_SYMBOL], "the default market has display metadata");
 });

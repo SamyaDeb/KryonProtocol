@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useLocalOrders } from "@/stores/orders";
 import { getPositions } from "@/lib/stellar/contracts";
 import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
@@ -32,7 +32,7 @@ export function BottomPanel({ marketId }: { marketId: number }) {
   const [sideFilter, setSideFilter] = useState<"both" | "long" | "short">("both");
   const [marketMenu, setMarketMenu] = useState(false);
   const [sideMenu, setSideMenu] = useState(false);
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
   const allOrders = useLocalOrders((s) => s.orders);
 
   // Shared positions query (same key as PositionsTable — cache hit, no double-fetch)

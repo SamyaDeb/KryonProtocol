@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useMarketStore } from "@/stores/market";
 import { MarketConfig, AMOUNT_PRECISION, PRICE_PRECISION, ASSETS, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { buildOrderIntent } from "@/lib/market/order-intent";
@@ -11,7 +11,6 @@ import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBalance, getAccountHealth } from "@/lib/stellar/contracts";
 import { amountToHuman, formatMarketPrice, formatMarketUsd, priceToHuman, toPriceInput } from "@/lib/format";
-import { freighterConnect, freighterIsInstalled, isOnExpectedNetwork } from "@/lib/stellar/freighter";
 import { calcLiqPrice } from "@/lib/math";
 import { UsdcLogo, logoFor } from "@/components/common/AssetLogos";
 import { useTradeSettings } from "@/stores/settings";
@@ -46,8 +45,7 @@ export function OrderEntry({
   side?: "buy" | "sell";
   setSide?: (v: "buy" | "sell") => void;
 }) {
-  const { address, connected, connecting, setAddress, setConnected, setConnecting, setWrongNetwork } =
-    useWalletStore();
+  const { address, connected, connecting, wrongNetwork, connect } = useWallet();
   const queryClient = useQueryClient();
   const addOrder = useLocalOrders((s) => s.addOrder);
   const localOrders = useLocalOrders((s) => s.orders);
@@ -162,38 +160,16 @@ export function OrderEntry({
     return formatMarketUsd(market, liq);
   })();
 
-  async function handleConnect() {
-    const installed = await freighterIsInstalled();
-    if (!installed) {
-      toast.error("Freighter not found — install from freighter.app then refresh.");
-      return;
-    }
-    setConnecting(true);
-    try {
-      const addr = await freighterConnect();
-      setAddress(addr);
-      setConnected(true);
-      const ok = await isOnExpectedNetwork();
-      setWrongNetwork(!ok);
-      if (!ok) toast.warning("Switch Freighter to the configured Stellar network.");
-      else toast.success("Wallet connected");
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setConnecting(false);
-    }
+  function handleConnect() {
+    connect();
   }
 
   async function handleSubmit() {
     if (!address || !connected) { toast.error("Connect your wallet first"); return; }
-    // Re-check live in case user switched networks in Freighter after connecting
-    const onCorrectNetwork = await isOnExpectedNetwork();
-    if (!onCorrectNetwork) {
-      setWrongNetwork(true);
-      toast.error(`Freighter is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
+    if (wrongNetwork) {
+      toast.error(`Your wallet is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
       return;
     }
-    setWrongNetwork(false);
     if (!size || sizeNum <= 0) { toast.error("Enter a valid size"); return; }
     if (execPrice <= 0) {
       toast.error(orderType === "market" ? "Waiting for a market price" : "Enter a limit price"); return;

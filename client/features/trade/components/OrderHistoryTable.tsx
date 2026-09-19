@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocalOrders } from "@/stores/orders";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { priceFor, sizeFor } from "@/lib/format";
 import { MarketCell } from "@/components/common/MarketCell";
 
@@ -19,7 +19,7 @@ export function OrderHistoryTable({
   sideFilter: "both" | "long" | "short";
 }) {
   const orders = useLocalOrders((s) => s.orders);
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
   if (!connected || !address) return <Empty text="Connect a wallet to view order history" />;
 
   const rows = orders.filter(

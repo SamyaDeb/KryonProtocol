@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { deposit, withdraw, getBalance, getTokenBalance } from "@/lib/stellar/contracts";
 import {
   listVaultCollateral,
@@ -13,7 +13,6 @@ import {
 } from "@/lib/stellar/collateral";
 import { humanToAmount, amountToHuman } from "@/lib/format";
 import { SETTLEMENT_ASSET, STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
-import { isOnExpectedNetwork } from "@/lib/stellar/freighter";
 import { AssetLogo } from "@/components/common/AssetLogos";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,7 +27,7 @@ export function DepositWithdrawDialog({
   triggerClassName?: string;
   defaultTab?: "deposit" | "withdraw";
 } = {}) {
-  const { address, setWrongNetwork } = useWalletStore();
+  const { address, wrongNetwork } = useWallet();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"deposit" | "withdraw">(defaultTab);
@@ -104,10 +103,8 @@ export function DepositWithdrawDialog({
   /** Opens the trustline in Freighter, then re-checks so the form unlocks. */
   async function onAddTrustline() {
     if (!address || !asset) return;
-    const onCorrectNetwork = await isOnExpectedNetwork();
-    if (!onCorrectNetwork) {
-      setWrongNetwork(true);
-      toast.error(`Freighter is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
+    if (wrongNetwork) {
+      toast.error(`Your wallet is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
       return;
     }
     setAddingTrustline(true);
@@ -135,14 +132,10 @@ export function DepositWithdrawDialog({
       toast.error("Enter a valid amount");
       return;
     }
-    // Re-check network on every action — Freighter may have switched networks since connect
-    const onCorrectNetwork = await isOnExpectedNetwork();
-    if (!onCorrectNetwork) {
-      setWrongNetwork(true);
-      toast.error(`Freighter is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
+    if (wrongNetwork) {
+      toast.error(`Your wallet is on the wrong network — switch to ${NETWORK_LABEL} and try again.`);
       return;
     }
-    setWrongNetwork(false);
     // Withdrawals round down to what the asset can bridge out at, so no dust
     // gets stranded in the wallet; the remainder stays as vault balance.
     const raw =

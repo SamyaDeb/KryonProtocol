@@ -1,15 +1,16 @@
-import { MARKETS, type MarketConfig } from "@/lib/stellar/legacy-config";
+"use client";
+
 import { logoFor } from "@/components/common/AssetLogos";
+import { useMarketDirectory } from "@/features/markets/directory";
 
 /**
  * The market identity cell — asset mark + symbol — shared by every history and
- * positions table. Previously duplicated five times, each with its own
- * `baseSymbol === "XLM" ? <XlmLogo/> : null`, so no non-XLM market rendered a
- * mark anywhere.
+ * positions table.
  *
- * Takes a marketId (what the tables actually carry) and resolves it against
- * MARKETS — not ACTIVE_MARKETS, because historical rows can reference a market
- * that has since been de-listed and must still render legibly.
+ * Takes a marketId (what the tables actually carry) and resolves it through the
+ * on-chain market directory, including markets that have since been
+ * deactivated: historical rows must still render legibly. Until the directory
+ * loads, or for an id it does not know, the cell shows "#<id>".
  */
 export function MarketCell({
   marketId,
@@ -20,7 +21,7 @@ export function MarketCell({
   size?: number;
   className?: string;
 }) {
-  const market = marketById(marketId);
+  const market = useMarketDirectory()[marketId];
   const symbol = market?.symbol ?? `#${marketId}`;
   const base = market?.baseAsset ?? "?";
 
@@ -32,12 +33,4 @@ export function MarketCell({
   );
 }
 
-/** Full config for a market id, or undefined for an unknown/de-listed market. */
-export function marketById(marketId: number): MarketConfig | undefined {
-  return Object.values(MARKETS).find((m) => m.marketId === marketId);
-}
-
-/** Display symbol for a market id, falling back to "#<id>". */
-export function marketSymbol(marketId: number): string {
-  return marketById(marketId)?.symbol ?? `#${marketId}`;
-}
+export { marketById, marketSymbol } from "@/features/markets/directory";
