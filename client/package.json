@@ -80,6 +80,9 @@
   "overrides": {
     "axios": "1.16.1",
     "postcss": "8.5.15",
-    "@base-org/account": "2.2.0"
+    "@base-org/account": "2.2.0",
+    "@walletconnect/utils": {
+      "viem": "$viem"
+    }
   }
 }
