@@ -9,7 +9,9 @@
 # public; keys and RPC credentials come from the environment, never this file.
 # Facts marked [docs/arc-facts.md] were verified on 2026-09-16.
 
-market_keys = ["xlm", "btc", "eth", "sol", "xrp", "ada", "bnb", "trx"]
+# Same six markets as arc-mainnet/arc-testnet. Ids 1 (XLM) and 6 (ADA) are
+# retired and never reused (infra/audit/CONFIG.md).
+market_keys = ["btc", "eth", "sol", "xrp", "bnb", "trx"]
 
 [network]
 name = "arc-local"
@@ -92,30 +94,6 @@ funding_interval_secs = 3600
 liquidation_interval_secs = 2
 tx_retry_limit = 5
 
-
-[markets.xlm]
-market_id = 1
-symbol = "XLM-PERP"
-oracle_id = "XLM"
-active = false
-initial_margin_bps = 1000
-maintenance_margin_bps = 500
-liquidation_fee_bps = 50
-max_leverage_bps = 100000
-max_execution_deviation_bps = 75
-max_oracle_age_secs = 15
-max_oracle_confidence_bps = 100
-# Base units, 18 decimals applied by the loader.
-max_open_interest = "1450000"
-min_fill_notional_usd = 40
-funding_premium_coeff = "1"
-# 0.05%/h clamp, as a 1e18 fraction.
-funding_max_rate_per_hour = "500000000000000"
-oi_policy_bps = 0
-# No independent reference feed confirmed for this market on this network.
-reference_aggregator = ""
-reference_max_divergence_bps = 150
-reference_max_age_secs = 90000
 
 [markets.btc]
 market_id = 2
@@ -203,30 +181,6 @@ max_oracle_age_secs = 15
 max_oracle_confidence_bps = 100
 # Base units, 18 decimals applied by the loader.
 max_open_interest = "325000"
-min_fill_notional_usd = 40
-funding_premium_coeff = "1"
-# 0.05%/h clamp, as a 1e18 fraction.
-funding_max_rate_per_hour = "500000000000000"
-oi_policy_bps = 0
-# No independent reference feed confirmed for this market on this network.
-reference_aggregator = ""
-reference_max_divergence_bps = 150
-reference_max_age_secs = 90000
-
-[markets.ada]
-market_id = 6
-symbol = "ADA-PERP"
-oracle_id = "ADA"
-active = false
-initial_margin_bps = 2000
-maintenance_margin_bps = 1000
-liquidation_fee_bps = 50
-max_leverage_bps = 50000
-max_execution_deviation_bps = 75
-max_oracle_age_secs = 15
-max_oracle_confidence_bps = 100
-# Base units, 18 decimals applied by the loader.
-max_open_interest = "850000"
 min_fill_notional_usd = 40
 funding_premium_coeff = "1"
 # 0.05%/h clamp, as a 1e18 fraction.

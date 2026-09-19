@@ -49,10 +49,13 @@ import {
 import { viemOracleChain } from "@/lib/oracle/chain";
 import { OraclePublisher } from "@/lib/oracle/publisher";
 import { binanceSource, coinbaseSource, krakenSource, type PriceSource } from "@/lib/oracle/sources";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "oracle-publisher";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("oracle-keeper");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");

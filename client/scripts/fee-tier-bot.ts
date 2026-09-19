@@ -26,10 +26,13 @@
 import { neon } from "@/lib/sql";
 import { FeeTierBot, parseSchedule, pgFeeTierData, viemFeeTierChain } from "@/lib/keepers/fee-tier";
 import { bootstrap, createSender, envBool, envInt, recoverOpenJobs, runLoop } from "@/lib/keepers/runtime";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "fee-tier-bot";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("fee-tier-bot");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");

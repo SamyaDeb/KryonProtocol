@@ -23,6 +23,8 @@ import { assertChainId, createArcPublicClient } from "../lib/chain/clients";
 import { pgDb } from "../lib/indexer/db";
 import { ContractRegistry } from "../lib/indexer/decode";
 import { Indexer, publicClientSource } from "../lib/indexer/indexer";
+import { assertServiceConfig } from "../lib/config-check";
+import { writeHeartbeat } from "../lib/keepers/runtime";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -31,6 +33,8 @@ function required(name: string): string {
 }
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("state-indexer");
   const network = arcNetwork(serverNetworkId());
   const contracts = serverContracts(network);
   const db = pgDb(required("DATABASE_URL"));
@@ -67,6 +71,7 @@ async function main() {
     try {
       const res = await indexer.step();
       failures = 0;
+      writeHeartbeat();
       if (res) {
         if (res.logs > 0) log(`blocks ${res.fromBlock}-${res.toBlock}: ${res.logs} logs`);
         continue;

@@ -38,6 +38,15 @@ const ENV_FILE = ".env.testnet";
 // was previously copy-pasted eight times in the mainnet file.
 const SERVICES = [
   { name: "oracle", script: "oracle-keeper.ts", restart_delay: 5000, max_restarts: 20 },
+  // Second publisher on its own key (.env.oracle-2.testnet layers over
+  // .env.testnet with only its signer settings and ORACLE_START_OFFSET_MS).
+  {
+    name: "oracle-2",
+    script: "oracle-keeper.ts",
+    extraEnvFile: ".env.oracle-2.testnet",
+    restart_delay: 5000,
+    max_restarts: 20,
+  },
   { name: "matcher", script: "matcher-service.ts", restart_delay: 3000, max_restarts: 20 },
   { name: "indexer", script: "state-indexer.ts", restart_delay: 5000, max_restarts: 20 },
   {
@@ -51,6 +60,12 @@ const SERVICES = [
   { name: "liquidator", script: "liquidation-keeper.ts", restart_delay: 5000, max_restarts: 20 },
   { name: "funding", script: "funding-keeper.ts", restart_delay: 5000, max_restarts: 20 },
   { name: "reconciler", script: "settlement-reconciler.ts", restart_delay: 10000, max_restarts: 10 },
+  { name: "refill", script: "keeper-refill.ts", scriptArgs: "--execute --loop", restart_delay: 30000, max_restarts: 10 },
+  { name: "stats", script: "stats-aggregator.ts", restart_delay: 10000, max_restarts: 20 },
+  // Signs orders only; idle until governance sets unwind limits and grants the role.
+  { name: "backstop", script: "backstop-unwinder.ts", restart_delay: 10000, max_restarts: 20 },
+  // Dry run unless FEE_TIER_BOT_ENABLED=true.
+  { name: "fee-tier", script: "fee-tier-bot.ts", restart_delay: 30000, max_restarts: 10 },
   {
     name: "monitor",
     script: "monitor.ts",
@@ -67,7 +82,11 @@ module.exports = {
     // and `pm2 restart /kryon-testnet-/` addresses only this one.
     name: `kryon-testnet-${svc.name}`,
     script: "npx",
-    args: `tsx --env-file=${ENV_FILE} scripts/${svc.script}`,
+    args:
+      `tsx --env-file=${ENV_FILE}` +
+      (svc.extraEnvFile ? ` --env-file=${svc.extraEnvFile}` : "") +
+      ` scripts/${svc.script}` +
+      (svc.scriptArgs ? ` ${svc.scriptArgs}` : ""),
     cwd: __dirname,
     env: svc.env,
     restart_delay: svc.restart_delay,

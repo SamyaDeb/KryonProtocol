@@ -14,6 +14,7 @@
  * sharing a key strand each other's transactions.
  */
 
+import { writeFileSync } from "node:fs";
 import type { Address } from "viem";
 
 import type { SqlClient } from "@/lib/sql";
@@ -142,6 +143,22 @@ export interface LoopOptions {
   clock?: Clock;
   /** A tick that overruns this is logged loudly; it is never cancelled mid-flight. */
   warnAfterMs?: number;
+  /** Written after every successful tick (default: $KRYON_HEARTBEAT_FILE). */
+  heartbeatFile?: string;
+}
+
+/**
+ * Liveness for container healthchecks: the time of the last successful tick,
+ * in a file the orchestrator can stat. A process that is up but failing every
+ * tick stops refreshing it and is restarted. Never throws.
+ */
+export function writeHeartbeat(file: string | undefined = process.env.KRYON_HEARTBEAT_FILE): void {
+  if (!file) return;
+  try {
+    writeFileSync(file, `${Date.now()}\n`);
+  } catch {
+    // A read-only or missing directory must not take the service down.
+  }
 }
 
 /**
@@ -158,6 +175,7 @@ export async function runLoop(o: LoopOptions, tick: () => Promise<void>): Promis
     try {
       await tick();
       o.metrics.inc("ticks_total");
+      writeHeartbeat(o.heartbeatFile);
     } catch (err) {
       o.metrics.inc("tick_errors_total");
       o.log.error("tick failed", { error: errorMessage(err) });

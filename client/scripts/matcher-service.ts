@@ -41,6 +41,7 @@ import { PgTxJobStore } from "../lib/chain/tx-store-pg";
 import { pgDb, txStoreSql } from "../lib/matcher/db";
 import { Matcher, type Logger } from "../lib/matcher/loop";
 import { newMetrics, snapshot, type MatcherMetrics } from "../lib/matcher/metrics";
+import { assertServiceConfig } from "../lib/config-check";
 
 const SERVICE = "matcher";
 
@@ -105,6 +106,8 @@ function startHealthServer(metrics: MatcherMetrics, shard: string, operator: str
 }
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("matcher");
   const network = arcNetwork(serverNetworkId());
   const contracts = serverContracts(network);
   const markets = marketIds();
