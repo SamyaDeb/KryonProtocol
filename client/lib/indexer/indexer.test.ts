@@ -396,4 +396,50 @@ describe("Indexer", { skip: !url }, () => {
     // Cursor hashes are identical; only window sizes differed.
     assert.deepEqual(recovered, clean);
   });
+
+  test("Market.active follows setMarket's params and setMarketActive, whichever came last", async () => {
+    await truncateAll(db);
+    const { riskParams } = CONTRACTS;
+    const params = (sym: string, active: boolean) => ({
+      oracleId: b32(sym),
+      initialMarginBps: 200,
+      maintenanceMarginBps: 100,
+      liquidationFeeBps: 25,
+      maxExecutionDeviationBps: 75,
+      maxOracleConfidenceBps: 100,
+      maxOracleAge: 15,
+      maxLeverageBps: 500_000,
+      active,
+      listed: true,
+      maxOpenInterest: 25n * E18,
+      minFillNotional: 40n * E18,
+    });
+    const chain = new FakeChain();
+    // DeployAll's path: listed and activated by setMarket alone, no MarketActiveSet.
+    chain.block("deploy", [
+      makeLog(riskParamsAbi, riskParams, "MarketListed", { marketId: 2, oracleId: b32("BTC") }),
+      makeLog(riskParamsAbi, riskParams, "MarketParamsSet", { marketId: 2, params: params("BTC", true) }),
+      makeLog(riskParamsAbi, riskParams, "MarketListed", { marketId: 3, oracleId: b32("ETH") }),
+      makeLog(riskParamsAbi, riskParams, "MarketParamsSet", { marketId: 3, params: params("ETH", true) }),
+      makeLog(riskParamsAbi, riskParams, "MarketListed", { marketId: 4, oracleId: b32("SOL") }),
+      makeLog(riskParamsAbi, riskParams, "MarketParamsSet", { marketId: 4, params: params("SOL", false) }),
+    ]);
+    // Later governance: ETH paused by setMarketActive; SOL activated, then re-set inactive by setMarket.
+    chain.block("governance", [
+      makeLog(riskParamsAbi, riskParams, "MarketActiveSet", { marketId: 3, active: false }),
+      makeLog(riskParamsAbi, riskParams, "MarketActiveSet", { marketId: 4, active: true }),
+      makeLog(riskParamsAbi, riskParams, "MarketParamsSet", { marketId: 4, params: params("SOL", false) }),
+    ]);
+
+    const indexer = new Indexer(db, chain, registry, { network: NETWORK, startBlock: 1n });
+    await indexer.catchUp();
+    const active = async () =>
+      Object.fromEntries(
+        (await db.query(`SELECT "id", "active" FROM "Market" ORDER BY "id"`)).map((r) => [Number(r.id), r.active])
+      );
+    assert.deepEqual(await active(), { 2: true, 3: false, 4: false });
+
+    await indexer.rebuild(4);
+    assert.deepEqual(await active(), { 2: true, 3: false, 4: false }, "a rebuild lands on the same answer");
+  });
 });

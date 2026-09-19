@@ -93,12 +93,15 @@ const HANDLERS: Partial<Record<`${ContractName}.${string}`, Handler>> = {
       [ev.network, n(a, "marketId"), bytes32ToString(oracleId) || oracleId, oracleId]
     );
   },
+  // `setMarket` stores the whole struct, `active` included, and emits only this
+  // event, so it sets `Market.active` too; a later `MarketActiveSet` overrides
+  // it. Applied in log order, the last of the two wins, as on chain.
   "riskParams.MarketParamsSet": async ({ q, ev, a }) => {
-    await q.query(`UPDATE "Market" SET "params" = $3, "updatedAt" = now() WHERE "network" = $1 AND "id" = $2`, [
-      ev.network,
-      n(a, "marketId"),
-      JSON.stringify(a.params),
-    ]);
+    const params = a.params as { active?: unknown };
+    await q.query(
+      `UPDATE "Market" SET "params" = $3, "active" = $4, "updatedAt" = now() WHERE "network" = $1 AND "id" = $2`,
+      [ev.network, n(a, "marketId"), JSON.stringify(a.params), params.active === true]
+    );
   },
   "riskParams.MarketActiveSet": async ({ q, ev, a }) => {
     await q.query(`UPDATE "Market" SET "active" = $3, "updatedAt" = now() WHERE "network" = $1 AND "id" = $2`, [
