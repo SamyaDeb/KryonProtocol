@@ -76,7 +76,8 @@ export type Drawing =
 export interface PositionOverlay {
   side: 'long' | 'short'
   entryPrice: number
-  liquidationPrice: number
+  /** Omitted when the account's equity is not known yet. */
+  liquidationPrice?: number
   tpPrice?: number
   slPrice?: number
   unrealizedPnl?: number

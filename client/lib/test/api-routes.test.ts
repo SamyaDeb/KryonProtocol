@@ -208,7 +208,11 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
       const { status, body } = await call(r.candles, "/api/markets/2/candles?tf=3600", { id: "2" });
       assert.equal(status, 200);
       assert.deepEqual(body, [
-        { time: Math.floor(t.getTime() / 1000 / 3600) * 3600, open: 100, high: 120, low: 90, close: 90, volume: 4 },
+        {
+          time: Math.floor(t.getTime() / 1000 / 3600) * 3600, open: 100, high: 120, low: 90, close: 90, volume: 4,
+          open_raw: (100n * E18).toString(), high_raw: (120n * E18).toString(), low_raw: (90n * E18).toString(),
+          close_raw: (90n * E18).toString(), volume_raw: (4n * E18).toString(),
+        },
       ]);
     });
 
@@ -333,6 +337,11 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
         ["SETTLED", true, "sell"],
       ]);
       assert.equal(fills.find((f) => f.status === "PENDING")!.txHash, null);
+      const settled = fills.find((f) => f.status === "SETTLED")!;
+      assert.equal(typeof settled.priceRaw, "string");
+      assert.match(String(settled.sizeRaw), /^\d+$/);
+      assert.equal(settled.blockNumber, "1");
+      assert.equal(fills.find((f) => f.status === "PENDING")!.blockNumber, null);
     });
 
     test("no fills is an empty list", async () => {

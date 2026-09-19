@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 
 import { fillMessage, levelJson, tradeMessage, type ServerMessage } from "@/lib/ws/protocol";
 import type { StreamFill } from "@/lib/queries/stream";
-import { big, parseOrderBook, parseServerMessage, parseTicker, parseTrade } from "./book";
+import { aggregateSide, big, parseOrderBook, parseServerMessage, parseTicker, parseTrade, spreadOf, stats24hFromCandles, tickToWei } from "./book";
 
 const E18 = 10n ** 18n;
 const ALICE = "0xaaaa00000000000000000000000000000000aaaa";
@@ -112,4 +112,51 @@ test("server frames: routed by type, acks and garbage ignored", () => {
   assert.equal(parseServerMessage(JSON.stringify({ type: "subscribed", channels: [] })), null);
   assert.equal(parseServerMessage("not json"), null);
   assert.equal(parseServerMessage("[1,2]"), null);
+});
+
+test("ticks convert exactly, with no float residue", () => {
+  assert.equal(tickToWei(0.1), E18 / 10n);
+  assert.equal(tickToWei(0.00001), E18 / 100_000n);
+  assert.equal(tickToWei(5), 5n * E18);
+  assert.equal(tickToWei(0.01), E18 / 100n);
+  assert.throws(() => tickToWei(0));
+});
+
+test("aggregation: bids round down, asks up, best first, running totals", () => {
+  const lv = (p: bigint, s: bigint) => ({ price: p, size: s, orders: 1 });
+  const tick = E18; // $1
+  const bids = aggregateSide([lv(100n * E18 + E18 / 2n, E18), lv(100n * E18, 2n * E18), lv(99n * E18, E18)], tick, "bid", {
+    depth: 10,
+    quote: false,
+  });
+  assert.deepEqual(bids.map((r) => [r.price, r.size, r.total]), [
+    [100n * E18, 3n * E18, 3n * E18],
+    [99n * E18, E18, 4n * E18],
+  ]);
+  const asks = aggregateSide([lv(101n * E18 + 1n, E18), lv(101n * E18, E18)], tick, "ask", { depth: 10, quote: true });
+  assert.deepEqual(asks.map((r) => r.price), [101n * E18, 102n * E18], "an ask one wei above 101 buckets at 102");
+  assert.equal(asks[0].amount, 101n * E18, "quote amount is size × price");
+  assert.equal(asks[1].total, 101n * E18 + 102n * E18);
+  assert.equal(aggregateSide([lv(1n, 1n), lv(2n, 1n), lv(3n, 1n)], 1n, "ask", { depth: 2, quote: false }).length, 2);
+});
+
+test("spread and mid", () => {
+  const lv = (p: bigint) => ({ price: p, size: E18, orders: 1 });
+  const s = spreadOf({ bids: [lv(100n * E18)], asks: [lv(101n * E18)] });
+  assert.ok(s);
+  assert.equal(s.spread, E18);
+  assert.equal(s.mid, 100n * E18 + E18 / 2n);
+  assert.equal(s.spreadPpm, 995_024n, "≈ 0.995%, in 1e-8 units");
+  assert.equal(spreadOf({ bids: [], asks: [lv(1n)] }), null);
+});
+
+test("24h stats: only the last day's buckets, oldest open first", () => {
+  const now = 1_800_000_000_000;
+  const hour = (h: number, o: bigint, hi: bigint, lo: bigint) => ({
+    time: Math.floor(now / 1000) - h * 3600, open_raw: String(o), high_raw: String(hi), low_raw: String(lo),
+  });
+  const s = stats24hFromCandles([hour(30, 1n, 999n, 1n), hour(20, 10n, 15n, 9n), hour(2, 12n, 20n, 11n), { time: "x" }], now);
+  assert.deepEqual(s, { open: 10n, high: 20n, low: 9n });
+  assert.deepEqual(stats24hFromCandles([], now), { open: 0n, high: 0n, low: 0n });
+  assert.deepEqual(stats24hFromCandles(null, now), { open: 0n, high: 0n, low: 0n });
 });

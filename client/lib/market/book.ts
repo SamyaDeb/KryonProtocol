@@ -234,3 +234,93 @@ export function parseServerMessage(text: string): StreamEvent | null {
       return null;
   }
 }
+
+// ── Book aggregation ─────────────────────────────────────────────────────────
+
+const E18 = 10n ** 18n;
+
+/**
+ * A display tick (0.1, 0.00001, 5) as an exact 1e18 integer. Printed at its own
+ * decimals first: `(0.1).toFixed(18)` is "0.100000000000000006".
+ */
+export function tickToWei(tick: number): bigint {
+  if (!(tick > 0) || !Number.isFinite(tick)) throw new Error(`invalid tick ${tick}`);
+  const text = tick.toFixed(Math.max(0, Math.ceil(-Math.log10(tick))));
+  const [whole, frac = ""] = text.split(".");
+  return BigInt(whole) * E18 + BigInt(frac.padEnd(18, "0").slice(0, 18) || "0");
+}
+
+export interface BookRow {
+  /** Bucket price, 1e18. */
+  price: bigint;
+  /** Base size in the bucket, 1e18. */
+  size: bigint;
+  /** size or size × price, per the denomination asked for, 1e18. */
+  amount: bigint;
+  /** Running total of `amount` from the best price outward. */
+  total: bigint;
+}
+
+/**
+ * Bucket levels at `tick` (bids round down, asks up, so a bucket never shows a
+ * better price than any order in it), best first, then keep `depth` rows with
+ * running totals in base units or quote (USD) notional.
+ */
+export function aggregateSide(
+  levels: readonly BookLevel[],
+  tick: bigint,
+  side: "bid" | "ask",
+  opts: { depth: number; quote: boolean }
+): BookRow[] {
+  const buckets = new Map<bigint, bigint>();
+  for (const l of levels) {
+    const floor = (l.price / tick) * tick;
+    const bucket = side === "bid" || floor === l.price ? floor : floor + tick;
+    buckets.set(bucket, (buckets.get(bucket) ?? 0n) + l.size);
+  }
+  const sorted = [...buckets.entries()].sort(([a], [b]) => (side === "bid" ? (a > b ? -1 : a < b ? 1 : 0) : a < b ? -1 : a > b ? 1 : 0));
+  let total = 0n;
+  return sorted.slice(0, opts.depth).map(([price, size]) => {
+    const amount = opts.quote ? (size * price) / E18 : size;
+    total += amount;
+    return { price, size, amount, total };
+  });
+}
+
+/** Spread and mid of a book, or null when either side is empty. */
+export function spreadOf(book: Pick<OrderBook, "bids" | "asks"> | null | undefined) {
+  const bid = book?.bids[0]?.price;
+  const ask = book?.asks[0]?.price;
+  if (bid === undefined || ask === undefined) return null;
+  const spread = ask - bid;
+  const mid = (ask + bid) / 2n;
+  // Spread as a fraction of mid, in millionths of a percent (1e-8), for display.
+  const spreadPpm = mid > 0n ? (spread * 100_000_000n) / mid : 0n;
+  return { bid, ask, spread, mid, spreadPpm };
+}
+
+/**
+ * 24h open / high / low from `/api/markets/:id/candles?tf=3600` rows (their
+ * `*_raw` fields), keeping only buckets that start within the last 24 hours.
+ * All zero when nothing traded, so the header shows dashes rather than a
+ * made-up range.
+ */
+export function stats24hFromCandles(rows: unknown, nowMs: number): { open: bigint; high: bigint; low: bigint } {
+  const since = Math.floor(nowMs / 1000) - 24 * 3600;
+  let open = 0n;
+  let high = 0n;
+  let low = 0n;
+  if (!Array.isArray(rows)) return { open, high, low };
+  for (const r of rows) {
+    if (!isObject(r)) continue;
+    const time = num(r.time);
+    const o = big(r.open_raw);
+    const h = big(r.high_raw);
+    const l = big(r.low_raw);
+    if (time === null || time < since || o === null || h === null || l === null) continue;
+    if (open === 0n) open = o; // rows arrive oldest first
+    if (h > high) high = h;
+    if (low === 0n || l < low) low = l;
+  }
+  return { open, high, low };
+}
