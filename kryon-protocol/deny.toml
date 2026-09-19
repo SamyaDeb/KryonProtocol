@@ -1,0 +1,53 @@
+# cargo-deny: advisories, licences, bans and sources for the Rust reference
+# model and the kryon-ref differential oracle. Run in CI by the `cargo audit ·
+# deny` job; run locally with `cargo deny --all-features check`.
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories. Unmaintained crates warn rather than fail: they are a
+# signal to plan a replacement, not a reason to block a hotfix.
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+ignore = [
+  # spin 0.9.8 is yanked and reaches us only through soroban-sdk, the legacy
+  # Stellar SDK the Rust workspace still depends on. It is not in any Arc code
+  # path. Remove this entry (and the dependency) with the legacy removal.
+  { crate = "spin@0.9.8", reason = "yanked; pulled in by the legacy soroban-sdk dependency, which is being removed" },
+]
+
+[licenses]
+# Permissive licences only. Anything copyleft would taint a commercial DEX, and
+# anything unlisted has to be reviewed and added here deliberately.
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "MPL-2.0",
+]
+
+[bans]
+# Two versions of the same crate usually means a dependency was bumped in one
+# place only; that is worth a warning, not a build failure.
+multiple-versions = "warn"
+# Path dependencies inside this workspace carry no version requirement, which
+# reads as a wildcard; that is fine for our own crates, never for a registry one.
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = []
+
+[sources]
+# Only crates.io. A git or a private registry dependency must be an explicit,
+# reviewed decision, not something that arrives with a bump.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -17,7 +17,7 @@
 #   kryon-protocol/evm/**                 -> evm, client, integration (the
 #                                            client reads deployment records)
 #   kryon-protocol/** (anything else:     -> everything under kryon-protocol
-#     crates, Cargo.*, package*)             plus client and integration
+#     crates, Cargo.*, package*)             plus client, integration, security
 set -euo pipefail
 
 client=false; evm=false; rust=false; prisma=false; integration=false; security=false; all=false
@@ -28,12 +28,12 @@ while IFS= read -r f; do
   n=$((n + 1))
   case "$f" in
     .github/*) all=true ;;
-    kryon-protocol/infra/*) rust=true; evm=true; prisma=true; client=true; integration=true ;;
+    kryon-protocol/infra/*) rust=true; evm=true; prisma=true; client=true; integration=true; security=true ;;
     docs/* | *.md) ;;
     client/*) client=true; integration=true; security=true ;;
     kryon-protocol/prisma/*) prisma=true; client=true; integration=true ;;
     kryon-protocol/evm/*) evm=true; client=true; integration=true ;;
-    kryon-protocol/*) rust=true; evm=true; prisma=true; client=true; integration=true ;;
+    kryon-protocol/*) rust=true; evm=true; prisma=true; client=true; integration=true; security=true ;;
     *) all=true ;;
   esac
 done

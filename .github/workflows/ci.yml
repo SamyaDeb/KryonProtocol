@@ -102,6 +102,9 @@ jobs:
     if: ${{ needs.changes.outputs.evm == 'true' }}
     permissions:
       contents: read
+      # For the Slither SARIF upload job only; the analysis job itself is
+      # read-only.
+      security-events: write
     uses: ./.github/workflows/_evm.yml
 
   prisma:
@@ -120,6 +123,17 @@ jobs:
       contents: read
     uses: ./.github/workflows/_integration.yml
 
+  codeql:
+    name: codeql
+    needs: changes
+    if: ${{ needs.changes.outputs.client == 'true' }}
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      packages: read
+    uses: ./.github/workflows/_codeql.yml
+
   security:
     name: security
     needs: changes
@@ -128,6 +142,7 @@ jobs:
     uses: ./.github/workflows/_security.yml
     with:
       audit: ${{ needs.changes.outputs.security == 'true' }}
+      cargo: ${{ needs.changes.outputs.rust == 'true' }}
 
   # ---------------------------------------------------------------------------
   # The merge gate. Branch protection requires this check alone. It fails if any
@@ -137,7 +152,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: ${{ always() }}
-    needs: [changes, guards, client, reference-model, evm, prisma, integration, security]
+    needs: [changes, guards, client, reference-model, evm, prisma, integration, security, codeql]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -159,11 +174,12 @@ jobs:
           R_PRISMA: ${{ needs.prisma.result }}
           R_INTEGRATION: ${{ needs.integration.result }}
           R_SECURITY: ${{ needs.security.result }}
+          R_CODEQL: ${{ needs.codeql.result }}
         run: |
           .github/scripts/gate.sh \
             "changes=$R_CHANGES" "guards=$R_GUARDS" "client=$R_CLIENT" \
             "reference-model=$R_REFERENCE" "evm=$R_EVM" "prisma=$R_PRISMA" \
-            "integration=$R_INTEGRATION" "security=$R_SECURITY"
+            "integration=$R_INTEGRATION" "security=$R_SECURITY" "codeql=$R_CODEQL"
 
   # ---------------------------------------------------------------------------
   # TRANSITIONAL. Jobs inside reusable workflows report as "<caller> / <job>",

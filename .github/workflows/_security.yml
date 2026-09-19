@@ -1,13 +1,21 @@
 name: security
 
-# Dependency gates. `dependency-review` inspects only the diff (deterministic, a
-# real merge gate); `npm audit` scans the whole tree and stays advisory until
-# PR 2 of the CI/CD plan makes production High/Critical blocking.
+# Dependency gates.
+#   dependency-review  the diff only: new dependencies with known vulnerabilities
+#                      or denied licences
+#   npm audit          the whole tree: High/Critical in production dependencies
+#                      block, with a dated allowlist; everything else informs
+#   licenses           installed production licences, mirroring the deny list
+#   cargo audit/deny   the same two questions for the Rust workspace
 on:
   workflow_call:
     inputs:
       audit:
-        description: Run the npm audit job (client dependencies touched).
+        description: Run the npm dependency jobs (client dependencies touched).
+        type: boolean
+        default: true
+      cargo:
+        description: Run the Rust supply-chain job (Rust sources or manifests touched).
         type: boolean
         default: true
 
@@ -45,13 +53,13 @@ jobs:
           comment-summary-in-pr: on-failure
 
   # ---------------------------------------------------------------------------
-  # Dependency vulnerability scan. NON-BLOCKING: advisory databases change daily,
-  # so a hard-failing `npm audit` makes green builds non-deterministic and can
-  # freeze deploys on an unrelated advisory. Findings go to the job summary;
-  # Dependabot + dependency review do the actual gating.
+  # npm audit as a gate. High and Critical advisories in PRODUCTION dependencies
+  # block the merge; dev dependencies and lower severities are reported only.
+  # Exceptions live in .github/npm-audit-allowlist.json, each with a reason, an
+  # owner and an expiry date, and an expired entry fails. See the script.
   # ---------------------------------------------------------------------------
-  security:
-    name: security (npm audit — advisory)
+  npm-audit:
+    name: npm audit (prod blocking · dev advisory)
     if: ${{ inputs.audit }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -67,24 +75,90 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
+
+      # No install: the gate reads the lockfiles, so its result is a function of
+      # what is committed and nothing else.
+      - name: Audit production dependencies
+        run: node .github/scripts/npm-audit-gate.mjs client kryon-protocol
+
+  # ---------------------------------------------------------------------------
+  # Licence compliance for npm. The deny list mirrors dependency-review's, so a
+  # dependency cannot arrive with a copyleft licence through a path the diff
+  # review does not see (a transitive bump, or a lockfile-only change).
+  # ---------------------------------------------------------------------------
+  licenses:
+    name: licenses (npm)
+    if: ${{ inputs.audit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [client, kryon-protocol]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
 
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci --no-audit --fund=false
+      - name: Install production dependencies
+        working-directory: ${{ matrix.workspace }}
+        run: npm ci --omit=dev --no-audit --fund=false --ignore-scripts
 
-      - name: Audit (report only)
-        working-directory: client
+      # Same list as dependency-review.yml's deny-licenses.
+      - name: Check licences
+        working-directory: ${{ matrix.workspace }}
         run: |
-          set +e
-          npm audit --audit-level=high --omit=dev > audit.txt 2>&1
-          {
-            echo "### npm audit (client, prod deps, high+)"
-            echo ""
-            echo '```'
-            cat audit.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          # Always succeed: this job informs, it does not block the pipeline.
-          exit 0
+          npx --yes license-checker-rseidelsohn@5.0.1 \
+            --production --excludePrivatePackages --nopeer \
+            --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-3.0" \
+            --summary
+
+  # ---------------------------------------------------------------------------
+  # Rust supply chain: RustSec advisories (cargo audit), plus licences, bans and
+  # sources (cargo deny). Configured in kryon-protocol/deny.toml.
+  # ---------------------------------------------------------------------------
+  cargo-supply-chain:
+    name: cargo audit · deny
+    if: ${{ inputs.cargo }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: kryon-protocol
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.89.0
+
+      # install-action fetches prebuilt binaries and verifies their checksums.
+      - name: Install cargo-audit and cargo-deny
+        uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2.87.16
+        with:
+          tool: cargo-audit,cargo-deny
+
+      # Vulnerabilities fail. Warnings (yanked crates, unmaintained crates) are
+      # cargo-deny's job, where each exception is recorded in deny.toml with a
+      # reason instead of being a flag on a command line.
+      - name: cargo audit
+        run: cargo audit
+
+      - name: cargo deny
+        run: cargo deny --all-features check

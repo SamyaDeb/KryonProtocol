@@ -1,0 +1,40 @@
+# Reusable composite action: install a single binary from a release archive,
+# verified against a SHA-256 recorded in this repository.
+#
+# The expected hash lives in the workflow that calls this action, so bumping a
+# tool version means changing the hash in the same reviewed diff. A release
+# whose bytes change after review fails the check instead of running.
+name: Install a verified tool
+description: Download a .tar.gz release archive, verify its SHA-256, and put one binary on PATH.
+
+inputs:
+  url:
+    description: URL of the .tar.gz archive.
+    required: true
+  sha256:
+    description: Expected SHA-256 of the archive.
+    required: true
+  binary:
+    description: Name of the binary inside the archive (also the installed name).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        EXPECTED: ${{ inputs.sha256 }}
+        BIN: ${{ inputs.binary }}
+      # GITHUB_PATH gets a fixed directory this step just populated; no input
+      # reaches it.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        D="$RUNNER_TEMP/verified-tool/$BIN"
+        rm -rf "$D" && mkdir -p "$D"
+        curl -fsSL --retry 3 -o "$D/archive.tar.gz" "$URL"
+        echo "$EXPECTED  $D/archive.tar.gz" | sha256sum -c -
+        tar -xzf "$D/archive.tar.gz" -C "$D"
+        mkdir -p "$HOME/.local/bin"
+        install -m 0755 "$(find "$D" -type f -name "$BIN" -perm -u+x | head -1)" "$HOME/.local/bin/$BIN"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"

@@ -1,81 +1,23 @@
-name: codeql
+name: codeql (scheduled)
 
-# Static analysis (Code Scanning) for the TypeScript/JS surface of the DEX.
-#
-# ROOT CAUSE of the previous "Code scanning is not enabled" / "workflow does not
-# have permission to access the CodeQL Action API endpoints" failures:
-#
-#   1. The SARIF upload step needs `security-events: write`. On a pull_request
-#      from a FORK, GitHub downgrades the token to read-only, so the upload step
-#      hits the Code Scanning API without write scope and fails. Fix: only run
-#      the analysis on pushes and on PRs from the SAME repository (guard below).
-#   2. If "Default setup" for CodeQL is enabled in
-#      Settings → Code security → Code scanning, it is mutually exclusive with
-#      this "advanced" workflow and the upload is rejected with exactly that
-#      error. Fix (one-time, in repo settings): switch Code scanning to
-#      "Advanced" (or disable Default setup) so this workflow owns the uploads.
-#      For private repos this also requires GitHub Advanced Security to be on.
+# The weekly drift scan. Every other CodeQL run is called from ci.yml, so a
+# finding blocks a merge through `ci-gate` instead of only being reported.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  merge_group:
   schedule:
-    - cron: "21 3 * * 1" # weekly drift scan, Mondays 03:21 UTC
+    - cron: "21 3 * * 1" # Mondays 03:21 UTC
 
-# Cancel superseded pull-request runs only; never a push to main, a merge-queue
-# run or the weekly scan.
-concurrency:
-  group: codeql-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-# Nothing by default; the analyze job grants itself what the SARIF upload needs.
 permissions: {}
 
+concurrency:
+  group: codeql-scheduled
+  cancel-in-progress: false
+
 jobs:
-  analyze:
-    name: analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    # Skip fork PRs: their read-only token cannot upload results, so running here
-    # would always red-X. Fork code is still scanned once merged via the push run.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-
+  codeql:
+    name: codeql
     permissions:
       contents: read
-      security-events: write # required to upload SARIF to Code Scanning
-      actions: read # required for CodeQL to read workflow run metadata
-      packages: read # required to pull the CodeQL bundle for some setups
-
-    strategy:
-      fail-fast: false
-      matrix:
-        # Matrix keeps the workflow ready to add `actions` (workflow scanning) or
-        # other languages without restructuring.
-        language: [javascript-typescript]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
-        with:
-          languages: ${{ matrix.language }}
-          # JS/TS is interpreted — no compiler step needed; "none" is correct and fast.
-          build-mode: none
-          queries: security-extended
-
-      - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
-        # Non-blocking: this is a PRIVATE repo without GitHub Advanced Security,
-        # so the SARIF upload returns "Code scanning is not enabled" and red-X's
-        # the step. Soft-fail here (at the step, not the job) so the check stays
-        # green. Remove this once GHAS/Code Scanning is enabled in repo settings.
-        continue-on-error: true
-        with:
-          category: /language:${{ matrix.language }}
+      security-events: write
+      actions: read
+      packages: read
+    uses: ./.github/workflows/_codeql.yml

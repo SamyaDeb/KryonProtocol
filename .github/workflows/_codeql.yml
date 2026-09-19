@@ -1,0 +1,60 @@
+name: codeql
+
+# Static analysis (Code Scanning) for the TypeScript/JS surface of the DEX.
+#
+# Called by ci.yml on pull requests, merge groups and pushes to main, so a new
+# finding blocks the merge through `ci-gate`, and by codeql.yml on the weekly
+# schedule. The upload needs `security-events: write`, which the caller grants.
+#
+# The repository is public, so Code Scanning is available without GitHub
+# Advanced Security. If "Default setup" is ever enabled in
+# Settings -> Code security -> Code scanning it becomes mutually exclusive with
+# this advanced workflow and uploads are rejected; keep Code scanning on
+# "Advanced" so this workflow owns the uploads.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Skip fork PRs: their read-only token cannot upload results, so running
+    # here would always red-X. Fork code is still scanned once merged, by the
+    # run on main.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    permissions:
+      contents: read
+      security-events: write # required to upload SARIF to Code Scanning
+      actions: read # required for CodeQL to read workflow run metadata
+      packages: read # required to pull the CodeQL bundle for some setups
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Matrix keeps the workflow ready to add `actions` (workflow scanning) or
+        # other languages without restructuring.
+        language: [javascript-typescript]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
+        with:
+          languages: ${{ matrix.language }}
+          # JS/TS is interpreted — no compiler step needed; "none" is correct and fast.
+          build-mode: none
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
+        with:
+          category: /language:${{ matrix.language }}

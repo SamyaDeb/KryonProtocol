@@ -1,0 +1,293 @@
+{
+  "$comment": "Exceptions to the High/Critical production-dependency gate (.github/scripts/npm-audit-gate.mjs). Every entry needs a reason, an owner and an expiry date; an expired entry fails CI so it is renewed deliberately, not forgotten. Delete an entry as soon as the dependency is fixed.",
+  "advisories": [
+    {
+      "id": "GHSA-gcfj-64vw-6mp9",
+      "package": "axios",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-3jxr-9vmj-r5cp",
+      "package": "brace-expansion",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-mh99-v99m-4gvg",
+      "package": "brace-expansion",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-rgw5-rvv9-x895",
+      "package": "brace-expansion",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-73wf-gq98-2v4g",
+      "package": "browserslist",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-c83g-rgw3-j3cx",
+      "package": "browserslist",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-4c8g-83qw-93j6",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-7p8r-x3mc-p8w7",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-f65p-4m7j-42xc",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-fph4-wmhf-6fwf",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-jqff-g426-hqxp",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-v2hh-gcrm-f6hx",
+      "package": "fast-uri",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-hmw2-7cc7-3qxx",
+      "package": "form-data",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-88fw-hqm2-52qc",
+      "package": "hono",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-mwp4-54f8-5fhr",
+      "package": "ip-address",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-2883-xcg3-v3hh",
+      "package": "js-yaml",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-52cp-r559-cp3m",
+      "package": "js-yaml",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-5p4m-2wfm-xmqj",
+      "package": "js-yaml",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-28wg-ghj8-5hjv",
+      "package": "nanoid",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-2v37-7h3g-55p8",
+      "package": "nanoid",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-2xp9-vwfh-vxw4",
+      "package": "next",
+      "severity": "critical",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-6gpp-xcg3-4w24",
+      "package": "next",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-89xv-2m56-2m9x",
+      "package": "next",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-m99w-x7hq-7vfj",
+      "package": "next",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-p293-qw3h-jr36",
+      "package": "next",
+      "severity": "critical",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-p9j2-gv94-2wf4",
+      "package": "next",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-r28c-9q8g-f849",
+      "package": "postcss",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-rgj7-g3m4-5g8c",
+      "package": "sharp",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-82x6-q7mm-w9cf",
+      "package": "toml",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-v5mp-jgw5-2x6j",
+      "package": "toml",
+      "severity": "high",
+      "workspace": "client",
+      "owner": "frontend session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    },
+    {
+      "id": "GHSA-ggr8-5vv4-36mx",
+      "package": "deepmerge-ts",
+      "severity": "high",
+      "workspace": "kryon-protocol",
+      "owner": "backend/data session",
+      "expires": "2026-10-03",
+      "reason": "Pre-existing when the High/Critical production gate landed on 2026-09-19; not introduced by that change. Fix by bumping the dependency (client: Dependabot #40 bumps next to 16.3.5)."
+    }
+  ]
+}
