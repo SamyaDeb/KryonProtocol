@@ -156,6 +156,10 @@ jobs:
         working-directory: client
         run: npm run drill:backstop
 
+      - name: Fee-tier bot drill
+        working-directory: client
+        run: npm run drill:fee-tier
+
       - name: Monitor drill (every fault class fires its alert)
         working-directory: client
         run: npm run drill:monitor
