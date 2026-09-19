@@ -1,0 +1,90 @@
+name: security
+
+# Dependency gates. `dependency-review` inspects only the diff (deterministic, a
+# real merge gate); `npm audit` scans the whole tree and stays advisory until
+# PR 2 of the CI/CD plan makes production High/Critical blocking.
+on:
+  workflow_call:
+    inputs:
+      audit:
+        description: Run the npm audit job (client dependencies touched).
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  # Blocks changes that introduce dependencies with known vulnerabilities or
+  # disallowed licenses BEFORE they reach main. Unlike `npm audit` (which scans
+  # the whole tree and drifts daily), this only inspects the DIFF, so it is
+  # deterministic and fast. Diff-based, so it runs for pull requests and merge
+  # groups only; a push to main has no base to compare against.
+  dependency-review:
+    name: dependency review
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          # Merge groups carry no pull_request payload; name the two commits.
+          base-ref: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          # Fail on high-or-worse vulnerabilities in newly added deps.
+          fail-on-severity: high
+          # Reject copyleft/unknown licenses that would taint a commercial DEX.
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-3.0
+          comment-summary-in-pr: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Dependency vulnerability scan. NON-BLOCKING: advisory databases change daily,
+  # so a hard-failing `npm audit` makes green builds non-deterministic and can
+  # freeze deploys on an unrelated advisory. Findings go to the job summary;
+  # Dependabot + dependency review do the actual gating.
+  # ---------------------------------------------------------------------------
+  security:
+    name: security (npm audit — advisory)
+    if: ${{ inputs.audit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --no-audit --fund=false
+
+      - name: Audit (report only)
+        working-directory: client
+        run: |
+          set +e
+          npm audit --audit-level=high --omit=dev > audit.txt 2>&1
+          {
+            echo "### npm audit (client, prod deps, high+)"
+            echo ""
+            echo '```'
+            cat audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Always succeed: this job informs, it does not block the pipeline.
+          exit 0

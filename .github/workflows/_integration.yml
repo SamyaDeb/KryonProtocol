@@ -1,0 +1,161 @@
+name: integration
+
+# Whole-system tests against a local arc-anvil, a real deployment and a real
+# Postgres. Local only: the drills and the e2e harness refuse a non-loopback
+# RPC, and no job here has a secret to reach a real network with.
+#
+# To add an integration job (e.g. Playwright against the dev stack): add it
+# here. It is gated by `ci-gate` through the `integration` job in ci.yml.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Matcher end-to-end: the real matching service against a local arc-anvil,
+  # a real deployment and a real Postgres. This is the only job where an order
+  # is signed, matched, batched and settled the whole way through, so a change
+  # that breaks settlement fails here rather than on testnet.
+  # ---------------------------------------------------------------------------
+  matcher-e2e:
+    name: matcher e2e (arc-anvil · deploy · settle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_e2e
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup arc-foundry
+        uses: ./.github/actions/setup-arc-foundry
+
+      - name: Forge cache key
+        id: forge-key
+        uses: ./.github/actions/forge-cache-key
+
+      # Restore only: DeployAll compiles in kryon-protocol/evm, and main's evm
+      # job has usually compiled the same sources already.
+      - name: Restore forge build cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            kryon-protocol/evm/out
+            kryon-protocol/evm/cache
+          key: ${{ steps.forge-key.outputs.key }}
+          restore-keys: ${{ steps.forge-key.outputs.restore-prefix }}
+
+      - name: Setup client
+        uses: ./.github/actions/setup-client
+
+      - name: Migrate the end-to-end database
+        run: |
+          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
+            echo "applying $f"
+            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Run the matcher end to end
+        working-directory: client
+        run: npm run test:e2e:matcher
+
+  # ---------------------------------------------------------------------------
+  # Keeper drills: each keeper's real code against a local arc-anvil and a real
+  # deployment, driven through the failure modes it exists to handle (quorum
+  # loss, re-anchor, divergence, de-peg, ...). Local only; the drills refuse a
+  # non-loopback RPC.
+  # ---------------------------------------------------------------------------
+  keeper-drills:
+    name: keeper drills (arc-anvil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_drills
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon_drills
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup arc-foundry
+        uses: ./.github/actions/setup-arc-foundry
+
+      - name: Forge cache key
+        id: forge-key
+        uses: ./.github/actions/forge-cache-key
+
+      - name: Restore forge build cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            kryon-protocol/evm/out
+            kryon-protocol/evm/cache
+          key: ${{ steps.forge-key.outputs.key }}
+          restore-keys: ${{ steps.forge-key.outputs.restore-prefix }}
+
+      - name: Setup client
+        uses: ./.github/actions/setup-client
+
+      - name: Migrate the drill database
+        run: |
+          for f in kryon-protocol/prisma/migrations/*/migration.sql; do
+            echo "applying $f"
+            psql "$KRYON_E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Oracle publisher drill
+        working-directory: client
+        run: npm run drill:oracle
+
+      - name: Funding keeper drill
+        working-directory: client
+        run: npm run drill:funding
+
+      - name: Liquidation cascade drill
+        working-directory: client
+        run: npm run drill:liquidation
+
+      - name: Monitor drill (every fault class fires its alert)
+        working-directory: client
+        run: npm run drill:monitor
+
+      - name: Keepers end-to-end gate (deposit, trade, funding, liquidation, ADL, fee claim, withdraw)
+        working-directory: client
+        run: npm run test:e2e:keepers
