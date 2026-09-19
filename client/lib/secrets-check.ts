@@ -8,8 +8,11 @@
  *
  * Usage:
  *   import { assertRequiredSecrets } from "@/lib/secrets-check";
- *   assertRequiredSecrets(["DATABASE_URL", "ORACLE_PUBLISHER_SECRET"]);
+ *   assertRequiredSecrets(["DATABASE_URL", "ORACLE_PUBLISHER_PRIVATE_KEY"]);
  */
+
+import { bytesToHex } from "viem";
+import { mnemonicToAccount } from "viem/accounts";
 
 const PLACEHOLDER_PREFIXES = [
   "change_me",
@@ -21,13 +24,25 @@ const PLACEHOLDER_PREFIXES = [
   "example",
 ];
 
-// These Stellar secret-key prefixes identify keys that are widely-used test vectors
-// and should never appear in a production environment.
-const KNOWN_TEST_KEYS = [
-  // Stellar SDK well-known test mnemonic keys (first few chars)
-  "SCZANGBA",
-  "SBGJMPZ",
-];
+/**
+ * Anvil's development keys: derived from the public "test test … junk"
+ * mnemonic, handed to every service by `npm run dev:stack`, and known to
+ * everyone. Any of them on a real network is a key anyone can sign with.
+ */
+const ANVIL_MNEMONIC = "test test test test test test test test test test test junk";
+const ANVIL_ACCOUNTS = 20;
+let knownTestKeys: Set<string> | null = null;
+
+function testKeys(): Set<string> {
+  if (!knownTestKeys) {
+    knownTestKeys = new Set();
+    for (let i = 0; i < ANVIL_ACCOUNTS; i++) {
+      const key = mnemonicToAccount(ANVIL_MNEMONIC, { addressIndex: i }).getHdKey().privateKey;
+      if (key) knownTestKeys.add(bytesToHex(key).slice(2).toLowerCase());
+    }
+  }
+  return knownTestKeys;
+}
 
 function looksLikePlaceholder(value: string): boolean {
   const lower = value.toLowerCase();
@@ -36,8 +51,10 @@ function looksLikePlaceholder(value: string): boolean {
   return false;
 }
 
-function looksLikeTestKey(value: string): boolean {
-  return KNOWN_TEST_KEYS.some((prefix) => value.startsWith(prefix));
+/** True for one of anvil's public development keys, with or without 0x. */
+export function looksLikeTestKey(value: string): boolean {
+  const hex = value.trim().toLowerCase().replace(/^0x/, "");
+  return /^[0-9a-f]{64}$/.test(hex) && testKeys().has(hex);
 }
 
 /**
@@ -59,8 +76,8 @@ export function assertRequiredSecrets(required: string[]): void {
     }
     if (looksLikePlaceholder(value)) {
       suspicious.push(`${key} (looks like a placeholder)`);
-    } else if (key.includes("SECRET") && looksLikeTestKey(value)) {
-      suspicious.push(`${key} (matches known test key prefix — rotate before mainnet)`);
+    } else if (/SECRET|_KEY$/.test(key) && looksLikeTestKey(value)) {
+      suspicious.push(`${key} (a public anvil development key: never use it off arc-local)`);
     }
   }
 

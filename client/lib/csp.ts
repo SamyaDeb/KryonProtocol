@@ -77,25 +77,14 @@ export function buildCsp(opts: { isDev: boolean; env: Env }): string {
   // the deployment's own feed (it would silently degrade to REST polling).
   if (ws.size === 0) ws.add("wss:");
 
-  // The previous chain's endpoints stay until its UI is deleted (Phase 4 PR 7).
-  const legacy = [
-    "https://soroban-testnet.stellar.org",
-    "https://soroban-mainnet.stellar.org",
-    "https://mainnet.sorobanrpc.com",
-    "https://horizon-testnet.stellar.org",
-    "https://horizon.stellar.org",
-  ];
-
   const connect = [
     "'self'",
-    "https://api.binance.com",
     "https://*.tradingview.com",
     "wss://*.tradingview.com",
     ...rpc,
     ...ws,
     ...WALLET_CONNECT,
     ...COINBASE,
-    ...legacy,
   ];
 
   return [

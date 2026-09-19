@@ -167,3 +167,78 @@ jobs:
       - name: Keepers end-to-end gate (deposit, trade, funding, liquidation, ADL, fee claim, withdraw)
         working-directory: client
         run: npm run test:e2e:keepers
+
+  # ---------------------------------------------------------------------------
+  # The web app end to end in a real browser: dev:stack (arc-anvil, DeployAll,
+  # every service), the Next app, and Chromium with an injected test wallet.
+  # Connect, a wrong-chain recovery, a permit deposit, a refused sub-minimum
+  # order, a market buy that settles on chain, the position, trade history,
+  # close and withdraw (client/scripts/ui-e2e.ts). Local only.
+  # ---------------------------------------------------------------------------
+  ui-e2e:
+    name: ui e2e (arc-anvil · browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      KRYON_E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/kryon_ui_e2e
+      KRYON_E2E_ARTIFACTS: e2e-artifacts
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kryon_ui_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup arc-foundry
+        uses: ./.github/actions/setup-arc-foundry
+
+      - name: Forge cache key
+        id: forge-key
+        uses: ./.github/actions/forge-cache-key
+
+      - name: Restore forge build cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            kryon-protocol/evm/out
+            kryon-protocol/evm/cache
+          key: ${{ steps.forge-key.outputs.key }}
+          restore-keys: ${{ steps.forge-key.outputs.restore-prefix }}
+
+      - name: Setup client
+        uses: ./.github/actions/setup-client
+
+      # The browser Playwright's pinned version expects, with its system libraries.
+      - name: Install Chromium
+        working-directory: client
+        run: npx playwright-core install --with-deps --only-shell chromium
+
+      # dev-stack resets and migrates this database itself.
+      - name: Run the UI end to end
+        working-directory: client
+        run: npm run test:e2e:ui
+
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ui-e2e-screenshots
+          path: client/e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 7

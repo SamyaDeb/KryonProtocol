@@ -100,3 +100,6 @@ scripts/setup-usdc-settlement.ts
 # name-only templates are tracked.
 env/*.env
 !env/*.env.example
+
+# ui-e2e screenshots
+/e2e-artifacts/

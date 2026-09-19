@@ -45,11 +45,16 @@ cd client && npm run dev:oracle
 
 The oracle publisher key may no longer be authorized for the feed.
 
+Publishers are set as a whole set by `OracleAdapter.setPublishers(address[])`,
+which only the timelock can call (RISK_ADMIN). There is no fast path: schedule
+the new set through the governance Safe as in `timelock-operations.md`, and keep
+the current publishers running until it executes.
+
 ```bash
-# Re-register publisher (admin = same key as ORACLE_PUBLISHER_SECRET)
-cd client
-ORACLE_PUBLISHER_SECRET=<secret> npx tsx --env-file=.env.local scripts/update-oracle-publisher.ts
-npm run dev:oracle
+# Which addresses are publishers right now (read-only)
+cast call <ORACLE_ADAPTER> "publishers()(address[])" --rpc-url $ARC_RPC
+# Restart the publisher process with a key that is in that set
+cd client && npm run dev:oracle
 ```
 
 ### Step 3 — If oracle contract is broken (redeploy)
