@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@/features/wallet/useWallet';
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { ACTIVE_MARKET_SYMBOLS, DEFAULT_MARKET_SYMBOL } from '@/lib/stellar/legacy-config';
+import { DEFAULT_MARKET_SYMBOL } from '@/lib/markets';
+import { useMarkets } from '@/features/markets/directory';
 import { useNetwork } from '@/features/network/NetworkContext';
 
 const LANDING_NAV = [
@@ -18,38 +19,43 @@ const LANDING_NAV = [
   { to: '/docs', label: 'Docs', hardNav: true },
 ];
 
+// The protocol's components, highlighted in turn. Decorative: live health is
+// the status page's job, so the list is titled as components, not status.
 const SYSTEM_STATUS = [
   '01. Oracle Feed', '02. CLOB Matcher', '03. Margin Engine', '04. Vault', '05. Order Gateway',
   '06. Liquidation', '07. Insurance Fund', '08. Risk Engine',
   '09. Funding', '10. State Indexer',
 ];
 
-// A function, not a const: the first headline names the selected network, which
-// is only known per-render. Building it at module scope would bake in the
-// deployment's own network and hydrate-mismatch for anyone on the other venue.
-const buildHeadlines = (networkLabel: string) => [
-  { title: `${ACTIVE_MARKET_SYMBOLS.length} Perpetual Markets Live on ${networkLabel}`, desc: `${ACTIVE_MARKET_SYMBOLS.map((s) => s.replace('-PERP', '')).join(' · ')} — USDC-settled perpetual futures with on-chain margin and settlement, traded self-custodial straight from your Freighter wallet.` },
-  { title: 'Kryon Brings Perpetuals to Stellar', desc: 'A decentralized exchange pairing an off-chain central-limit order book with a fully on-chain margin and settlement engine on Soroban.' },
-  { title: 'Sub-Second Fills, On-Chain Truth', desc: 'Price-time matching off-chain for a familiar low-latency perp experience, with custody, margin, and settlement enforced on-chain.' },
+// A function, not a const: the first headline names the selected network and
+// the markets listed on it, which are only known per render.
+const buildHeadlines = (networkLabel: string, symbols: string[]) => [
+  {
+    title: symbols.length > 0 ? `${symbols.length} Perpetual Market${symbols.length === 1 ? '' : 's'} on ${networkLabel}` : `Perpetuals on ${networkLabel}`,
+    desc: `${symbols.length > 0 ? symbols.map((s) => s.replace('-PERP', '')).join(' · ') + ' — ' : ''}USDC-settled perpetual futures with on-chain margin and settlement, traded from your own wallet.`,
+  },
+  { title: 'Kryon Brings Perpetuals to Arc', desc: "A perpetual-futures exchange on Arc, Circle's EVM chain: an off-chain price-time order book with custody, margin and settlement enforced by contracts. USDC is both collateral and gas." },
+  { title: 'Off-Chain Matching, On-Chain Settlement', desc: 'Orders are signed messages matched off-chain; every fill settles on chain, where the contracts check margin before anything moves.' },
 ];
 
 const SOLUTIONS = [
-  { title: 'Perpetuals', desc: 'Trade perpetual futures on tokenized real-world assets and crypto, USDC-settled, with leverage and transparent funding.' },
-  { title: 'On-Chain Settlement', desc: 'Collateral, margin, and settlement live on Soroban. You keep your keys — every fill settles to a contract you control.' },
-  { title: 'CLOB Matching', desc: 'An off-chain central-limit order book matches orders price-time for low-latency fills, while on-chain state stays the source of truth.', accent: true },
-  { title: 'Risk & Liquidation', desc: 'A transparent margin engine, funding mechanism, and insurance-backed liquidation keep markets solvent and fair.' },
+  { title: 'Perpetuals', desc: 'Trade perpetual futures on crypto assets, settled in USDC, with transparent hourly funding.' },
+  { title: 'On-Chain Settlement', desc: 'Collateral, margin and settlement live in contracts on Arc. You keep your keys: orders are signed in your wallet, and every fill settles on chain.' },
+  { title: 'CLOB Matching', desc: 'An off-chain central-limit order book matches orders by price and time, while on-chain state stays the source of truth.', accent: true },
+  { title: 'Risk & Liquidation', desc: 'A public margin engine, funding, partial liquidations and an insurance fund. Every parameter is on chain and changes only through a 48-hour timelock.' },
 ];
 
+// Guides, not news: undated, and each links to the documentation.
 const INSIGHTS = [
-  { title: 'XLM-PERP Goes Live — USDC-Settled Perpetuals on Stellar', date: 'May 28, 2026', desc: 'Protocol Launch', featured: true },
-  { title: 'On-Chain Margin & Settlement, Off-Chain Speed', date: 'May 20, 2026', desc: 'How Kryon pairs a price-time CLOB matcher with a Soroban settlement engine.' },
-  { title: 'Self-Custodial Trading with Freighter', date: 'May 6, 2026', desc: 'Sign orders from your own wallet — your keys, your collateral, every fill.' },
-  { title: 'Understanding Funding & Mark Price on Kryon', date: 'April 24, 2026', desc: 'How the funding mechanism anchors perp prices to the oracle.' },
-  { title: 'Inside the Liquidation & Insurance Engine', date: 'April 11, 2026', desc: 'Transparent margin checks and an insurance fund that keeps markets solvent.' },
-  { title: 'The Road to Perpetuals', date: 'March 30, 2026', desc: 'Bringing tokenized real-world assets to perpetual futures on Stellar.' },
-  { title: 'Oracle Design: Pricing Perps on Soroban', date: 'March 18, 2026', desc: 'How the oracle adapter publishes the prices the engine settles against.' },
-  { title: 'Leaderboard & Portfolio Analytics', date: 'March 5, 2026', desc: 'Track PnL, open interest, and ranking across every market in real time.' },
-  { title: 'Kryon Stress-Test Report: Production Hardening', date: 'February 20, 2026', desc: 'Findings and fixes from load-testing the matcher, indexer, and settlement path.' },
+  { title: 'Getting Started on Kryon', date: 'Guide', desc: 'Connect a wallet on Arc, deposit USDC, and place your first order.', featured: true, href: '/docs' },
+  { title: 'Orders Are Signed Messages', date: 'Guide', desc: 'How EIP-712 orders, nonces and cancels work, including the on-chain cancel.', href: '/docs' },
+  { title: 'Margin and Liquidation', date: 'Guide', desc: 'Initial and maintenance margin, cross-margined accounts, and how partial liquidations work.', href: '/docs' },
+  { title: 'Funding and the Index Price', date: 'Guide', desc: 'How hourly funding anchors perpetual prices to the oracle index.', href: '/docs' },
+  { title: 'Fees', date: 'Guide', desc: 'Maker and taker rates, the net fee floor, and where fees go.', href: '/fees' },
+  { title: 'Deposits and Withdrawals', date: 'Guide', desc: 'USDC permits, deposit caps, gas, and what free collateral means for withdrawals.', href: '/docs' },
+  { title: 'Oracle Design', date: 'Guide', desc: 'How publishers price markets from several venues, and what a stale feed pauses.', href: '/docs' },
+  { title: 'Contracts and Governance', date: 'Reference', desc: 'Contract addresses, the timelock queue and the vault solvency check.', href: '/transparency' },
+  { title: 'API and WebSocket', date: 'Reference', desc: 'Programmatic trading: order intake, market data and the streaming channels.', href: '/docs' },
 ];
 
 function LoadingOverlay() {
@@ -222,7 +228,8 @@ export function LandingPage() {
   const { connected, connecting, connect } = useWallet();
   // Server-seeded, so the network-named headline matches on hydration.
   const { config: networkConfig } = useNetwork();
-  const headlines = buildHeadlines(networkConfig.label);
+  const { list: listedMarkets } = useMarkets();
+  const headlines = buildHeadlines(networkConfig.label, listedMarkets.filter((m) => m.active).map((m) => m.symbol));
 
   const [activeStatus, setActiveStatus] = useState(0);
   const [binaryRows, setBinaryRows] = useState<string[]>(INITIAL_BINARY);
@@ -454,13 +461,13 @@ export function LandingPage() {
             <div className="s5-hero-right">
               <p className="s5-hero-right-desc s5-fade-up" style={{ animationDelay: '0.4s' }}>
                 Trade Perpetuals<br />
-                on Stellar with superfast<br />
-                Decentralized Execution.
+                on Arc, settled<br />
+                on chain in USDC.
               </p>
             </div>
 
             <div className="s5-right-mid">
-              <p className="s5-stats-title">System Status</p>
+              <p className="s5-stats-title">Protocol Components</p>
               <ul className="s5-stats-list">
                 {SYSTEM_STATUS.map((s, i) => (
                   <li key={s} className={`s5-stats-item${i === activeStatus ? ' s5-stats-item--active' : ''}`}>
@@ -578,13 +585,13 @@ export function LandingPage() {
               <p className="s5-insights-featured-date">{featured.date}</p>
               <p className="s5-insights-featured-cat">{featured.desc}</p>
               <h2 className="s5-insights-featured-title">{featured.title}</h2>
-              <button className="s5-readmore-btn">Read More</button>
+              <a className="s5-readmore-btn" href={featured.href}>Read More</a>
             </div>
           </div>
 
           <div className="s5-insights-grid" ref={insightsGridRef}>
             {gridInsights.map((item, i) => (
-              <a key={i} className="s5-insight-card" href="#">
+              <a key={i} className="s5-insight-card" href={item.href}>
                 <h4 className="s5-insight-title">{item.title}</h4>
                 <p className="s5-insight-date">{item.date}</p>
                 <p className="s5-insight-desc">{item.desc}</p>

@@ -42,15 +42,11 @@ const LEGACY_BY_LOCATION = [/^lib\/stellar\//, /^scripts\//];
 /**
  * Files outside those directories that still read the old chain's config.
  *
- * Each is on a known path out: the landing and portfolio pages, and the
- * portfolio's collateral hook, are rewritten with the other pages (Phase 4
- * PR 6). The trading screen itself is off the list.
+ * Empty: the app runs on Arc throughout. It stays as a register so a
+ * regression has somewhere visible to go, and `lib/stellar/**` itself is
+ * deleted with its dependencies (Phase 4 PR 7).
  */
-const QUARANTINED = new Set([
-  "app/LandingPage.tsx",
-  "app/portfolio/page.tsx",
-  "features/collateral/useCollateral.ts",
-]);
+const QUARANTINED = new Set<string>([]);
 
 const SOURCE_ROOTS = ["app", "lib", "features", "components", "stores", "scripts"];
 

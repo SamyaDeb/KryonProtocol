@@ -4,21 +4,20 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TopNav } from "@/components/common/TopNav";
 import { useWallet } from "@/features/wallet/useWallet";
-import { useMarketStore } from "@/stores/market";
-import { getAccountHealth, getPositions } from "@/lib/stellar/contracts";
-import { amountToHuman } from "@/lib/stellar/legacy-format";
-import { calcUnrealizedPnl } from "@/lib/stellar/legacy-math";
+import { useAccountRates, useAccountState, useOwnFillStream } from "@/features/account/chain";
+import { useMarkets } from "@/features/markets/directory";
+import { formatRatePercent, formatUsd, formatUsdc, toChartNumber } from "@/lib/format";
 import { DepositWithdrawDialog } from "@/features/trade/components/DepositWithdrawDialog";
 import { PositionsTable } from "@/features/trade/components/PositionsTable";
 import { OpenOrdersTable } from "@/features/trade/components/OpenOrdersTable";
 import { OrderHistoryTable } from "@/features/trade/components/OrderHistoryTable";
 import { TradeHistoryTable } from "@/features/trade/components/TradeHistoryTable";
-import { useCollateral } from "@/features/collateral/useCollateral";
+import { FundingHistoryTable } from "@/features/trade/components/FundingHistoryTable";
 import { AssetLogo } from "@/components/common/AssetLogos";
 import { apiFetch } from "@/lib/api";
 
 const TABS = [
-  "Balances", "Positions", "Open Orders", "Trade History", "Order History",
+  "Balances", "Positions", "Open Orders", "Trade History", "Order History", "Funding History",
 ] as const;
 type Tab = (typeof TABS)[number];
 
@@ -31,20 +30,11 @@ const shortDate = (value: string) =>
 export default function PortfolioPage() {
   const { address, connected } = useWallet();
   const [tab, setTab] = useState<Tab>("Positions");
-  const markPrices = useMarketStore((s) => s.markPrices);
-
-  const { data: health } = useQuery({
-    queryKey: ["health", address],
-    queryFn: () => getAccountHealth(address!),
-    enabled: !!address && connected,
-    refetchInterval: 10_000,
-  });
-  const { data: positions = [] } = useQuery({
-    queryKey: ["positions", address],
-    queryFn: () => getPositions(address!),
-    enabled: !!address && connected,
-    refetchInterval: 10_000,
-  });
+  const account = useAccountState(address);
+  const acct = account.data;
+  const { data: rates } = useAccountRates(address);
+  const { list: markets } = useMarkets();
+  useOwnFillStream(address, account.queryKey);
 
   // Historical analytics (realized pnl, volume, deposits, win rate) from indexer.
   const { data: portfolio } = useQuery({
@@ -68,11 +58,12 @@ export default function PortfolioPage() {
     refetchInterval: 15_000,
   });
 
-  const equity = health ? amountToHuman(health.equity) : 0;
-  const unrealizedPnl = positions.reduce((acc, p) => {
-    const mp = markPrices[p.marketId];
-    return mp ? acc + amountToHuman(calcUnrealizedPnl(p.isLong, p.size, p.entryPrice, mp)) : acc;
-  }, 0);
+  // Live figures from the engine; history from the analytics tables.
+  const equity = acct ? toChartNumber(acct.equity, 18) : 0;
+  const unrealizedPnl = acct ? toChartNumber(acct.unrealizedPnl, 18) : 0;
+  // The account's rates on the first active market (tiers apply venue-wide).
+  const feeMarket = markets.find((m) => m.active) ?? markets[0];
+  const feeRates = feeMarket ? rates?.[feeMarket.marketId] ?? { makerRate: feeMarket.makerRate, takerRate: feeMarket.takerRate } : null;
   const a = portfolio?.analytics;
   const realizedPnl = a?.realizedPnl ?? 0;
   const pnl = realizedPnl + unrealizedPnl;
@@ -124,15 +115,19 @@ export default function PortfolioPage() {
           <div className="xl:col-span-3 flex flex-col gap-3">
             <Card>
               <Label>Total Equity</Label>
-              <div className="mt-2 text-[30px] font-semibold tabular">{usd(equity)}</div>
-              <CollateralBreakdown address={address} />
+              <div className="mt-2 text-[30px] font-semibold tabular">
+                {acct ? formatUsd(acct.equity, { rounding: "down" }) : "—"}
+              </div>
+              <CollateralBreakdown acct={acct} />
             </Card>
             <Card>
               <div className="flex items-center justify-between">
                 <Label>Fees (Taker / Maker)</Label>
                 <span className="text-[12.5px] text-[#a3a3a3]">Perps</span>
               </div>
-              <div className="mt-2 text-[28px] font-semibold tabular">0.0350% / 0.0050%</div>
+              <div className="mt-2 text-[28px] font-semibold tabular">
+                {feeRates ? `${formatRatePercent(feeRates.takerRate)} / ${formatRatePercent(feeRates.makerRate)}` : "—"}
+              </div>
               <div className="mt-3 text-[13px] text-[#a3a3a3]">Volume: {usd(volume)}</div>
             </Card>
           </div>
@@ -197,10 +192,11 @@ export default function PortfolioPage() {
 
           <div className="min-h-[200px]">
             {tab === "Positions" && <PositionsTable marketFilter="all" sideFilter="both" />}
+            {tab === "Funding History" && <FundingHistoryTable marketFilter="all" />}
             {tab === "Open Orders" && <OpenOrdersTable marketFilter="all" sideFilter="both" />}
             {tab === "Order History" && <OrderHistoryTable marketFilter="all" />}
             {tab === "Trade History" && <TradeHistoryTable marketFilter="all" />}
-            {tab === "Balances" && <BalancesTab connected={connected} address={address} />}
+            {tab === "Balances" && <BalancesTab connected={connected} acct={acct} />}
           </div>
         </div>
       </main>
@@ -299,84 +295,68 @@ function ChartEmpty({ text }: { text: string }) {
   );
 }
 
-/**
- * What the equity number is actually made of. With one collateral asset this is
- * a formality; with several it is the difference between a trader understanding
- * their margin and guessing at it.
- */
-function CollateralBreakdown({ address }: { address: string | null }) {
-  const { data: positions } = useCollateral(address);
-  const held = (positions ?? []).filter((p) => p.raw !== 0n);
-  if (held.length === 0) return null;
+type Acct = ReturnType<typeof useAccountState>["data"];
 
+/** What equity is made of: the vault balance plus unrealized PnL. */
+function CollateralBreakdown({ acct }: { acct: Acct }) {
+  if (!acct) return null;
+  const rows: [string, string, boolean][] = [
+    ["Vault balance", formatUsd(acct.ledger, { rounding: "down" }), acct.ledger < 0n],
+    ["Unrealized PnL", formatUsd(acct.unrealizedPnl, { sign: "always" }), acct.unrealizedPnl < 0n],
+    ["Margin used", formatUsd(acct.initialMarginRequired, { rounding: "up" }), false],
+  ];
   return (
     <div className="mt-3 flex flex-col gap-1.5">
-      {held.map((p) => (
-        <div key={p.code} className="flex items-center justify-between text-[13px]">
-          <span className="inline-flex items-center gap-1.5 text-[#a3a3a3]">
-            <AssetLogo symbol={p.code} size={13} />
-            {p.code}
-            {p.haircutBps > 0 && (
-              <span className="text-[11px] text-[#737373]">
-                −{(p.haircutBps / 100).toFixed(1)}%
-              </span>
-            )}
-          </span>
-          <span className={`tabular ${p.raw < 0n ? "text-[#f87171]" : "text-[#f5f5f5]"}`}>
-            {usd(p.marginValue)}
-          </span>
+      {rows.map(([label, value, negative]) => (
+        <div key={label} className="flex items-center justify-between text-[13px]">
+          <span className="text-[#a3a3a3]">{label}</span>
+          <span className={`tabular ${negative ? "text-[#f87171]" : "text-[#f5f5f5]"}`}>{value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function BalancesTab({ connected, address }: { connected: boolean; address: string | null }) {
-  const { data: positions, isLoading } = useCollateral(address);
-
+/** USDC is the only collateral on Arc: wallet, vault, and what can leave now. */
+function BalancesTab({ connected, acct }: { connected: boolean; acct: Acct }) {
   if (!connected) return <Empty text="Connect a wallet to view balances" />;
-  if (isLoading || !positions) return <Empty text="Loading balances…" />;
+  if (!acct) return <Empty text="Loading balances…" />;
 
+  const cells: [string, string][] = [
+    ["Wallet", formatUsdc(acct.walletUsdc, { rounding: "down" })],
+    ["Vault Balance", formatUsd(acct.ledger, { rounding: "down" })],
+    ["Free Collateral", formatUsd(acct.freeCollateral > 0n ? acct.freeCollateral : 0n, { rounding: "down" })],
+    ["Withdrawable", formatUsdc(acct.maxWithdraw, { rounding: "down" })],
+  ];
   return (
     <table className="w-full text-[12px] tabular">
       <thead>
-        <tr className="text-[10px] text-[#737373] font-semibold uppercase tracking-wider">
-          <th className="pl-4 pr-2 py-[9px] text-left">Coin</th>
-          <th className="px-3 py-[9px] text-right">Wallet</th>
-          <th className="px-3 py-[9px] text-right">Vault Balance</th>
-          <th className="px-3 py-[9px] text-right">Price</th>
-          <th className="px-3 py-[9px] text-right">Haircut</th>
-          <th className="pr-4 pl-2 py-[9px] text-right">Margin Value</th>
+        <tr className="text-[10px] font-semibold uppercase tracking-wider text-[#737373]">
+          <th className="py-[9px] pl-4 pr-2 text-left">Coin</th>
+          {cells.map(([h], i) => (
+            <th key={h} className={`py-[9px] text-right ${i === cells.length - 1 ? "pl-2 pr-4" : "px-3"}`}>
+              {h}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {positions.map((p) => (
-          <tr key={p.code} className="border-t border-[#2A2A31]">
-            <td className="pl-4 pr-2 py-[12px] text-left">
-              <span className="inline-flex items-center gap-2">
-                <AssetLogo symbol={p.code} size={16} />
-                <span className="font-semibold text-[#f5f5f5]">{p.code}</span>
-                {p.settlement && (
-                  <span className="rounded-full border border-[#334155] px-1.5 py-[1px] text-[9.5px] font-semibold uppercase tracking-wide text-[#a3a3a3]">
-                    Settlement
-                  </span>
-                )}
+        <tr className="border-t border-[#2A2A31]">
+          <td className="py-[12px] pl-4 pr-2 text-left">
+            <span className="inline-flex items-center gap-2">
+              <AssetLogo symbol="USDC" size={16} />
+              <span className="font-semibold text-[#f5f5f5]">USDC</span>
+              <span className="rounded-full border border-[#334155] px-1.5 py-[1px] text-[9.5px] font-semibold uppercase tracking-wide text-[#a3a3a3]">
+                Collateral & gas
               </span>
+            </span>
+          </td>
+          {cells.map(([h, v], i) => (
+            <td key={h} className={`py-[12px] text-right text-[#f5f5f5] ${i === cells.length - 1 ? "pl-2 pr-4" : "px-3"}`}>
+              {v}
             </td>
-            <td className="px-3 py-[12px] text-right text-[#a3a3a3]">{p.walletBalance.toFixed(2)}</td>
-            {/* A negative vault balance is a settlement debit the vault has
-                already paid out. Flagging it explains an equity number that
-                would otherwise look wrong. */}
-            <td className={`px-3 py-[12px] text-right ${p.raw < 0n ? "text-[#f87171]" : "text-[#f5f5f5]"}`}>
-              {p.balance.toFixed(2)}
-            </td>
-            <td className="px-3 py-[12px] text-right text-[#a3a3a3]">${p.price.toFixed(4)}</td>
-            <td className="px-3 py-[12px] text-right text-[#a3a3a3]">
-              {p.haircutBps === 0 ? "—" : `${(p.haircutBps / 100).toFixed(2)}%`}
-            </td>
-            <td className="pr-4 pl-2 py-[12px] text-right text-[#f5f5f5]">{usd(p.marginValue)}</td>
-          </tr>
-        ))}
+          ))}
+        </tr>
       </tbody>
     </table>
   );

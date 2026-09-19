@@ -89,6 +89,7 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
     r.ready = await load("@/app/api/ready/route");
     r.health = await load("@/app/api/health/route");
     r.time = await load("@/app/api/time/route");
+    r.governance = await load("@/app/api/governance/route");
   });
 
   after(async () => {
@@ -380,6 +381,40 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
 
     test("bad market id is 400", async () => {
       assert.equal((await call(r.positions, `/api/positions?address=${ALICE}&market_id=x`)).status, 400);
+    });
+  });
+
+  describe("GET /api/governance", () => {
+    test("pending operations first, soonest ready first, with a readiness flag", async () => {
+      const op = async (id: string, status: string, readyInSec: number, createdAgoSec: number) =>
+        s.query(
+          `INSERT INTO "GovernanceOperation" ("network", "operationId", "predecessor", "salt", "calls", "delaySeconds",
+             "readyAt", "status", "scheduledTxHash", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $3, $4, 172800, to_timestamp($5), $6::"GovernanceOperationStatus", $7, to_timestamp($8), now())`,
+          [TEST_NETWORK, id, `0x${"0".repeat(64)}`, JSON.stringify([{ target: BOB, value: "0", data: "0x1234" }]),
+            NOW() + readyInSec, status, id, NOW() - createdAgoSec]
+        );
+      const id = (b: string) => `0x${b.repeat(32)}`;
+      await op(id("aa"), "EXECUTED", -500_000, 600_000);
+      await op(id("bb"), "SCHEDULED", 90_000, 100);
+      await op(id("cc"), "SCHEDULED", -60, 200_000);
+      await op(id("dd"), "CANCELLED", 10_000, 50);
+
+      const { status, body } = await call(r.governance, "/api/governance");
+      assert.equal(status, 200);
+      const ops = (body as unknown as { operations: Record<string, unknown>[] }).operations;
+      assert.deepEqual(ops.map((o) => [o.operation_id, o.status, o.ready]), [
+        [id("cc"), "SCHEDULED", true],
+        [id("bb"), "SCHEDULED", false],
+        [id("dd"), "CANCELLED", false],
+        [id("aa"), "EXECUTED", false],
+      ]);
+      assert.deepEqual(ops[0].calls, [{ target: BOB, value: "0", data: "0x1234" }]);
+      assert.equal(ops[0].delay_seconds, 172800);
+    });
+
+    test("bad limit is 400", async () => {
+      assert.equal((await call(r.governance, "/api/governance?limit=x")).status, 400);
     });
   });
 
