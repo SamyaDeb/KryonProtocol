@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getBalance, getTokenBalance } from "@/lib/stellar/contracts";
 import { getOraclePrice } from "@/lib/stellar/oracle";
 import { listVaultCollateral, type ListedCollateral } from "@/lib/stellar/collateral";
-import { amountToHuman } from "@/lib/format";
+import { amountToHuman } from "@/lib/stellar/legacy-format";
 import { PRICE_PRECISION } from "@/lib/stellar/legacy-config";
 
 export interface CollateralPosition extends ListedCollateral {

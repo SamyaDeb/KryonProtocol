@@ -2,7 +2,7 @@
 
 import { useLocalOrders } from "@/stores/orders";
 import { useWallet } from "@/features/wallet/useWallet";
-import { priceFor, sizeFor } from "@/lib/format";
+import { priceFor, sizeFor } from "@/lib/stellar/legacy-format";
 import { MarketCell } from "@/components/common/MarketCell";
 
 const STATUS_STYLE: Record<string, string> = {

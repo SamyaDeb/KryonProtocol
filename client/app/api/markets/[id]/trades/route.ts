@@ -28,6 +28,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       timestamp: f.createdAt.getTime(),
       fill_id: f.fillId,
       tx_hash: f.txHash,
+      // Exact values, as the WS `trade` message carries them: the display
+      // strings are 4dp and cannot hold a price like TRX's 0.24187.
+      price_raw: f.price.toString(),
+      size_raw: f.size.toString(),
+      block_number: f.blockNumber === null ? null : f.blockNumber.toString(),
     }));
     return NextResponse.json(trades, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

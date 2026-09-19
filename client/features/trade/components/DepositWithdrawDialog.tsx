@@ -11,7 +11,7 @@ import {
   roundToBridgeable,
   type ListedCollateral,
 } from "@/lib/stellar/collateral";
-import { humanToAmount, amountToHuman } from "@/lib/format";
+import { humanToAmount, amountToHuman } from "@/lib/stellar/legacy-format";
 import { SETTLEMENT_ASSET, STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { AssetLogo } from "@/components/common/AssetLogos";
 import { toast } from "sonner";

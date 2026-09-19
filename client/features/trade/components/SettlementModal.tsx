@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { marketById } from "@/components/common/MarketCell";
 import { useMarketDirectory } from "@/features/markets/directory";
-import { priceFor, sizeFor } from "@/lib/format";
+import { priceFor, sizeFor } from "@/lib/stellar/legacy-format";
 import { useWallet } from "@/features/wallet/useWallet";
 import { STELLAR_EXPERT_URL, NETWORK_LABEL } from "@/lib/stellar/legacy-config";
 import { freighterSignAuthEntry, isOnExpectedNetwork } from "@/lib/stellar/freighter";

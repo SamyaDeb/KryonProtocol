@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ACTIVE_MARKETS, MarketConfig } from "@/lib/stellar/legacy-config";
 import { getOpenInterest } from "@/lib/stellar/contracts";
-import { formatAmount, formatChangePercent, formatMarketUsd, priceToHuman } from "@/lib/format";
+import { formatAmount, formatChangePercent, formatMarketUsd, priceToHuman } from "@/lib/stellar/legacy-format";
 import { useMarketStore } from "@/stores/market";
 import { logoFor } from "@/components/common/AssetLogos";
 

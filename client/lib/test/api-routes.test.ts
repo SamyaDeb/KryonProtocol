@@ -179,6 +179,10 @@ describe("API routes against the Arc schema", { skip: !TEST_DATABASE_URL }, () =
         (body as unknown as { price: string; side: string }[]).map((t) => [t.price, t.side]),
         [["99000.0000", "sell"], ["100000.0000", "buy"]]
       );
+      const first = (body as unknown as Record<string, unknown>[])[0];
+      assert.equal(first.price_raw, (99_000n * E18).toString(), "the exact price rides along");
+      assert.equal(first.block_number, "11");
+      assert.equal(typeof first.size_raw, "string");
     });
 
     test("no fills is an empty list", async () => {

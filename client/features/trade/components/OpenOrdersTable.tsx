@@ -4,7 +4,7 @@ import { useWallet } from "@/features/wallet/useWallet";
 import { useLocalOrders } from "@/stores/orders";
 import { cancelOrder as cancelOnChain } from "@/lib/stellar/contracts";
 import { cancelOrderOnMatcher } from "@/lib/market/matcher";
-import { priceToHuman, amountToHuman, formatMarketUsd, formatMarketSize } from "@/lib/format";
+import { priceToHuman, amountToHuman, formatMarketUsd, formatMarketSize } from "@/lib/stellar/legacy-format";
 
 import { logoFor } from "@/components/common/AssetLogos";
 import { marketById } from "@/components/common/MarketCell";
