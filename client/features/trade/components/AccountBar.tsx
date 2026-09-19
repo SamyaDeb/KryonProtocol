@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/features/wallet/useWallet";
 import { getAccountHealth } from "@/lib/stellar/contracts";
 import { SETTLEMENT_ASSET } from "@/lib/stellar/legacy-config";
-import { amountToHuman } from "@/lib/format";
+import { amountToHuman } from "@/lib/stellar/legacy-format";
 import { DepositWithdrawDialog } from "./DepositWithdrawDialog";
 import { useCollateral } from "@/features/collateral/useCollateral";
 import { AssetLogo } from "@/components/common/AssetLogos";

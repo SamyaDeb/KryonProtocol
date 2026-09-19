@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { MarketConfig } from "@/lib/stellar/legacy-config";
 import { logoFor, UsdcLogo } from "@/components/common/AssetLogos";
-import { formatChangePercent, formatMarketUsd, formatVolume } from "@/lib/format";
+import { formatChangePercent, formatMarketUsd, formatVolume } from "@/lib/stellar/legacy-format";
 import { apiFetch } from "@/lib/api";
 
 function leverageLabel(bps: number) {

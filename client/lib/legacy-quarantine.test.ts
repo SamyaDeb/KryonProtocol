@@ -22,8 +22,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
-/** Modules that describe the previous, non-EVM deployment. */
-const LEGACY_MODULES = /(?:^|\/)legacy-(?:config|networks|network-server)$/;
+/**
+ * Modules that describe the previous, non-EVM deployment: its config, and the
+ * 1e7-scale number helpers (`lib/stellar/legacy-format`, `legacy-math`) that
+ * `lib/format` and `lib/math` were before they moved to Arc's scales.
+ */
+const LEGACY_MODULES = /(?:^|\/)legacy-(?:config|networks|network-server|format|math)$/;
 
 /**
  * Directories that are legacy by definition, so an import there carries no
@@ -42,14 +46,16 @@ const LEGACY_BY_LOCATION = [/^lib\/stellar\//, /^scripts\//];
  *  - the trading UI (`features/trade/**`, `app/*Page`, the market pages and
  *    cells) renders old-chain amounts and Stellar explorer links, and is
  *    rewritten with the wallet/trading work, not here;
- *  - `lib/format|math` and `lib/market/*` do arithmetic in the
- *    old chain's 1e7 amount scale. Re-basing them on Arc's scales changes every
- *    number the UI renders, so it belongs with the UI rewrite rather than
- *    inside a config move;
+ *  - `lib/market/matcher|signing-message` submit and sign orders the old way,
+ *    and go when signed trading lands;
+ *  - `app/portfolio/page.tsx`, `OpenOrdersTable` and `OrderHistoryTable`
+ *    surfaced when the 1e7 helpers moved under `lib/stellar/`: they reached
+ *    the old scale through `lib/format`, which the scan could not see.
  */
 const QUARANTINED = new Set([
   "app/LandingPage.tsx",
   "app/markets/page.tsx",
+  "app/portfolio/page.tsx",
   "app/trade/[market]/page.tsx",
   "features/collateral/useCollateral.ts",
   "features/trade/components/AccountBar.tsx",
@@ -59,19 +65,17 @@ const QUARANTINED = new Set([
   "features/trade/components/MarketDataProvider.tsx",
   "features/trade/components/MarketHeader.tsx",
   "features/trade/components/MarketsTable.tsx",
+  "features/trade/components/OpenOrdersTable.tsx",
   "features/trade/components/OrderBook.tsx",
   "features/trade/components/OrderEntry.tsx",
+  "features/trade/components/OrderHistoryTable.tsx",
   "features/trade/components/PositionsTable.tsx",
   "features/trade/components/SettlementModal.tsx",
   "features/trade/components/TradeChart.tsx",
   "features/trade/components/TradeHistoryTable.tsx",
   "features/trade/components/TradeTerminalGrid.tsx",
-  "lib/format.test.ts",
-  "lib/format.ts",
-  "lib/market/liquidation-sizing.ts",
   "lib/market/matcher.ts",
   "lib/market/signing-message.ts",
-  "lib/math.ts",
 ]);
 
 const SOURCE_ROOTS = ["app", "lib", "features", "components", "stores", "scripts"];
