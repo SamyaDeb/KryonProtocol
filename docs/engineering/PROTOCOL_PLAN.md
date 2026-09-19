@@ -566,7 +566,8 @@ The monitor alerts when any service key has less than 1 day of gas.
   timelock upgrade), `incident`, `mainnet-readiness`, `timelock-operations`, `fee-treasury`,
   `key-rotation`.
 - `infra/budget`: gas snapshot baseline + daily cost model (§5.6).
-- `infra/audit/build-audit-package.sh`: `evm/` + test and coverage reports.
+- `infra/audit/`: the audit package itself (scope, system overview, invariants, trust model,
+  known issues, verification results, config), handed to auditors at the `audit-v1` tag.
 
 ### 10.5 CI/CD
 
