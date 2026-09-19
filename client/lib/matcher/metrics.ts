@@ -14,6 +14,8 @@ export interface MatcherMetrics {
   matches: number;
   /** Matches dropped for being outside the execution band. */
   bandDrops: number;
+  /** Backstop matches dropped by Insurance's own unwind band and caps. */
+  backstopDrops: number;
   fillsSubmitted: number;
   fillsSettled: number;
   fillsRejected: number;
@@ -39,6 +41,7 @@ export function newMetrics(): MatcherMetrics {
     oracleSkips: 0,
     matches: 0,
     bandDrops: 0,
+    backstopDrops: 0,
     fillsSubmitted: 0,
     fillsSettled: 0,
     fillsRejected: 0,

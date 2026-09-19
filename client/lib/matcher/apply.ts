@@ -30,7 +30,8 @@
 import { recoverTypedDataAddress, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
 
 import { decodeRevert, decodeBatchLogs, unaccountedFills, type BatchResult } from "@/lib/chain/settlement";
-import { orderTypedData } from "@/lib/market/eip712";
+import { hashOrder, orderTypedData } from "@/lib/market/eip712";
+import type { Erc1271Checker } from "@/lib/validation";
 import type { Query } from "./db";
 import type { PlannedFill } from "./batch";
 
@@ -83,15 +84,30 @@ export function classifyRejection(errorName: string | null, raw: Hex): Rejection
  *
  * `FillRejected` carries only the fill id and the revert data, so the matcher
  * has to work out which side was at fault; retiring both would cancel an
- * innocent order. Expiry and nonce are decided from the order itself. A
- * signature is decided by recovery, which only answers for EOAs — for a
- * contract wallet (ERC-1271) neither side can be cleared, so neither is
- * retired and the caller counts it instead of guessing.
+ * innocent order. Expiry and nonce are decided from the order itself.
+ *
+ * A signature is decided the way `OrderLib.isValidSignature` decides it:
+ * ECDSA first, then — only for a side that fails it — ERC-1271 against the
+ * owner, through the same gas-capped `eth_call` the intake uses. Recovery
+ * alone is not enough: a contract wallet's signature (the Insurance backstop's
+ * unwind orders, any smart-account order) never recovers to its owner, so
+ * blaming on recovery retired a valid order whenever the OTHER side was the
+ * invalid one. A check that cannot be completed, or that is not configured,
+ * clears the side: a fill is rejected as a whole, and an unanswerable question
+ * must not cancel an order that may be perfectly good. The caller counts an
+ * unblamed rejection instead of guessing.
  */
 export async function blameForPoison(
   fill: PlannedFill,
   action: Extract<RejectionAction, { kind: "poison" }>,
-  ctx: { nowSec: bigint; chainId: number; gateway: Address; minValidNonce: ReadonlyMap<string, bigint> }
+  ctx: {
+    nowSec: bigint;
+    chainId: number;
+    gateway: Address;
+    minValidNonce: ReadonlyMap<string, bigint>;
+    /** ERC-1271 check for a side ECDSA cannot clear. Absent = cannot decide. */
+    erc1271?: Erc1271Checker;
+  }
 ): Promise<Hex[]> {
   const sides: { hash: Hex; order: PlannedFill["maker"]; signature: Hex }[] = [
     { hash: fill.makerOrderHash, order: fill.maker, signature: fill.makerSignature },
@@ -119,7 +135,15 @@ export async function blameForPoison(
       } catch {
         ok = false;
       }
-      if (!ok) bad.push(s.hash);
+      if (ok) continue;
+      // ECDSA cleared nobody: ask the owner, as the gateway does.
+      if (!ctx.erc1271) continue;
+      try {
+        const digest = hashOrder(ctx.chainId, ctx.gateway, s.order);
+        if (!(await ctx.erc1271(s.order.owner, digest, s.signature))) bad.push(s.hash);
+      } catch {
+        // No answer (timeout, transport, a node that will not run the call).
+      }
     }
     return bad;
   }
@@ -184,6 +208,8 @@ export interface ApplyContext {
   gateway: Address;
   nowSec: bigint;
   minValidNonce: ReadonlyMap<string, bigint>;
+  /** Decides a signature ECDSA cannot clear (contract wallets). */
+  erc1271?: Erc1271Checker;
 }
 
 /**
@@ -223,6 +249,7 @@ export async function applyBatchResult(
       chainId: ctx.chainId,
       gateway: ctx.gateway,
       minValidNonce: ctx.minValidNonce,
+      erc1271: ctx.erc1271,
     });
     if (blamed.length === 0) {
       applied.unblamed.push(r.fillId);

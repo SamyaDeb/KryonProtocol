@@ -56,7 +56,9 @@ function order(account: typeof maker, isLong: boolean, nonce: bigint, expiry = N
   };
 }
 
-async function fill(overrides: { makerExpiry?: bigint; takerSignature?: Hex; makerNonce?: bigint } = {}) {
+async function fill(
+  overrides: { makerExpiry?: bigint; makerSignature?: Hex; takerSignature?: Hex; makerNonce?: bigint } = {}
+) {
   const m = order(maker, false, overrides.makerNonce ?? 1n, overrides.makerExpiry ?? NOW + 3600n);
   const t = order(taker, true, 2n);
   const sign = (account: typeof maker, o: typeof m) =>
@@ -65,7 +67,7 @@ async function fill(overrides: { makerExpiry?: bigint; takerSignature?: Hex; mak
   const planned: PlannedFill = {
     fillId: keccak256(toHex("fill-1")),
     maker: m,
-    makerSignature: await sign(maker, m),
+    makerSignature: overrides.makerSignature ?? (await sign(maker, m)),
     taker: t,
     takerSignature: overrides.takerSignature ?? (await sign(taker, t)),
     size: E18,
@@ -130,7 +132,16 @@ describe("classifyRejection", () => {
 });
 
 describe("blameForPoison", () => {
-  const ctx = { nowSec: NOW, chainId: CHAIN_ID, gateway: GATEWAY, minValidNonce: new Map<string, bigint>() };
+  // A plain EOA owner has no code, so the gateway's ERC-1271 fallback answers
+  // "not valid" — the default here. Contract-wallet cases override it.
+  const noCode = async () => false;
+  const ctx = {
+    nowSec: NOW,
+    chainId: CHAIN_ID,
+    gateway: GATEWAY,
+    minValidNonce: new Map<string, bigint>(),
+    erc1271: noCode,
+  };
 
   test("an expiry rejection blames only the lapsed side", async () => {
     const f = await fill({ makerExpiry: NOW - 1n });
@@ -169,6 +180,53 @@ describe("blameForPoison", () => {
     assert.deepEqual(blamed, []);
   });
 
+  test("a contract wallet whose ERC-1271 accepts its signature is not blamed for the other side", async () => {
+    // The Insurance backstop's unwind orders look like this: a blob signature
+    // that never recovers to the owner, but which the owner validates. Blaming
+    // on recovery alone retired it whenever the counterparty was the bad one.
+    const f = await fill({ makerSignature: `0x${"cd".repeat(200)}`, takerSignature: `0x${"ab".repeat(65)}` });
+    const asked: Address[] = [];
+    const blamed = await blameForPoison(
+      f,
+      { kind: "poison", reason: "InvalidSignature", status: "CANCELLED" },
+      {
+        ...ctx,
+        // Valid for the maker (a contract wallet), not for the taker.
+        erc1271: async (owner) => {
+          asked.push(owner);
+          return owner.toLowerCase() === f.maker.owner.toLowerCase();
+        },
+      }
+    );
+    assert.deepEqual(blamed, [f.takerOrderHash], "only the side the owner refuses is retired");
+    assert.equal(asked.length, 2, "both sides that failed recovery were checked");
+  });
+
+  test("an ERC-1271 check that cannot be completed blames nobody", async () => {
+    const f = await fill({ takerSignature: `0x${"ab".repeat(65)}` });
+    const blamed = await blameForPoison(
+      f,
+      { kind: "poison", reason: "InvalidSignature", status: "CANCELLED" },
+      {
+        ...ctx,
+        erc1271: async () => {
+          throw new Error("timeout");
+        },
+      }
+    );
+    assert.deepEqual(blamed, [], "an unanswerable question must not cancel an order");
+  });
+
+  test("with no checker configured, a signature rejection blames nobody", async () => {
+    const f = await fill({ takerSignature: `0x${"ab".repeat(65)}` });
+    const blamed = await blameForPoison(
+      f,
+      { kind: "poison", reason: "InvalidSignature", status: "CANCELLED" },
+      { nowSec: NOW, chainId: CHAIN_ID, gateway: GATEWAY, minValidNonce: new Map<string, bigint>() }
+    );
+    assert.deepEqual(blamed, []);
+  });
+
   test("a reused nonce blames nobody: both orders look valid on their own", async () => {
     const f = await fill();
     const blamed = await blameForPoison(f, { kind: "poison", reason: "NonceReused", status: "CANCELLED" }, ctx);
@@ -184,6 +242,7 @@ describe("applyBatchResult", () => {
     gateway: GATEWAY,
     nowSec: NOW,
     minValidNonce: new Map<string, bigint>(),
+    erc1271: async () => false,
   });
 
   test("a settled fill is left entirely to the indexer", async () => {
