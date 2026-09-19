@@ -134,17 +134,28 @@ jobs:
       contents: read
       security-events: write
     steps:
+      # Into the workspace, not runner.temp: hashFiles() below only resolves
+      # paths under GITHUB_WORKSPACE, and silently matched nothing when the
+      # SARIF landed outside it.
       - name: Download the SARIF
         id: download
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         continue-on-error: true
         with:
           name: slither-sarif
-          path: ${{ runner.temp }}/sarif
+          path: sarif
 
       - name: Upload to code scanning
-        if: ${{ steps.download.outcome == 'success' && hashFiles(format('{0}/sarif/slither.sarif', runner.temp)) != '' }}
+        if: ${{ steps.download.outcome == 'success' && hashFiles('sarif/slither.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
         with:
-          sarif_file: ${{ runner.temp }}/sarif/slither.sarif
+          sarif_file: sarif/slither.sarif
           category: slither
+
+      # The upload must not be silently skipped: that is exactly how a security
+      # gate rots. If the analysis ran, its results have to arrive.
+      - name: The SARIF must have been uploaded
+        if: ${{ steps.download.outcome != 'success' || hashFiles('sarif/slither.sarif') == '' }}
+        run: |
+          echo "::error::the evm job produced no slither.sarif to upload"
+          exit 1
