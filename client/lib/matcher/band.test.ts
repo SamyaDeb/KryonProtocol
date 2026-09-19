@@ -8,7 +8,15 @@ import assert from "node:assert/strict";
 import { type Address } from "viem";
 
 import { PRECISION, type EngineMatch, type EngineOrder } from "@/lib/market/matching-engine";
-import { OracleUnavailableError, bandFor, filterByBand, readIndexPrice, withinBand } from "./band";
+import {
+  OracleUnavailableError,
+  bandFor,
+  filterBackstopFills,
+  filterByBand,
+  isBackstopMatch,
+  readIndexPrice,
+  withinBand,
+} from "./band";
 import type { MarketConfig } from "./book";
 
 const E18 = PRECISION;
@@ -132,5 +140,87 @@ describe("filterByBand", () => {
     const { kept, dropped } = filterByBand([], 100_000n * E18, 75);
     assert.deepEqual(kept, []);
     assert.deepEqual(dropped, []);
+  });
+});
+
+describe("the backstop's own band and caps", () => {
+  const BACKSTOP = "0x00000000000000000000000000000000000000aa" as Address;
+  const TRADER = "0x00000000000000000000000000000000000000bb" as Address;
+  const INDEX = 100_000n * E18;
+
+  const order = (owner: Address, price: bigint): EngineOrder => ({
+    orderHash: `0x${"2".repeat(64)}`,
+    owner,
+    marketId: 2,
+    isLong: false,
+    size: E18,
+    limitPrice: price,
+    reduceOnly: true,
+    nonce: 1n,
+    expiry: 1_800_003_600n,
+    filledSize: 0n,
+    createdAt: 1,
+  });
+  /** A match at `price` for `size`, with the backstop as maker unless told otherwise. */
+  const at = (price: bigint, size = E18, makerOwner: Address = BACKSTOP): EngineMatch => ({
+    maker: order(makerOwner, price),
+    taker: order(TRADER, price),
+    size,
+    price,
+    notional: (size * price) / E18,
+    sequence: 0,
+  });
+  // 1%, $10,000 per fill, $25,000 left today.
+  const limits = { maxDeviationBps: 100n, maxFillNotional: 10_000n * E18, dailyRemaining: 25_000n * E18 };
+
+  test("a fill the market band allows but Insurance would reject is dropped", () => {
+    // The market band is 75 bps here; the unwind band is 100 bps of a much
+    // tighter kind — the point is that the matcher no longer offers a fill
+    // that onBackstopFill would revert.
+    const { kept, dropped } = filterBackstopFills([at(100_500n * E18, E18 / 20n), at(101_500n * E18, E18 / 20n)], {
+      backstop: BACKSTOP,
+      index: INDEX,
+      limits,
+    });
+    assert.deepEqual(kept.map((m) => m.price), [100_500n * E18]);
+    assert.deepEqual(dropped.map((d) => d.reason), ["outside-unwind-band"]);
+  });
+
+  test("orders that are not the backstop's pass through untouched", () => {
+    const outside = at(101_500n * E18, E18, TRADER);
+    const { kept, dropped } = filterBackstopFills([outside], { backstop: BACKSTOP, index: INDEX, limits });
+    assert.deepEqual(kept, [outside]);
+    assert.deepEqual(dropped, []);
+    assert.equal(isBackstopMatch(outside, BACKSTOP), false);
+  });
+
+  test("the backstop as taker counts too", () => {
+    const m: EngineMatch = { ...at(101_500n * E18), maker: order(TRADER, 101_500n * E18), taker: order(BACKSTOP, 101_500n * E18) };
+    assert.equal(isBackstopMatch(m, BACKSTOP), true);
+    assert.equal(filterBackstopFills([m], { backstop: BACKSTOP, index: INDEX, limits }).dropped[0].reason, "outside-unwind-band");
+  });
+
+  test("a fill over the per-fill cap is dropped", () => {
+    const { kept, dropped } = filterBackstopFills([at(INDEX, 2n * E18)], { backstop: BACKSTOP, index: INDEX, limits });
+    assert.deepEqual(kept, []);
+    assert.deepEqual(dropped.map((d) => d.reason), ["over-fill-cap"]);
+  });
+
+  test("the daily cap is counted across the batch, in the order offered", () => {
+    // Three $10,000 fills against $25,000 left: the third would revert.
+    const ten = () => at(INDEX, E18 / 10n);
+    const { kept, dropped } = filterBackstopFills([ten(), ten(), ten()], { backstop: BACKSTOP, index: INDEX, limits });
+    assert.equal(kept.length, 2);
+    assert.deepEqual(dropped.map((d) => d.reason), ["over-daily-cap"]);
+  });
+
+  test("unwinding disabled drops every backstop fill", () => {
+    const { kept, dropped } = filterBackstopFills([at(INDEX, E18 / 10n)], {
+      backstop: BACKSTOP,
+      index: INDEX,
+      limits: { ...limits, maxDeviationBps: 0n },
+    });
+    assert.deepEqual(kept, []);
+    assert.deepEqual(dropped.map((d) => d.reason), ["unwind-disabled"]);
   });
 });

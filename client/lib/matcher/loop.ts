@@ -20,16 +20,26 @@
 
 import type { Address, Hex, PublicClient, TransactionReceipt } from "viem";
 
-import { orderGatewayAbi } from "@/lib/chain/contracts";
+import { insuranceAbi, orderGatewayAbi } from "@/lib/chain/contracts";
 import type { ArcNetwork, ProtocolContracts } from "@/lib/chain/networks";
 import { TxTimeoutError, type TxSender } from "@/lib/chain/tx-sender";
 import type { TxJob } from "@/lib/chain/tx-store";
 import { matchOrders } from "@/lib/market/matching-engine";
-import { OracleUnavailableError, bandFor, filterByBand, readIndexPrice, withinBand } from "./band";
+import {
+  OracleUnavailableError,
+  bandFor,
+  filterBackstopFills,
+  filterByBand,
+  isBackstopMatch,
+  readIndexPrice,
+  withinBand,
+  type BackstopLimits,
+} from "./band";
 import { applyBatchResult, resultFromReceipt, revertReasonFor } from "./apply";
 import { buildFills, chainGasEstimator, halveAfterGasRevert, sizeBatches, type PlannedFill } from "./batch";
 import { loadBook, loadMinValidNonces, loadSignedOrders, MarketNotConfiguredError } from "./book";
 import type { Db } from "./db";
+import { erc1271CheckerFor, type Erc1271Checker } from "@/lib/validation";
 import { newMetrics, recordBatchGas, type MatcherMetrics } from "./metrics";
 import { linkFillsToJob, releasePendingFills, submitBatch } from "./submit";
 
@@ -71,6 +81,12 @@ export interface MatcherOptions {
    * whether its batch ever reached the chain.
    */
   orphanGraceMs?: number;
+  /**
+   * Decides a rejected signature that ECDSA cannot clear (contract wallets,
+   * including the Insurance backstop's unwind orders). Defaults to the
+   * network's gas-capped `eth_call` checker; tests inject their own.
+   */
+  erc1271?: Erc1271Checker;
 }
 
 export class Matcher {
@@ -86,10 +102,26 @@ export class Matcher {
       clock: systemMatcherClock,
       minBatchFills: 1,
       orphanGraceMs: 60_000,
+      erc1271: erc1271CheckerFor(options.network.id),
       ...options,
       metrics: this.metrics,
     };
     if (this.o.marketIds.length === 0) throw new Error("a matcher shard needs at least one market id");
+  }
+
+  /** Insurance's unwind limits and what is left of today's cap. */
+  private async backstopLimits(): Promise<BackstopLimits> {
+    const [maxDeviationBps, maxFillNotional, maxDailyNotional, usedToday] = (await this.o.chain.readContract({
+      address: this.o.contracts.insurance,
+      abi: insuranceAbi,
+      functionName: "unwindLimits",
+    })) as [number, bigint, bigint, bigint];
+    const remaining = maxDailyNotional - usedToday;
+    return {
+      maxDeviationBps: BigInt(maxDeviationBps),
+      maxFillNotional,
+      dailyRemaining: remaining > 0n ? remaining : 0n,
+    };
   }
 
   private get network(): string {
@@ -338,7 +370,28 @@ export class Matcher {
     }
     if (kept.length === 0) return;
 
-    const fills = await buildFills(this.o.db, this.network, kept);
+    // The Insurance backstop is held to its own, tighter band and to per-fill
+    // and daily caps (`Insurance.onBackstopFill`). Read them only when a match
+    // actually involves it: unwinding is off for most of the protocol's life.
+    let offered = kept;
+    if (kept.some((m) => isBackstopMatch(m, this.o.contracts.insurance))) {
+      const limits = await this.backstopLimits();
+      const guard = filterBackstopFills(kept, { backstop: this.o.contracts.insurance, index: index.price, limits });
+      if (guard.dropped.length > 0) {
+        this.metrics.backstopDrops += guard.dropped.length;
+        this.o.log.warn("backstop_dropped", {
+          marketId,
+          dropped: guard.dropped.length,
+          reasons: [...new Set(guard.dropped.map((d) => d.reason))],
+          maxDeviationBps: Number(limits.maxDeviationBps),
+          index: index.price.toString(),
+        });
+      }
+      offered = guard.kept;
+      if (offered.length === 0) return;
+    }
+
+    const fills = await buildFills(this.o.db, this.network, offered);
     if (fills.length === 0) return;
 
     const estimator = chainGasEstimator(
@@ -452,6 +505,7 @@ export class Matcher {
         gateway: this.o.contracts.orderGateway,
         nowSec: BigInt(Math.floor(this.o.clock.nowMs() / 1000)),
         minValidNonce,
+        erc1271: this.o.erc1271,
       },
       fills,
       result

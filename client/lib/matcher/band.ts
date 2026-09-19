@@ -104,3 +104,74 @@ export function filterByBand(
   for (const m of matches) (withinBand(m.price, band) ? kept : dropped).push(m);
   return { kept, dropped, band };
 }
+
+// ─── the Insurance backstop's own band ──────────────────────────────────────
+
+/**
+ * The backstop is held to a tighter band than the market's.
+ *
+ * `Insurance.onBackstopFill` runs on every fill where either side is the
+ * Insurance contract, and reverts outside `maxUnwindDeviationBps` of the index
+ * or over the per-fill or daily notional caps — all of which are stricter than
+ * the market's execution band, and none of which the market band can see. A
+ * match the market band allows can therefore be a guaranteed `FillRejected`
+ * (`PriceOutsideBand` or `BackstopLimitExceeded`) that the whole batch pays
+ * gas for. The matcher applies the contract's own test first.
+ *
+ * `dailyRemaining` is `maxUnwindDailyNotional - unwoundOnDay(today)` read this
+ * tick; the caps are checked cumulatively across the matches in the batch, in
+ * the order they are offered.
+ */
+export interface BackstopLimits {
+  maxDeviationBps: bigint;
+  maxFillNotional: bigint;
+  /** What is left of today's cap. */
+  dailyRemaining: bigint;
+}
+
+export type BackstopDropReason = "unwind-disabled" | "outside-unwind-band" | "over-fill-cap" | "over-daily-cap";
+
+export interface BackstopFilterResult {
+  kept: EngineMatch[];
+  dropped: { match: EngineMatch; reason: BackstopDropReason }[];
+}
+
+/** Does either side of this match belong to the backstop? */
+export function isBackstopMatch(m: EngineMatch, backstop: Address): boolean {
+  const b = backstop.toLowerCase();
+  return m.maker.owner.toLowerCase() === b || m.taker.owner.toLowerCase() === b;
+}
+
+/** Drop the backstop fills Insurance would reject; everything else passes through. */
+export function filterBackstopFills(
+  matches: readonly EngineMatch[],
+  o: { backstop: Address; index: bigint; limits: BackstopLimits }
+): BackstopFilterResult {
+  const kept: EngineMatch[] = [];
+  const dropped: BackstopFilterResult["dropped"] = [];
+  const band = bandFor(o.index, Number(o.limits.maxDeviationBps));
+  let used = 0n;
+  for (const m of matches) {
+    if (!isBackstopMatch(m, o.backstop)) {
+      kept.push(m);
+      continue;
+    }
+    const reason: BackstopDropReason | null =
+      o.limits.maxDeviationBps === 0n
+        ? "unwind-disabled"
+        : !withinBand(m.price, band)
+          ? "outside-unwind-band"
+          : m.notional > o.limits.maxFillNotional
+            ? "over-fill-cap"
+            : used + m.notional > o.limits.dailyRemaining
+              ? "over-daily-cap"
+              : null;
+    if (reason) {
+      dropped.push({ match: m, reason });
+      continue;
+    }
+    used += m.notional;
+    kept.push(m);
+  }
+  return { kept, dropped };
+}

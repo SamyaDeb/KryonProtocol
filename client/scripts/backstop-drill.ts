@@ -239,8 +239,22 @@ async function main() {
     r.check("oversize but validly signed order passes the intake", oversize.ok, JSON.stringify(oversize));
     const fb = await lc.client.getBlockNumber();
     await trading.place({ who: buyer, marketId: BTC, isLong: true, size: 5n * 10n ** 16n, price: 97_000n * E18 });
-    await trading.match(BTC);
-    const rejections = parseEventLogs({ abi: orderGatewayAbi, logs: await lc.client.getLogs({ address: orderGateway, fromBlock: fb }), eventName: "FillRejected" })
+
+    // The matcher holds backstop fills to Insurance's own band and caps
+    // (lib/matcher/band.ts), so it never offers this one: no gas is spent.
+    const guarded = await trading.match(BTC);
+    const guardedRow = oversize.ok ? await book.orderState(oversize.orderHash) : null;
+    const guardedRejects = parseEventLogs({ abi: orderGatewayAbi, logs: await lc.client.getLogs({ address: orderGateway, fromBlock: fb }), eventName: "FillRejected" });
+    r.check(
+      "the matcher drops the oversize fill before it costs gas",
+      guarded.backstopDrops >= 1 && guardedRow?.filledSize === 0n && guardedRejects.length === 0,
+      `drops ${guarded.backstopDrops}, filled ${guardedRow?.filledSize}, ${guardedRejects.length} FillRejected`
+    );
+
+    // With that guard bypassed, the contract itself is what refuses the fill.
+    const ub = await lc.client.getBlockNumber();
+    const unguarded = await trading.match(BTC, { unguarded: true });
+    const rejections = parseEventLogs({ abi: orderGatewayAbi, logs: await lc.client.getLogs({ address: orderGateway, fromBlock: ub }), eventName: "FillRejected" })
       .map((e) => {
         try {
           return decodeErrorResult({ abi: ALL_ERRORS_ABI, data: (e.args as { reason: Hex }).reason }).errorName;
@@ -250,9 +264,9 @@ async function main() {
       });
     const oversizeRow = oversize.ok ? await book.orderState(oversize.orderHash) : null;
     r.check(
-      "…and fills nothing: onBackstopFill rejects it (BackstopLimitExceeded)",
+      "…and Insurance rejects it on its own when it does reach the chain (BackstopLimitExceeded)",
       rejections.includes("BackstopLimitExceeded") && oversizeRow?.filledSize === 0n,
-      `${rejections.join(",")}; oversize filled ${oversizeRow?.filledSize}`
+      `${rejections.join(",")}; oversize filled ${oversizeRow?.filledSize}; drops ${unguarded.backstopDrops}`
     );
     const late = parseEventLogs({ abi: insuranceAbi, logs: await lc.client.getLogs({ address: insurance, fromBlock: fb }), eventName: "BackstopUnwound" }) as unknown as { args: { notional: bigint } }[];
     r.check("no fill accepted over the per-fill cap", late.every((e) => e.args.notional <= MAX_FILL));

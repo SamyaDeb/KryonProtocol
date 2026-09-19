@@ -435,6 +435,9 @@ function newMatcher(chain: FakeChain, clock: FakeClock, overrides: Record<string
     log: silent,
     clock,
     pollMs: 1,
+    // These owners are EOAs with no code, which is what the gateway's
+    // ERC-1271 fallback answers "not valid" for. No network in this suite.
+    erc1271: async () => false,
     ...overrides,
   });
   return { matcher, sender };
@@ -621,6 +624,35 @@ describe("matcher against Postgres", { skip: !url, concurrency: 1 }, () => {
 
       assert.equal((await orderRow(askHash)).status, "CANCELLED");
       assert.equal((await orderRow(bidHash)).status, "OPEN", "Bob's valid order must survive");
+    });
+
+    test("a contract wallet's order survives when the other side's signature is the bad one", async () => {
+      // The Insurance backstop's unwind orders are ERC-1271: a blob signature
+      // that never recovers to the owner. Recovery alone used to convict it
+      // whenever the counterparty was at fault, retiring a valid order.
+      const ask = makeOrder(ALICE, false, E18, INDEX_PRICE, 1n);
+      const askHash = await seedOrder(ALICE, ask, {
+        createdAt: new Date(NOW_MS - 500_000),
+        signature: `0x${"cd".repeat(200)}`,
+      });
+      const bid = makeOrder(BOB, true, E18, INDEX_PRICE, 2n);
+      const bidHash = await seedOrder(BOB, bid, {
+        createdAt: new Date(NOW_MS - 300_000),
+        signature: `0x${"ab".repeat(65)}`,
+      });
+      const fillId = deriveFillId(askHash, bidHash, E18, INDEX_PRICE, 0n);
+      issuedFillIds.push(fillId);
+
+      const chain = new FakeChain();
+      chain.outcomes.set(fillId.toLowerCase(), { kind: "rejected", error: "InvalidSignature" });
+      const { matcher } = newMatcher(chain, new FakeClock(), {
+        // Alice's owner validates its own signature; Bob's does not.
+        erc1271: async (owner: string) => owner.toLowerCase() === ALICE.address.toLowerCase(),
+      });
+      await matcher.tick();
+
+      assert.equal((await orderRow(askHash)).status, "OPEN", "the ERC-1271 order the owner accepts must survive");
+      assert.equal((await orderRow(bidHash)).status, "CANCELLED");
     });
 
     test("a poison order does not come back on the next tick", async () => {

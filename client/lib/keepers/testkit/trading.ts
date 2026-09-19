@@ -20,6 +20,7 @@ import { Indexer, publicClientSource } from "@/lib/indexer/indexer";
 import { DERIVED_TABLES } from "@/lib/indexer/projections";
 import { hashOrder, orderTypedData, type Order } from "@/lib/market/eip712";
 import { Matcher } from "@/lib/matcher/loop";
+import type { MatcherMetrics } from "@/lib/matcher/metrics";
 
 import { FEES, NETWORK, ROLES, type LocalChain } from "./localchain";
 
@@ -39,8 +40,13 @@ export interface Trading {
   trade(o: { marketId: number; long: HDAccount; short: HDAccount; size: bigint; price: bigint }): Promise<void>;
   /** Rest one signed order in the book (no match). Returns its hash. */
   place(o: { who: HDAccount; marketId: number; isLong: boolean; size: bigint; price: bigint }): Promise<Hex>;
-  /** One matcher tick over `marketId`, then index what it settled. */
-  match(marketId: number): Promise<void>;
+  /**
+   * One matcher tick over `marketId`, then index what it settled; returns the
+   * tick's metrics. `unguarded` hides the Insurance address from the matcher,
+   * so its backstop band/cap guard does not apply and the contract's own
+   * enforcement is what is exercised.
+   */
+  match(marketId: number, o?: { unguarded?: boolean }): Promise<MatcherMetrics>;
   index(): Promise<void>;
   position(who: Address, marketId: number): Promise<{ size: bigint; openNotional: bigint }>;
   end(): Promise<void>;
@@ -190,11 +196,11 @@ export async function startTrading(
     async place(o) {
       return placeOrder(o.who, o.marketId, o.isLong, o.size, o.price, new Date());
     },
-    async match(marketId) {
+    async match(marketId, o = {}) {
       const matcher = new Matcher({
         db,
         network: NETWORK,
-        contracts: lc.contracts,
+        contracts: o.unguarded ? { ...lc.contracts, insurance: zeroAddress } : lc.contracts,
         chain: lc.client,
         sender,
         marketIds: [marketId],
@@ -203,6 +209,7 @@ export async function startTrading(
       });
       await matcher.tick();
       await t.index();
+      return matcher.metrics;
     },
     async index() {
       await indexer.catchUp();
