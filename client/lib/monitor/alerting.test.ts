@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createLogger, Metrics } from "@/lib/keepers/runtime";
 
 import { AlertEngine, overallLevel, type AlertEvent } from "./alerting";
-import { fanout, formatText, webhookBody, detectFormat, type Notifier } from "./notifier";
+import { fanout, formatText, webhookBody, detectFormat, isHostOrSubdomain, type Notifier } from "./notifier";
 import { prometheus, statusJson, type MonitorSnapshotView } from "./exposition";
 import type { CheckResult, Severity } from "./types";
 
@@ -241,6 +241,39 @@ test("each webhook flavour gets the field it expects", () => {
   const generic = webhookBody(event, "arc", "generic") as { text: string; content: string; alert: { key: string } };
   assert.equal(generic.alert.key, event.key);
   assert.equal(generic.text, generic.content);
+});
+
+test("webhook format matches the host exactly or on a dot boundary", () => {
+  // Real hosts, including a port, mixed case and a trailing-dot FQDN.
+  assert.equal(detectFormat("https://slack.com/x"), "slack");
+  assert.equal(detectFormat("https://hooks.slack.com:8443/services/x"), "slack");
+  assert.equal(detectFormat("https://HOOKS.Slack.COM/services/x"), "slack");
+  assert.equal(detectFormat("https://hooks.slack.com./services/x"), "slack");
+  assert.equal(detectFormat("https://discordapp.com/api/webhooks/x"), "discord");
+  assert.equal(detectFormat("https://ptb.discord.com/api/webhooks/x"), "discord");
+  assert.equal(detectFormat("https://API.Telegram.org:443/botX/sendMessage"), "telegram");
+
+  // Look-alikes fall through to generic.
+  for (const url of [
+    "https://evilslack.com/hook",
+    "https://slack.com.evil.io/hook",
+    "https://notdiscord.com/hook",
+    "https://discord.com.evil.io/hook",
+    "https://mydiscordapp.com/hook",
+    "https://faketelegram.org/hook",
+    "https://hooks.slack.com@evil.io/hook", // userinfo, not host
+    "https://evil.io/hooks.slack.com",
+    "https://evil.io/?u=https://hooks.slack.com",
+    "not a url",
+    "",
+  ]) {
+    assert.equal(detectFormat(url), "generic", url);
+  }
+
+  assert.equal(isHostOrSubdomain("slack.com", "slack.com"), true);
+  assert.equal(isHostOrSubdomain("a.b.slack.com", "slack.com"), true);
+  assert.equal(isHostOrSubdomain("evilslack.com", "slack.com"), false);
+  assert.equal(isHostOrSubdomain("com", "slack.com"), false);
 });
 
 // ─── exposure ───────────────────────────────────────────────────────────────
