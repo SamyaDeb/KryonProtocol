@@ -94,6 +94,10 @@ jobs:
 
       # crytic-compile shells out to `forge config`; point that name at
       # arc-forge for this step only so Slither analyses the Arc build.
+      #
+      # --sarif writes every finding, including the informational ones the gate
+      # ignores, so Code Scanning keeps the full picture while the build still
+      # fails only on High/Medium.
       - name: Slither (fail on High/Medium)
         run: |
           mkdir -p "$RUNNER_TEMP/forge-shim"
@@ -102,4 +106,45 @@ jobs:
           arc-forge build --build-info --skip "test/**" --skip "script/**" --force
           pipx run --spec slither-analyzer==0.11.6 slither . --foundry-out-directory out \
             --ignore-compile --filter-paths "lib/|test/|script/" \
+            --sarif "$RUNNER_TEMP/slither.sarif" \
             --exclude-informational --exclude-low --fail-medium
+
+      # always(): the SARIF matters most when the gate just failed.
+      - name: Upload the SARIF as an artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slither-sarif
+          path: ${{ runner.temp }}/slither.sarif
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # The upload is a separate job so that the job compiling and analysing the
+  # code keeps a read-only token: `security-events: write` lives only here,
+  # where nothing but a download and an upload happens.
+  # ---------------------------------------------------------------------------
+  slither-sarif:
+    name: slither results to code scanning
+    needs: evm
+    if: ${{ always() && needs.evm.result != 'skipped' && github.event.pull_request.head.repo.fork != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Download the SARIF
+        id: download
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: slither-sarif
+          path: ${{ runner.temp }}/sarif
+
+      - name: Upload to code scanning
+        if: ${{ steps.download.outcome == 'success' && hashFiles(format('{0}/sarif/slither.sarif', runner.temp)) != '' }}
+        uses: github/codeql-action/upload-sarif@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/slither.sarif
+          category: slither

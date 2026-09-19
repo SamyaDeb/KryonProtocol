@@ -1,0 +1,69 @@
+# Gitleaks configuration for Kryon Protocol.
+#
+# The default rule set, plus allowlists for the keys that are public BY DESIGN:
+# anvil's well-known development accounts, which the dev stack and the drills
+# hand to services on a local chain. Those keys must never hold value, and the
+# local harness refuses a non-loopback RPC, so they are documentation, not
+# secrets. Everything else — operator keys, publisher keys, RPC URLs with
+# tokens, webhook URLs, database URLs — must fail this scan.
+[extend]
+useDefault = true
+
+# Two allowlists, because they need different targets. Keeping them apart
+# matters: a single line-targeted allowlist containing the address pattern
+# would excuse a line that holds an address AND a real key.
+[[allowlists]]
+description = "Vendored code and example files"
+paths = [
+  # Vendored third-party contracts (git submodules). Their test fixtures trip
+  # the generic rules in the hundreds, and they are not our code to fix. CI
+  # checks out this job without submodules; this keeps local runs quiet too.
+  '''^kryon-protocol/evm/lib/''',
+  # Example env files carry placeholders, never real values.
+  '''\.env\..*\.example$''',
+  # The local-chain harness and the dev stack: anvil's published mnemonic keys.
+  '''client/lib/keepers/testkit/localchain\.ts$''',
+  '''client/scripts/dev-stack\.ts$''',
+]
+
+# Matched against the finding itself: a 40-hex-digit value is an EVM address,
+# public by construction, and never a key (a private key is 64 hex digits, which
+# this does not match). Without it the generic rules flag every address in the
+# deployment environment files.
+[[allowlists]]
+description = "EVM addresses are public"
+regexTarget = "secret"
+regexes = ['''^0x[0-9a-fA-F]{40}$''']
+
+# Matched against the whole line, because these literals appear as the value of
+# an assignment and the finding's text is wider than the literal itself.
+[[allowlists]]
+description = "anvil's published development mnemonic and keys"
+regexTarget = "line"
+regexes = [
+  # anvil's default mnemonic and its derived keys are published by Foundry.
+  '''test test test test test test test test test test test junk''',
+  '''0x(ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80|59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d|5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a|7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6|47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a|8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba|92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e|4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356|dbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97|2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6)''',
+]
+
+# The default rule set has no rule for an EVM private key, which is the secret
+# that matters most here: one leaked operator, publisher, funding-keeper or
+# liquidator key is money. Anvil's published development keys are allowlisted
+# above, so these rules fire only on a key that is not public knowledge.
+[[rules]]
+id = "evm-private-key-assignment"
+description = "EVM private key assigned to a variable or env var"
+regex = '''(?i)(private[_-]?key|operator[_-]?key|signer[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?(0x)?[0-9a-fA-F]{64}\b'''
+keywords = ["key"]
+
+[[rules]]
+id = "evm-private-key-in-env-file"
+description = "Bare 32-byte hex value in an environment file"
+path = '''(^|/)\.env($|\.)'''
+regex = '''(0x)?[0-9a-fA-F]{64}\b'''
+
+[[rules]]
+id = "bip39-mnemonic"
+description = "12- or 24-word BIP-39 mnemonic"
+regex = '''(?i)\b(mnemonic|seed[_-]?phrase)["']?\s*[:=]\s*["'][a-z]+( [a-z]+){11,23}["']'''
+keywords = ["mnemonic", "seed"]
