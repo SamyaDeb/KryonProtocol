@@ -1,4 +1,3 @@
-import { ACTIVE_MARKETS } from "@/lib/stellar/legacy-config";
 import { TopNav } from "@/components/common/TopNav";
 import { MarketsTable } from "@/features/trade/components/MarketsTable";
 
@@ -8,8 +7,6 @@ export const metadata = {
 };
 
 export default function MarketsPage() {
-  const markets = Object.values(ACTIVE_MARKETS);
-
   return (
     <main
       className="min-h-screen bg-[#19191A] text-[#f5f5f5]"
@@ -20,14 +17,11 @@ export default function MarketsPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[22px] font-semibold tracking-[.01em] sm:text-[24px]">Markets</h1>
-            <p className="mt-1 text-[13px] text-[#a3a3a3]">Active perpetual markets available for trading.</p>
-          </div>
-          <div className="rounded-[6px] border border-[#2A2A31] bg-[#212128] px-3 py-2 text-[12px] text-[#a3a3a3]">
-            {markets.length} active
+            <p className="mt-1 text-[13px] text-[#a3a3a3]">Perpetual markets listed on chain, settled in USDC.</p>
           </div>
         </div>
 
-        <MarketsTable markets={markets} />
+        <MarketsTable />
       </section>
     </main>
   );

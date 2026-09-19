@@ -3,11 +3,10 @@
  *
  * COMPATIBILITY
  * -------------
- * `lib/market/websocket.ts` (the browser client) already parses `orderbook`,
- * `trade`, `subscribed`, `pong` and `error`, and subscribes to
- * `orderbook:<marketId>` / `trades:<marketId>`. Those names and their fields are
- * frozen; everything here only ADDS — fields the old client ignores, and the
- * `unsubscribed`, `fill` and `markets` frames it never asks for.
+ * The browser client is `lib/market/stream.ts`, which reads every frame below
+ * through `lib/market/book.ts` (the `*_raw` fields only). Programmatic clients
+ * may depend on these names and fields too, so a change only ADDS: new fields
+ * and new frames, never a renamed or retyped one.
  *
  * SCALES
  * ------

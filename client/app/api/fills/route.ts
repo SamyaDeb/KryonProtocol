@@ -48,6 +48,11 @@ export async function GET(req: NextRequest) {
           orderHash: isMaker ? f.makerOrderHash : f.takerOrderHash,
           txHash: f.txHash,
           createdAt: f.createdAt.getTime(),
+          // Exact 1e18 values; the strings above are 4dp display figures.
+          priceRaw: f.price.toString(),
+          sizeRaw: f.size.toString(),
+          feeRaw: (isMaker ? f.makerFee : f.takerFee).toString(),
+          blockNumber: f.blockNumber === null ? null : f.blockNumber.toString(),
         };
       }),
       { headers: { "Cache-Control": "no-store" } }

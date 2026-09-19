@@ -8,11 +8,17 @@ import { OrderBook } from "@/features/trade/components/OrderBook";
 import { OrderEntry } from "@/features/trade/components/OrderEntry";
 import { TradeChart } from "@/features/trade/components/TradeChart";
 import { useTradeSettings } from "@/stores/settings";
-import type { MarketConfig } from "@/lib/stellar/legacy-config";
+import { useMarkets } from "@/features/markets/directory";
+// The order ticket still takes the previous chain's MarketConfig; signed
+// trading replaces it (Phase 4 PR 5), and this import goes with it.
+import { MARKETS } from "@/lib/stellar/legacy-config";
 
 type MobileTab = "chart" | "book" | "ticket" | "positions";
 
-export function TradeTerminalGrid({ market }: { market: MarketConfig }) {
+export function TradeTerminalGrid({ marketId, symbol }: { marketId: number; symbol: string }) {
+  const { byId, error } = useMarkets();
+  const market = byId[marketId];
+  const legacyMarket = MARKETS[symbol];
   const hideOrderBook = useTradeSettings((s) => s.hideOrderBook);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chart");
   // `side` is lifted here so the mobile bottom bar can open the ticket pre-set
@@ -36,6 +42,14 @@ export function TradeTerminalGrid({ market }: { market: MarketConfig }) {
     { key: "ticket", label: "Trade" },
     { key: "positions", label: "Positions" },
   ];
+
+  if (!market) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-[#a3a3a3]">
+        {error ? "Market data is unavailable right now; retrying." : "Loading market…"}
+      </div>
+    );
+  }
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${gridClasses}`}>
@@ -88,7 +102,11 @@ export function TradeTerminalGrid({ market }: { market: MarketConfig }) {
         className={`${vis("ticket")} relative flex-col border border-[#2A2A31] bg-[#19191A] pb-[max(16px,env(safe-area-inset-bottom))] lg:flex lg:overflow-y-auto lg:pb-0`}
       >
         <AccountBar />
-        <OrderEntry market={market} side={side} setSide={setSide} />
+        {legacyMarket ? (
+          <OrderEntry market={legacyMarket} side={side} setSide={setSide} />
+        ) : (
+          <div className="p-4 text-[12px] text-[#a3a3a3]">Order entry is not available for this market yet.</div>
+        )}
       </div>
 
       {/* ── Positions / open orders / history ── */}
