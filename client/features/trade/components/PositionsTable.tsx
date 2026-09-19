@@ -10,6 +10,7 @@ import { useTrading } from "@/features/account/useTrading";
 import { useMarkets, type ArcMarket } from "@/features/markets/directory";
 import { useWallet } from "@/features/wallet/useWallet";
 import { formatSize, formatUsd, formatUsdPrice } from "@/lib/format";
+import { notional } from "@/lib/math";
 import { describeTxError } from "@/lib/market/errors";
 import { evaluateTicket, TICKET_ERROR_TEXT } from "@/lib/market/order-ticket";
 import { liquidationPrice, marginAt, unrealizedPnl } from "@/lib/math";
@@ -100,6 +101,10 @@ function PositionRow({
 
   const long = p.size > 0n;
   const abs = long ? p.size : -p.size;
+  // OrderGateway._checkNotional rejects EVERY fill below the market's
+  // minimum, reduce-only included, so a position worth less than that cannot
+  // be closed through the book at all. Say so rather than let it be rejected.
+  const tooSmallToClose = index > 0n && notional(p.size, index) < market.minFillNotional;
   const pnl = index > 0n ? unrealizedPnl(p.size, p.openNotional, index) : 0n;
   const maint = marginAt(p.size, index, market.maintenanceMarginBps);
   const liq =
@@ -132,7 +137,7 @@ function PositionRow({
       makerRate: r.makerRate,
       takerRate: r.takerRate,
     });
-    const blocking = ticket.errors.find((e) => e !== "below_min_notional");
+    const blocking = ticket.errors[0];
     if (blocking || ticket.limitPrice === null) {
       toast.error(blocking ? TICKET_ERROR_TEXT[blocking] : "No price to close against yet.");
       return;
@@ -174,9 +179,13 @@ function PositionRow({
       <td className="py-[10px] pl-2 pr-4 text-right">
         <button
           onClick={() => void close()}
-          disabled={!ready || closing}
+          disabled={!ready || closing || tooSmallToClose}
           className="rounded-[5px] border border-[#334155] px-2 py-[2px] text-[11px] font-semibold text-[#f5f5f5] transition-colors hover:border-[#475569] disabled:opacity-40"
-          title="Reduce-only market order for the whole position, at most 1% past the best price"
+          title={
+            tooSmallToClose
+              ? `Below this market's minimum fill of ${formatUsd(market.minFillNotional)}: the gateway rejects any fill this small, including a close. Add to the position to close it.`
+              : "Reduce-only market order for the whole position, at most 1% past the best price"
+          }
         >
           {closing ? "Sign…" : "Close"}
         </button>
