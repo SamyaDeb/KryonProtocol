@@ -20,7 +20,7 @@ export function humanToAmount(val: number): bigint {
 // priceDecimals / sizeDecimals.
 
 /** Human-readable price for a market. Accepts a 1e18 bigint or a plain number. */
-export function formatMarketPrice(market: MarketConfig, value: bigint | number): string {
+export function formatMarketPrice(market: Pick<MarketConfig, "priceDecimals" | "sizeDecimals">, value: bigint | number): string {
   const n = typeof value === "bigint" ? priceToHuman(value) : value;
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("en-US", {
@@ -31,7 +31,7 @@ export function formatMarketPrice(market: MarketConfig, value: bigint | number):
 
 /** As formatMarketPrice, prefixed with "$". Renders "—" for null/undefined. */
 export function formatMarketUsd(
-  market: MarketConfig,
+  market: Pick<MarketConfig, "priceDecimals" | "sizeDecimals">,
   value: bigint | number | null | undefined
 ): string {
   if (value === null || value === undefined) return "—";
@@ -40,7 +40,7 @@ export function formatMarketUsd(
 }
 
 /** Base-asset size for a market. Accepts a 1e7 bigint or a plain number. */
-export function formatMarketSize(market: MarketConfig, value: bigint | number): string {
+export function formatMarketSize(market: Pick<MarketConfig, "priceDecimals" | "sizeDecimals">, value: bigint | number): string {
   const n = typeof value === "bigint" ? amountToHuman(value) : value;
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("en-US", {
@@ -75,7 +75,7 @@ export function sizeFor(marketId: number, value: bigint | number): string {
 }
 
 /** Round a typed/derived price to the market's display precision. */
-export function toPriceInput(market: MarketConfig, value: number): string {
+export function toPriceInput(market: Pick<MarketConfig, "priceDecimals" | "sizeDecimals">, value: number): string {
   return value.toFixed(market.priceDecimals);
 }
 

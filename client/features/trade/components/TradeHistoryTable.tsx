@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { STELLAR_EXPERT_URL } from "@/lib/stellar/legacy-config";
 import { MarketCell } from "@/components/common/MarketCell";
 import { priceFor, sizeFor } from "@/lib/format";
@@ -18,7 +18,7 @@ interface Fill {
 }
 
 export function TradeHistoryTable({ marketFilter }: { marketFilter: number | "all" }) {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
 
   const { data: fills = [] } = useQuery<Fill[]>({
     queryKey: ["fills", address],

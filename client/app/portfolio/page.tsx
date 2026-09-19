@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TopNav } from "@/components/common/TopNav";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useMarketStore } from "@/stores/market";
 import { getAccountHealth, getPositions } from "@/lib/stellar/contracts";
 import { amountToHuman } from "@/lib/format";
@@ -29,7 +29,7 @@ const shortDate = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 export default function PortfolioPage() {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
   const [tab, setTab] = useState<Tab>("Positions");
   const markPrices = useMarketStore((s) => s.markPrices);
 

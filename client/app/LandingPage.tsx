@@ -3,11 +3,9 @@
 import './shift5.css';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useWalletStore } from '@/stores/wallet';
-import { freighterIsInstalled } from '@/lib/stellar/freighter';
+import { useWallet } from '@/features/wallet/useWallet';
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { toast } from 'sonner';
-import { ACTIVE_MARKET_SYMBOLS, DEFAULT_MARKET_SYMBOL, NETWORK_LABEL } from '@/lib/stellar/legacy-config';
+import { ACTIVE_MARKET_SYMBOLS, DEFAULT_MARKET_SYMBOL } from '@/lib/stellar/legacy-config';
 import { useNetwork } from '@/features/network/NetworkContext';
 
 const LANDING_NAV = [
@@ -221,7 +219,7 @@ function SolSvg({ idx }: { idx: number; active: boolean }) {
 
 export function LandingPage() {
   const router = useRouter();
-  const { connected, connecting, setConnecting, setAddress, setConnected, setWrongNetwork } = useWalletStore();
+  const { connected, connecting, connect } = useWallet();
   // Server-seeded, so the network-named headline matches on hydration.
   const { config: networkConfig } = useNetwork();
   const headlines = buildHeadlines(networkConfig.label);
@@ -323,27 +321,7 @@ export function LandingPage() {
 
   async function handleConnect() {
     if (connected) { router.push(`/trade/${DEFAULT_MARKET_SYMBOL}`); return; }
-    const installed = await freighterIsInstalled();
-    if (!installed) {
-      toast.error('Freighter not found — install from freighter.app then refresh.');
-      return;
-    }
-    setConnecting(true);
-    try {
-      const { freighterConnect, isOnExpectedNetwork } = await import('@/lib/stellar/freighter');
-      const addr = await freighterConnect();
-      setAddress(addr);
-      setConnected(true);
-      const ok = await isOnExpectedNetwork();
-      setWrongNetwork(!ok);
-      if (!ok) toast.warning(`Switch Freighter to ${NETWORK_LABEL}.`);
-      else toast.success('Wallet connected');
-      router.push(`/trade/${DEFAULT_MARKET_SYMBOL}`);
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setConnecting(false);
-    }
+    connect();
   }
 
   const allCards = [

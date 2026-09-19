@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { getAccountHealth } from "@/lib/stellar/contracts";
 import { SETTLEMENT_ASSET } from "@/lib/stellar/legacy-config";
 import { amountToHuman } from "@/lib/format";
@@ -11,7 +11,7 @@ import { AssetLogo } from "@/components/common/AssetLogos";
 import type { ReactNode } from "react";
 
 export function AccountBar() {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
 
   const { data: collateral } = useCollateral(connected ? address : null);
 

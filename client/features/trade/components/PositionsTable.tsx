@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useMarketStore } from "@/stores/market";
 import { getPositions, getAccountHealth, RawPosition } from "@/lib/stellar/contracts";
 import { MARKETS } from "@/lib/stellar/legacy-config";
@@ -22,7 +22,7 @@ export function PositionsTable({
   marketFilter: number | "all";
   sideFilter: "both" | "long" | "short";
 }) {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
   const addOrder = useLocalOrders((s) => s.addOrder);
   const markPrices = useMarketStore((s) => s.markPrices);
   const { hidePnl, hideLiqPrice } = useTradeSettings();

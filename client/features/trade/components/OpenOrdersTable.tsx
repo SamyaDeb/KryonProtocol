@@ -1,6 +1,6 @@
 "use client";
 
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useLocalOrders } from "@/stores/orders";
 import { cancelOrder as cancelOnChain } from "@/lib/stellar/contracts";
 import { cancelOrderOnMatcher } from "@/lib/market/matcher";
@@ -8,6 +8,7 @@ import { priceToHuman, amountToHuman, formatMarketUsd, formatMarketSize } from "
 
 import { logoFor } from "@/components/common/AssetLogos";
 import { marketById } from "@/components/common/MarketCell";
+import { useMarketDirectory } from "@/features/markets/directory";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -18,7 +19,9 @@ export function OpenOrdersTable({
   marketFilter: number | "all";
   sideFilter: "both" | "long" | "short";
 }) {
-  const { address, connected } = useWalletStore();
+  const { address, connected } = useWallet();
+  // Row formatters resolve market ids synchronously; subscribe so they re-render once it loads.
+  useMarketDirectory();
   const { orders, cancelOrder } = useLocalOrders();
 
   const visible = orders.filter(

@@ -8,9 +8,10 @@ import { Menu, X } from "lucide-react";
 import { WalletConnect } from "@/features/wallet/components/WalletConnect";
 import { NotificationBell } from "@/features/navbar/components/NotificationBell";
 import { SettingsMenu } from "@/features/navbar/components/SettingsMenu";
-import { DEFAULT_MARKET_SYMBOL } from "@/lib/stellar/legacy-config";
+import { DEFAULT_MARKET_SYMBOL } from "@/lib/markets";
 import { NetworkToggle } from "@/features/network/components/NetworkToggle";
 import { NetworkBanner } from "@/features/network/components/NetworkBanner";
+import { WrongNetworkBanner } from "@/features/wallet/components/WrongNetworkBanner";
 
 const TABS = [
   { label: "Trade", href: `/trade/${DEFAULT_MARKET_SYMBOL}`, match: "/trade" },
@@ -115,6 +116,7 @@ export function TopNav() {
       )}
 
       <NetworkBanner />
+      <WrongNetworkBanner />
     </header>
   );
 }

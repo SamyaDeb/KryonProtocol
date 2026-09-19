@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useWalletStore } from '@/stores/wallet'
+import { useWallet } from "@/features/wallet/useWallet";
 import { useLocalOrders } from '@/stores/orders'
 import { useMarketStore } from '@/stores/market'
 import { getPositions } from '@/lib/stellar/contracts'
@@ -23,7 +23,7 @@ interface Props {
 
 export function TradeChart({ market }: Props) {
   const marketIdNum = market.marketId
-  const { address, connected } = useWalletStore()
+  const { address, connected } = useWallet()
   const markPrices = useMarketStore((s) => s.markPrices)
 
   const allOrders = useLocalOrders((s) => s.orders)

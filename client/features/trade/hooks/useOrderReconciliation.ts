@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useWalletStore } from "@/stores/wallet";
+import { useWallet } from "@/features/wallet/useWallet";
 import { useLocalOrders } from "@/stores/orders";
 import { getOrderFilled, isCancelled } from "@/lib/stellar/contracts";
 import { apiFetch } from "@/lib/api";
@@ -34,8 +34,8 @@ interface DbOrder {
  * discrepancy between DB and chain state.
  */
 export function useOrderReconciliation() {
-  const address = useWalletStore((s) => s.address);
-  const connected = useWalletStore((s) => s.connected);
+  const address = useWallet().address;
+  const connected = useWallet().connected;
 
   useEffect(() => {
     if (!address || !connected) return;

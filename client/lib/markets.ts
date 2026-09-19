@@ -124,6 +124,22 @@ export const MARKET_DISPLAY: Record<string, MarketDisplay> = {
   },
 };
 
+/** The market the Trade tab opens. */
+export const DEFAULT_MARKET_SYMBOL = "BTC-PERP";
+
+/**
+ * The UI's symbol for a market: "BTC-PERP".
+ *
+ * On chain a market is identified by its id and oracle feed, and the indexer
+ * names it after the feed (`bytes32("BTC")` → "BTC"). Every URL and table here
+ * says "BTC-PERP", so a bare base asset is completed with the suffix. A symbol
+ * that already carries one is left alone.
+ */
+export function canonicalSymbol(symbol: string): string {
+  const s = symbol.trim().toUpperCase();
+  return s.includes("-") ? s : `${s}-PERP`;
+}
+
 /**
  * Display metadata for a symbol, falling back to a usable default.
  *
@@ -134,12 +150,13 @@ export const MARKET_DISPLAY: Record<string, MarketDisplay> = {
  * a real price away.
  */
 export function displayFor(symbol: string): MarketDisplay {
-  const known = MARKET_DISPLAY[symbol];
+  const canonical = canonicalSymbol(symbol);
+  const known = MARKET_DISPLAY[canonical];
   if (known) return known;
-  const base = symbol.split("-")[0] || symbol;
+  const base = canonical.split("-")[0] || canonical;
   return {
-    symbol,
-    displayName: symbol,
+    symbol: canonical,
+    displayName: canonical,
     baseAsset: base,
     quoteAsset: "USDC",
     priceSourceSymbol: `${base}USDT`,
