@@ -31,6 +31,18 @@ runs:
         path: ${{ runner.temp }}/arc-foundry-dl
         key: arc-foundry-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ inputs.sha256 }}
 
+    # The solc binaries forge installs (svm verifies each against the published
+    # checksum on install). Cached so a job does not depend on
+    # binaries.soliditylang.org answering: a reset connection there failed the
+    # whole evm job. Keyed on foundry.toml, which pins solc_version.
+    - name: Restore solc binaries
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.svm
+          ~/.local/share/svm
+        key: solc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kryon-protocol/evm/foundry.toml') }}
+
     - name: Install arc-foundry (checksum verified)
       shell: bash
       env:
