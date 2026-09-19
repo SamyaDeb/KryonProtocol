@@ -144,27 +144,28 @@ async function listedMarkets(lc: LocalChain) {
 }
 
 /**
- * DeployAll activates markets through the `active` field of the params struct
- * (`MarketParamsSet`); it never emits `MarketActiveSet`, which is the only event
- * the indexer projects into `Market.active`. Left alone, every market reads as
- * inactive and order intake rejects everything with `market_inactive`. Until
- * the indexer handles it, write the chain's answer once the listings are
- * projected — as `lib/keepers/testkit/trading.ts` does for the drills.
+ * Wait for the indexer to project every listing, then check `Market.active`
+ * against the chain. Order intake rejects orders on a market the database
+ * calls inactive, so a mismatch here would otherwise surface as every order
+ * failing with `market_inactive`.
  */
-async function seedMarketActivity(sql: SqlClient, markets: { id: number; active: boolean }[]) {
+async function awaitMarketProjection(sql: SqlClient, markets: { id: number; active: boolean }[]) {
   const deadline = Date.now() + 60_000;
+  let rows: { id: number; active: boolean }[] = [];
   for (;;) {
-    const rows = await sql.query<{ n: string }[]>(`SELECT count(*) AS n FROM "Market" WHERE "network" = $1`, [NETWORK.id]);
-    if (Number(rows[0].n) >= markets.length) break;
+    rows = await sql.query<{ id: number; active: boolean }[]>(
+      `SELECT "id", "active" FROM "Market" WHERE "network" = $1`,
+      [NETWORK.id]
+    );
+    if (rows.length >= markets.length) break;
     if (Date.now() > deadline) throw new Error("the indexer did not project the market listings within 60s");
     await new Promise((r) => setTimeout(r, 500));
   }
   for (const m of markets) {
-    await sql.query(`UPDATE "Market" SET "active" = $3, "updatedAt" = now() WHERE "network" = $1 AND "id" = $2`, [
-      NETWORK.id,
-      m.id,
-      m.active,
-    ]);
+    const row = rows.find((r) => Number(r.id) === m.id);
+    if (row?.active !== m.active) {
+      throw new Error(`market ${m.id}: the indexer projected active=${row?.active}, the chain says ${m.active}`);
+    }
   }
 }
 
@@ -398,8 +399,8 @@ async function main() {
       say(`  ${s.name}`);
     }
 
-    step("Seed markets: Market.active from RiskParams");
-    await seedMarketActivity(sql, markets);
+    step("Markets: wait for the indexer, check Market.active against RiskParams");
+    await awaitMarketProjection(sql, markets);
     say(`  active: ${active.join(", ")}`);
 
     const wsUrl = `ws://127.0.0.1:${WS_PORT}`;
