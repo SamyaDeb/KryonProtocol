@@ -95,3 +95,8 @@ scripts/setup-usdc-settlement.ts
 
 # npm run dev:stack — local deployment record
 /.dev-stack/
+
+# docker-compose per-service env files hold key custody settings; only the
+# name-only templates are tracked.
+env/*.env
+!env/*.env.example

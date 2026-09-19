@@ -1,13 +1,24 @@
-FROM node:22-alpine AS base
+# One image for every background service; the service is chosen at run time:
+#   SERVICE=<script name in scripts/, without .ts>   e.g. liquidation-keeper
+#   SERVICE_ARGS=<extra arguments>                    e.g. "--execute --loop"
+# Configuration and key custody come from the environment at run time
+# (lib/config-check.ts refuses to start on anything missing); nothing secret
+# is baked in (.dockerignore excludes every .env file).
+FROM node:22-alpine
+
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
+ENV NODE_ENV=production \
+    TZ=UTC \
+    KRYON_HEARTBEAT_FILE=/tmp/kryon.heartbeat
+
+COPY package.json package-lock.json ./
+# Runtime dependencies from the lockfile, plus tsx (a devDependency) to run
+# the TypeScript services, at the version package.json pins. No lifecycle scripts.
+RUN npm ci --omit=dev --ignore-scripts \
+ && npm install --no-save --no-package-lock --ignore-scripts "tsx@$(node -p "require('./package.json').devDependencies.tsx")" \
+ && npm cache clean --force
+
 COPY . .
 
-# Build TypeScript config (needed by tsx at runtime)
-RUN npm install tsx --save-dev
-
-# Each service is selected via SERVICE env var
-# oracle-keeper | matcher | ws-server | state-indexer | monitor | settlement-reconciler
-
-CMD ["sh", "-c", "npx tsx scripts/${SERVICE}.ts"]
+USER node
+CMD ["sh", "-c", "exec node --import tsx scripts/${SERVICE}.ts ${SERVICE_ARGS:-}"]

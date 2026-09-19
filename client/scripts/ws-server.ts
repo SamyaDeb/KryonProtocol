@@ -42,10 +42,13 @@ import { createLogger, envInt, Metrics, shutdownSignal, type LogLevel } from "@/
 import { isArcNetworkId } from "@/lib/network";
 import { StreamServer } from "@/lib/ws/server";
 import { dbStreamSource } from "@/lib/ws/source";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "ws";
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("ws-server");
   const env = process.env;
   const log = createLogger(SERVICE, (env.LOG_LEVEL as LogLevel | undefined) ?? "info");
 

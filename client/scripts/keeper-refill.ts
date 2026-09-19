@@ -29,12 +29,15 @@
 import { neon } from "@/lib/sql";
 import { USDC18, parseTargets, refillOnce } from "@/lib/keepers/refill";
 import { bootstrap, createSender, envInt, recoverOpenJobs, runLoop } from "@/lib/keepers/runtime";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "keeper-refill";
 const EXECUTE = process.argv.includes("--execute");
 const LOOP = process.argv.includes("--loop");
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("keeper-refill");
   const env = process.env;
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
