@@ -17,7 +17,8 @@
 import type { Address } from "viem";
 
 import type { SqlClient } from "@/lib/sql";
-import { assertChainId, createArcPublicClient, serviceAccount } from "@/lib/chain/clients";
+import { assertChainId, createArcPublicClient } from "@/lib/chain/clients";
+import { loadServiceSigner } from "@/lib/chain/signer";
 import { PgTxJobStore } from "@/lib/chain/tx-store-pg";
 import { TxSender, type TxSenderOptions } from "@/lib/chain/tx-sender";
 import { serverContracts } from "@/lib/chain/contracts-env";
@@ -397,20 +398,25 @@ export async function bootstrap(o: BootstrapOptions): Promise<KeeperContext> {
 export interface SenderOptions {
   ctx: KeeperContext;
   service: string;
-  /** Environment variable holding this process's private key. */
+  /**
+   * This process's key role, named by its key variable (e.g.
+   * "LIQUIDATOR_PRIVATE_KEY"). Where the key lives is set by
+   * KRYON_SIGNER_<ROLE>; see lib/chain/signer.ts.
+   */
   keyEnvVar: string;
   env?: Env;
   overrides?: Partial<TxSenderOptions>;
 }
 
 /** One TxSender for this process's single key, over the Postgres job store. */
-export function createSender(o: SenderOptions): TxSender {
-  const account = serviceAccount(o.keyEnvVar, o.env ?? process.env);
+export async function createSender(o: SenderOptions): Promise<TxSender> {
+  const signer = await loadServiceSigner({ keyEnvVar: o.keyEnvVar, network: o.ctx.network.id, env: o.env ?? process.env });
+  o.ctx.log.info("signer loaded", { role: signer.role, mode: signer.mode, address: signer.account.address });
   return new TxSender({
     network: o.ctx.network,
     service: o.service,
     chain: o.ctx.client,
-    signer: account,
+    signer: signer.account,
     store: new PgTxJobStore(o.ctx.sql),
     ...o.overrides,
   });

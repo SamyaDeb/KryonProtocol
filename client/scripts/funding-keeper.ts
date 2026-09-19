@@ -31,7 +31,7 @@ async function main() {
   const sql = neon(databaseUrl);
 
   const ctx = await bootstrap({ service: SERVICE, sql, env });
-  const sender = createSender({ ctx, service: SERVICE, keyEnvVar: "FUNDING_KEEPER_PRIVATE_KEY", env });
+  const sender = await createSender({ ctx, service: SERVICE, keyEnvVar: "FUNDING_KEEPER_PRIVATE_KEY", env });
 
   const keeper = new FundingKeeper({
     chain: viemFundingChain({

@@ -15,7 +15,9 @@
  *   KRYON_NETWORK            arc-mainnet | arc-testnet | arc-local
  *   DATABASE_URL             Postgres for that network (migrated baseline)
  *   KRYON_DEPLOYMENT_FILE    deployment record, or the CONTRACT_* variables
- *   MATCHER_OPERATOR_KEY     32-byte hex private key holding OPERATOR_ROLE
+ *   KRYON_SIGNER_MATCHER_OPERATOR  where the OPERATOR_ROLE key lives: kms:<keyId> |
+ *                            keystore | env (arc-local only); see lib/chain/signer.ts
+ *   MATCHER_OPERATOR_KEY     raw hex key, env mode only
  *   MATCHER_MARKETS          market ids this shard matches, comma separated
  *   MATCHER_SHARD            shard name for logs (default: the market list)
  *   MATCHER_INTERVAL_MS      tick interval (default 1000)
@@ -111,7 +113,7 @@ async function main() {
 
   const db = pgDb(required("DATABASE_URL"));
   const client = createArcPublicClient(network);
-  const signer = serviceAccount("MATCHER_OPERATOR_KEY");
+  const signer = await serviceAccount("MATCHER_OPERATOR_KEY", network);
 
   await assertChainId(client, network);
 

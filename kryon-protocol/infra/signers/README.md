@@ -1,40 +1,67 @@
 # Signers
 
-## What is in use today
+Every off-chain service on Arc signs with its own secp256k1 key. Where that key
+lives is chosen per role by `KRYON_SIGNER_<ROLE>`
+(`client/lib/chain/signer.ts`). Rotation and emergency revocation are in
+[`../deploy/runbooks/key-rotation.md`](../deploy/runbooks/key-rotation.md).
 
-Each off-chain role holds its own raw Stellar secret, supplied as an environment
-variable to the process that needs it and never shared between roles:
+## Custody model
 
-| Role | Variable | Used by |
+| Mode | `KRYON_SIGNER_<ROLE>` | Where the key is | Allowed on |
+| --- | --- | --- | --- |
+| KMS | `kms:<keyId \| ARN \| alias/…>` | AWS KMS, key spec `ECC_SECG_P256K1`, usage `SIGN_VERIFY`. The key never leaves KMS | all networks. **Required on mainnet** |
+| Keystore | `keystore` | JSON v3 keystore file at `KRYON_KEYSTORE_<ROLE>`, unlocked by `KRYON_KEYSTORE_<ROLE>_PASSPHRASE_FILE` (a secret-manager mount) or `_PASSPHRASE` | all networks. Fallback where KMS isn't available |
+| Env | `env` (or unset on arc-local) | raw 32-byte hex in the role's key variable | **arc-local only**. arc-testnet needs `KRYON_ALLOW_ENV_SIGNER=arc-testnet`. arc-mainnet refuses it |
+
+Unset on arc-testnet or arc-mainnet is a startup error, so a service can't fall
+back to a plaintext key without saying so. All three modes return the same viem
+`LocalAccount`, so transactions (`TxSender`), EIP-712 orders and personal
+messages go through one code path. `lib/chain/signer.test.ts` proves the
+keystore and KMS paths equivalent to viem's `privateKeyToAccount` for all three
+kinds of signature.
+
+KMS specifics (`lib/chain/signer-kms.ts`):
+
+- The address is derived once, at startup, from `GetPublicKey`. A key that is
+  not secp256k1 is refused.
+- Each signature is DER-parsed strictly, normalised to low-s (EIP-2), and given
+  the recovery id whose recovered address matches. A signature that recovers to
+  neither is a hard error.
+- Every call has a timeout (`KRYON_KMS_TIMEOUT_MS`, default 5000) and bounded
+  retries on throttling or 5xx errors (`KRYON_KMS_RETRIES`, default 2). Access
+  and key-state errors are not retried.
+- Logs and errors carry the role and key id, never a digest.
+- Credentials come from the AWS SDK default chain (task role or instance
+  profile). Region: `KRYON_KMS_REGION` or the SDK default. Each runtime
+  identity gets `kms:GetPublicKey` and `kms:Sign` on its own key only.
+
+`scripts/signer-address.ts <ROLE key variable>` prints a role's mode, address
+and health without signing anything.
+
+## Roles
+
+A role is named after its key variable with `_PRIVATE_KEY` or `_KEY` dropped.
+
+| Role | Service | On-chain role |
 | --- | --- | --- |
-| Settlement operator | `MATCHER_OPERATOR_SECRET[_MAINNET\|_TESTNET]` | `scripts/matcher-service.ts`, `/api/settlements/[id]/sign` |
-| Oracle publisher | `ORACLE_PUBLISHER_SECRET[_MAINNET\|_TESTNET]` | `scripts/oracle-keeper.ts` |
-| Liquidator | `LIQUIDATOR_SECRET[_MAINNET\|_TESTNET]` | `scripts/liquidation-keeper.ts` |
-| Deployer / admin | operator-held, never in a service | `scripts/mainnet-deploy.ts` and friends |
+| `MATCHER_OPERATOR` | matcher (one key per shard) | `OPERATOR_ROLE` on OrderGateway |
+| `ORACLE_PUBLISHER` | oracle-keeper (one key per publisher host) | `PUBLISHER_ROLE` via `OracleAdapter.setPublishers` |
+| `FUNDING_KEEPER` | funding-keeper | `KEEPER_ROLE` on Engine |
+| `LIQUIDATOR` | liquidation-keeper | none (`liquidate` is permissionless) |
+| `REFILL_FUNDER` | keeper-refill | none (holds the gas float) |
+| `FEE_TIER_BOT` | fee-tier-bot | `FEE_TIER_ROLE` on FeeRouter |
+| `BACKSTOP_SIGNER` | backstop-unwinder | `BACKSTOP_SIGNER_ROLE` on Insurance (signs orders, sends no transactions) |
 
-The separation is not cosmetic. The matcher and oracle keeper shared one account
-early on, and the resulting `tx_bad_seq` collisions dropped settlements — which
-surfaced as "confirmation timeout" rather than as a key problem.
-
-`client/lib/secrets-check.ts` runs at service startup: it fails the process on a
-missing or placeholder-looking secret, and on any secret exposed through a
-`NEXT_PUBLIC_` variable (which would bundle it into the browser).
+Deployer, governance and guardian keys are Safes or operator-held hardware
+wallets. They never run in a service.
 
 ## Rules
 
-- A key serves exactly one role. Keeper, oracle publisher, liquidator, deployer,
-  and governance signers are separate accounts.
-- Transaction payloads are signed with explicit network passphrase binding.
-- Every submitted settlement payload is recorded in `TxJob` before signing, and
-  failed submissions stay queryable for incident review.
-- Secrets reach production as platform secrets (Railway, systemd `EnvironmentFile`
-  with mode 600), never in the repository or an image layer.
-
-## Not implemented
-
-There is no managed-signer boundary. An earlier design sketched a
-`SIGNER_PROVIDER` abstraction over KMS, Vault and Fireblocks; it was never wired
-to anything and has been removed rather than left as a config knob that does
-nothing. Moving the operator and liquidator keys behind a custody service is
-still the right hardening step before size limits are raised — it is open work,
-not a shipped feature.
+- **A key serves exactly one role, in exactly one process.** `TxSender` owns its
+  key's nonce, and two processes sharing a key strand each other's transactions.
+- **No plaintext keys off-local.** Mainnet runs `kms`. `keystore` is the
+  fallback, and its passphrase comes from the secret manager, never from the
+  repository or an image layer.
+- Every transaction is recorded in `TxJob` before broadcast, so a failed or
+  stuck send stays queryable for incident review.
+- Env example files list variable names only, never values.

@@ -36,7 +36,7 @@ async function main() {
   const sql = neon(databaseUrl);
 
   const ctx = await bootstrap({ service: SERVICE, sql, env });
-  const sender = createSender({ ctx, service: SERVICE, keyEnvVar: "LIQUIDATOR_PRIVATE_KEY", env });
+  const sender = await createSender({ ctx, service: SERVICE, keyEnvVar: "LIQUIDATOR_PRIVATE_KEY", env });
   const { engine, liquidation, insurance, vault } = ctx.contracts;
 
   const keeper = new LiquidationKeeper({
