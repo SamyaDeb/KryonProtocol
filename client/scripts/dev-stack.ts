@@ -35,7 +35,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { Pool } from "pg";
@@ -266,19 +266,28 @@ function spawnService(s: Service, baseEnv: Record<string, string | undefined>, o
 
 function writeAppEnv(values: Record<string, string>) {
   if (args.has("--no-env-file")) return false;
-  if (existsSync(ENV_FILE) && !readFileSync(ENV_FILE, "utf8").startsWith(ENV_MARKER)) {
-    say(`  ! ${ENV_FILE} exists and was not written by dev:stack; leaving it alone. Set these yourself:`);
-    for (const [k, v] of Object.entries(values)) say(`      ${k}=${v}`);
-    return false;
+  // One descriptor for the ownership check and the write, so the file checked
+  // is the file written ("a+" creates it if missing and never truncates).
+  const fd = openSync(ENV_FILE, "a+");
+  try {
+    const current = readFileSync(fd, "utf8");
+    if (current !== "" && !current.startsWith(ENV_MARKER)) {
+      say(`  ! ${ENV_FILE} exists and was not written by dev:stack; leaving it alone. Set these yourself:`);
+      for (const [k, v] of Object.entries(values)) say(`      ${k}=${v}`);
+      return false;
+    }
+    const body = [
+      ENV_MARKER,
+      "# Points `npm run dev` at the local stack. Regenerated on every start; safe to delete.",
+      ...Object.entries(values).map(([k, v]) => `${k}=${v}`),
+      "",
+    ].join("\n");
+    ftruncateSync(fd, 0);
+    writeSync(fd, body, 0);
+    return true;
+  } finally {
+    closeSync(fd);
   }
-  const body = [
-    ENV_MARKER,
-    "# Points `npm run dev` at the local stack. Regenerated on every start; safe to delete.",
-    ...Object.entries(values).map(([k, v]) => `${k}=${v}`),
-    "",
-  ].join("\n");
-  writeFileSync(ENV_FILE, body);
-  return true;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
