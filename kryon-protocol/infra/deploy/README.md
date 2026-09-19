@@ -15,6 +15,29 @@ credentials come from the environment, never source control.
 `KRYON_NETWORK` (default `arc-testnet`) selects the file. The scripts write the
 resulting addresses to `evm/deployments/<network>.json`.
 
+## Arc testnet: keys and roles
+
+`arc-testnet.toml` ships with its role addresses empty, and the deploy
+preflight refuses placeholders. Generate the testnet key set and fill them in:
+
+```bash
+cd client
+npm run testnet:keys -- --write-toml     # keystores in ~/.kryon/arc-testnet, mode 0600
+```
+
+This creates one encrypted keystore per service role (matcher operator, two
+oracle publishers, funding keeper, liquidator, refill funder, fee-tier bot,
+backstop signer) plus testnet stand-ins for the deployer, governance
+(timelock proposer and executor), guardian and treasury. Plain wallets are
+allowed there on testnet only; mainnet requires Safes and KMS
+(`infra/signers/README.md`). The script prints the service env lines, the
+addresses to fund from `https://faucet.circle.com`, and the `DeployAll`
+command. Commit the TOML change; never commit the keystores or passphrase.
+
+The timelock's 48-hour minimum applies on testnet too, so every parameter
+change after the deploy waits two days. `BACKSTOP_SIGNER_ROLE` is not granted
+at deploy; grant it through the timelock when backstop unwinding is wanted.
+
 ## Scripts
 
 Run from `kryon-protocol/evm/`, in order, or all at once with `DeployAll`:
