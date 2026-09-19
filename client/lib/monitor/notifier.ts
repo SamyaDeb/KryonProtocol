@@ -19,17 +19,28 @@ export interface Notifier {
 
 export type WebhookFormat = "slack" | "discord" | "telegram" | "generic";
 
+/**
+ * True when `hostname` is `domain` itself or a subdomain of it. A bare
+ * `endsWith(domain)` would also accept `evilslack.com`, so the match is exact
+ * or on a dot boundary.
+ */
+export function isHostOrSubdomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 /** Slack, Discord and Telegram each want a different field; the URL says which. */
 export function detectFormat(url: string): WebhookFormat {
-  let host = "";
+  let hostname: string;
   try {
-    host = new URL(url).host;
+    // `hostname`, not `host`: the port is not part of the name.
+    hostname = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return "generic";
   }
-  if (host.endsWith("slack.com")) return "slack";
-  if (host.endsWith("discord.com") || host.endsWith("discordapp.com")) return "discord";
-  if (host.endsWith("telegram.org")) return "telegram";
+  const on = (domain: string) => isHostOrSubdomain(hostname, domain);
+  if (on("slack.com")) return "slack";
+  if (on("discord.com") || on("discordapp.com")) return "discord";
+  if (on("telegram.org")) return "telegram";
   return "generic";
 }
 
