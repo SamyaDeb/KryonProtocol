@@ -7,8 +7,7 @@
     "db:push": "prisma db push",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "audit:package": "bash infra/audit/build-audit-package.sh"
+    "db:studio": "prisma studio"
   },
   "devDependencies": {
     "prisma": "^6.8.2"

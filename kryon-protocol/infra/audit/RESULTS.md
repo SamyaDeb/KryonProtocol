@@ -1,13 +1,14 @@
 # Verification results
 
-Run 2026-09-17 on branch `phase1/audit-freeze` (base `main` = `4702097`, plus the Phase 1 config
-decisions and `EnvironmentConfigTest`), with arc-foundry v0.8.0-1 and solc 0.8.30. The commands are
-listed in [README.md](README.md).
+Every check below was re-run on **`c5c08443967e92a8952bb805b172bf3fe05097aa`** on 2026-09-19, the
+commit the campaign ran against, with arc-foundry v0.8.0-1 (forge 1.7.1-dev `f567f94`) and solc 0.8.30.
+The commands are listed in [README.md](README.md). Every figure matches the one first recorded at the
+Phase 1 freeze (2026-09-17).
 
-**`src/`, `script/` and `crates/` are byte-identical to `49b79f2`.** Under `test/`, the only
-differences are comment-only edits to three files (doc paths) and the new
-`test/upgrade/EnvironmentConfig.t.sol`, which has no fuzzed inputs. The nightly campaign on
-`49b79f2` therefore applies to the frozen code.
+At that commit, `kryon-protocol/evm/` (`src/`, `script/`, `test/`, `storage-layout/`, `foundry.toml`),
+`evm/ffi/`, `crates/` and `infra/deploy/environments/` are byte-identical to the Phase 1 freeze
+branch (`9163a75`). Commits between the freeze and this one touched only off-chain services,
+the client and docs, all out of scope (see [SCOPE.md](SCOPE.md)).
 
 ## Summary
 
@@ -17,13 +18,13 @@ differences are comment-only edits to three files (doc paths) and the new
 | `arc-forge test` (unit, upgrade, invariant) | ✅ **259 passed**, 0 failed, 19 suites |
 | `cargo test --workspace` (reference model) | ✅ 19 passed |
 | Differential (`FOUNDRY_PROFILE=differential`) | ✅ 9 properties × 5,000 runs = 45,000 comparisons, 0 mismatches |
-| Fork (`FOUNDRY_PROFILE=fork --network arc`, Arc testnet, read-only) | ✅ 8 passed |
+| Fork (`FOUNDRY_PROFILE=fork --network arc`, Arc testnet, read-only) | ✅ 8 passed (public RPC `https://rpc.testnet.arc.io`) |
 | Gas (`FOUNDRY_PROFILE=gas`) | ✅ 7 passed; identical to the previously recorded figures (0% change) |
 | Coverage (`--ir-minimum`, `src/`) | ✅ **97.67% lines** (1506/1542), **95.22% branches** (319/335), 97.91% statements, 98.20% functions |
 | Slither 0.11.6 (High/Medium) | ✅ **0 findings** (76 contracts, 64 detectors) |
 | `./script/storage-layout.sh --check` | ✅ storage layouts unchanged |
-| Dry-run deploy, mainnet parameters (local) | ✅ `DeployAll` succeeded; `99_VerifyDeployment: OK`, **no WARN** |
-| Nightly (`FOUNDRY_PROFILE=nightly`, on `49b79f2`) | see [Nightly](#nightly) |
+| Dry-run deploy, mainnet parameters (local) | ✅ `DeployAll` succeeded; `99_VerifyDeployment: OK`, **no WARN**. Run at the freeze (`9163a75`), not re-run: `script/`, `src/` and the environment TOMLs are unchanged, and `EnvironmentConfigTest` (in the 259) re-checks both TOMLs through the verifier with zero failures and warnings |
+| Nightly, reduced (`FOUNDRY_PROFILE=nightly`, fuzz 250,000, invariants 1024 × 128) | ✅ **275 passed**, 0 failed, 21 suites; no counterexamples. See [Nightly](#nightly) |
 | `arc-forge fmt --check` | ❌ known: 34 pre-existing files differ (see KNOWN_ISSUES) |
 
 ## Contract sizes
@@ -159,11 +160,32 @@ Values and error codes are compared against `kryon-ref` (Rust, `crates/protocol-
 
 ## Nightly
 
-`FOUNDRY_PROFILE=nightly arc-forge test` (fuzz 1,000,000 runs; invariants 2048 runs × depth 256;
-differential included) on commit `49b79f2`, started 2026-09-17 21:51 IST.
-
-| Status | Detail |
+| | |
 |---|---|
-| **In progress** | 14 of 20 suites finished (the 18 default suites at `49b79f2` plus gas and differential), 199 tests passed, 0 failed. Remaining: `InvariantsTest`, `DifferentialTest`, `FeeRouterTest`, `InsuranceTest`, `DeploymentVerifierTest`, `GasTest` |
+| Commit | `c5c08443967e92a8952bb805b172bf3fe05097aa` (clean detached worktree, submodules at their pinned commits) |
+| Profile | `nightly` from `foundry.toml` (`ffi = true`, `no_match_path = "test/fork/*"`), with the fuzz and invariant budgets **reduced** by environment override: **fuzz 250,000 runs** (profile: 1,000,000), **invariants 1024 runs × depth 128** (profile: 2048 × 256). Fuzz seed `0x4b52594f4e`. `foundry.toml` itself was not edited |
+| Command | `cd kryon-protocol/evm && (cd .. && cargo build -p kryon-ref --release) && caffeinate -i env FOUNDRY_PROFILE=nightly FOUNDRY_FUZZ_RUNS=250000 FOUNDRY_INVARIANT_RUNS=1024 FOUNDRY_INVARIANT_DEPTH=128 arc-forge test` |
+| Host | MacBook Air (Apple silicon, arm64), macOS 26.4 |
+| Start / end | 2026-09-19 04:34 IST → 14:08 IST. arc-forge reports 3,512 s of test time (7,947 s CPU); the rest of the wall-clock time the laptop spent in lid-closed sleep with the process suspended, not restarted |
+| Result | **`Ran 21 test suites in 3512.02s (7947.24s CPU time): 275 tests passed, 0 failed, 0 skipped (275 total tests)`** |
+| Counterexamples | **None** |
 
-This section is updated with the final counts before `audit-v1` is tagged.
+275 = the 259 default tests + 9 differential properties + 7 gas probes. Each of the 15 fuzz tests
+ran 250,000 cases (the 9 differential properties compare every case against `kryon-ref`: 2,250,000
+comparisons, 0 mismatches). Each of the 11 invariants ran 1024 runs × 128 calls = 131,072 handler calls
+(33 handler reverts, all in `trade`; `fail_on_revert = false` by design).
+
+| Suite | Tests | Time |
+|---|---:|---:|
+| `invariant/Invariants.t.sol` | 11 invariants | 3,512 s |
+| `differential/Differential.t.sol` | 9 | 3,512 s |
+| `unit/FeeRouter.t.sol` | 17 | 739 s |
+| `unit/Libraries.t.sol` (RiskLib 18, Decimals 3, KryonMath 11) | 32 | 159 s |
+| `unit/RiskParams.t.sol` | 9 | 25 s |
+| The other 14 suites (Engine, OrderGateway, Governance, OracleAdapter, Vault, Insurance, Guards, Liquidation, DeploymentVerifier, BackstopUnwind, Gas, EnvironmentConfig, Smoke, HandlerSmoke) | 197 | < 1 s each |
+| **Total** | **275** | |
+
+**The full profile (1,000,000 fuzz runs, 2048 × 256 invariants) has not completed on the frozen code.**
+It is scheduled to run during the audit and will be reported here as an addendum. An earlier full
+attempt on `49b79f2` (same `src/` and `crates/`) finished 17 of 20 suites with 0 failures before
+the process died; its log is archived and it is not counted as a result.

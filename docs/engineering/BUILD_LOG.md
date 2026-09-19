@@ -16,9 +16,42 @@ Source of truth: [`PROTOCOL_PLAN.md`](PROTOCOL_PLAN.md).
 
 ---
 
+## Audit freeze: verification campaign and `audit-v1` (2026-09-19)
+
+The Phase 1 nightly on `49b79f2` died after 17 of 20 suites (0 failures, no summary line; log
+archived outside the repo), so it is not counted. The campaign was re-run on the tag commit.
+
+| | |
+|---|---|
+| Tag target | **`c5c08443967e92a8952bb805b172bf3fe05097aa`** (`origin/main` when the campaign started). `evm/` (`src`, `script`, `test`, `storage-layout`, `foundry.toml`), `evm/ffi`, `crates` and the environment TOMLs are byte-identical to the freeze branch `9163a75`. `audit-v1` is created on this commit once this entry is merged |
+| Profile | **Reduced nightly** (decided 2026-09-19): fuzz 250,000 runs, invariants 1024 × depth 128, passed as `FOUNDRY_FUZZ_RUNS` / `FOUNDRY_INVARIANT_RUNS` / `FOUNDRY_INVARIANT_DEPTH` overrides; `foundry.toml` unchanged |
+| Result | **21 suites, 275 passed, 0 failed, 0 skipped**; no counterexamples; 3,512 s test time, 2026-09-19 04:34 → 14:08 IST including lid-closed sleep |
+| Full profile | 1M fuzz, 2048 × 256 invariants: **not yet completed on the frozen code**. Runs during the audit and is reported as an addendum to `infra/audit/RESULTS.md` |
+
+Re-verified at the tag, all identical to the freeze figures: `arc-forge test` 259 passed (19
+suites); `cargo test --workspace` 19; differential 9 × 5,000; fork 8/8 (public Arc testnet RPC,
+read-only); gas identical; coverage 97.67% lines / 95.22% branches; Slither 0 High/Medium (76
+contracts, 64 detectors); storage layouts unchanged; sizes unchanged; in-scope nSLOC 3,339 (optional
+scripts 295 / 836). The mainnet dry run was not repeated (inputs unchanged since `9163a75`).
+
+Audit package fixes: `RESULTS.md` records the campaign; `KNOWN_ISSUES.md` states that services
+landing on `main` after the tag are out of scope; the Stellar-era `infra/audit/build-audit-package.sh`
+(Soroban/WASM instructions) is deleted together with its `audit:package` npm script.
+
+### Freeze policy after `audit-v1`
+
+- `audit-v1` names one commit. Auditors review the tag, not `main`.
+- Any change under `kryon-protocol/evm/src/**` after the tag ships with a recorded re-audit diff
+  (`git diff audit-v1 -- kryon-protocol/evm/src`) and gets a new annotated tag `audit-v1.N`.
+- The first planned one is **`audit-v1.1`**: the `arc-forge fmt` pass, whitespace only
+  (`git diff -w audit-v1 -- kryon-protocol/evm/src` empty), with `arc-forge fmt --check` added to CI.
+- Services, client and infra keep merging to `main`; they are out of the audit's scope.
+
+---
+
 ## Phase 1 freeze (2026-09-17)
 
-Branch `phase1/audit-freeze`. Audit package: `kryon-protocol/infra/audit/`. Tag: `audit-v1` (pending).
+Branch `phase1/audit-freeze`. Audit package: `kryon-protocol/infra/audit/`. Tag: `audit-v1` (see the audit-freeze entry above).
 
 ### Decisions
 
@@ -61,7 +94,7 @@ Branch `phase1/audit-freeze`. Audit package: `kryon-protocol/infra/audit/`. Tag:
 | Storage layout | unchanged |
 | Sizes | all under 24,576 B (Engine 22,821, margin 1,755) |
 | Dry run: `DeployAll` + `99_VerifyDeployment` with the mainnet parameters on a local arc-anvil fork of Arc mainnet | `99_VerifyDeployment: OK`, **no WARN** |
-| Nightly (`49b79f2`, 1M fuzz, 2048×256 invariants) | in progress at branch time; see `infra/audit/RESULTS.md` |
+| Nightly (`49b79f2`, 1M fuzz, 2048×256 invariants) | died after 17 of 20 suites (0 failures); superseded by the 2026-09-19 campaign above |
 | In-scope nSLOC (`src/`) | 3,339 |
 
 ---

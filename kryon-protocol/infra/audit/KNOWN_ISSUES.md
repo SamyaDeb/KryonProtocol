@@ -3,6 +3,15 @@
 These are known and either accepted or tracked. Findings that restate an item here are welcome if
 they show a worse impact than described.
 
+## What is in the repository but not in scope
+
+The repository holds more than the audited contracts, and it keeps moving after the freeze. The
+off-chain services (matcher, order intake, liquidation and funding keepers, oracle keeper,
+reconciler, indexer, monitor, WebSocket and stats aggregator, API) and the frontend land on `main`
+**after** `audit-v1` and are **out of scope**, as [SCOPE.md](SCOPE.md) lists. The audited tree is
+`kryon-protocol/evm/src/**` at the `audit-v1` commit; nothing outside it was frozen, and later
+commits on `main` do not change it. Review the tag, not the branch tip.
+
 ## Accepted risks
 
 1. **A stale feed on a held market blocks that account's withdrawals, trading and liquidation.**
