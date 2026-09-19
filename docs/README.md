@@ -40,3 +40,5 @@ docs/
 
 Content is grounded in the live codebase (`client/`, `kryon-protocol/`) — keep
 it in sync when contracts, APIs, or services change.
+
+<!-- CI path-filter proof: docs-only change (throwaway, do not merge) -->
