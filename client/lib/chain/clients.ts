@@ -17,14 +17,14 @@ import {
   fallback,
   http,
   type Chain,
-  type Hex,
+  type LocalAccount,
   type PublicClient,
   type Transport,
   type WalletClient,
 } from "viem";
-import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 import type { ArcNetwork, Env } from "./networks";
+import { loadServiceSigner, type LoadSignerOptions } from "./signer";
 
 /** A viem chain built from our registry (not viem's defaults; see networks.ts). */
 export function arcChain(network: ArcNetwork, rpcUrls: string[] = [network.publicRpcUrl]): Chain {
@@ -84,18 +84,24 @@ export async function assertChainId(
   }
 }
 
-/** Load a service key from the environment. The key never touches disk here. */
-export function serviceAccount(envVar: string, env: Env = process.env): PrivateKeyAccount {
-  const raw = env[envVar];
-  if (!raw) throw new Error(`${envVar} is not set`);
-  const key = (raw.startsWith("0x") ? raw : `0x${raw}`) as Hex;
-  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error(`${envVar} is not a 32-byte hex private key`);
-  return privateKeyToAccount(key);
+/**
+ * Load a service's signing account. `keyEnvVar` names the role (see signer.ts):
+ * the key itself may be a raw env key (arc-local only), a keystore or a KMS key,
+ * chosen by `KRYON_SIGNER_<ROLE>`. Plaintext keys are refused off-local.
+ */
+export async function serviceAccount(
+  keyEnvVar: string,
+  network: ArcNetwork,
+  env: Env = process.env,
+  extra: Pick<LoadSignerOptions, "kms"> = {}
+): Promise<LocalAccount> {
+  const signer = await loadServiceSigner({ keyEnvVar, network: network.id, env, ...extra });
+  return signer.account;
 }
 
 export function createServiceWalletClient(
   network: ArcNetwork,
-  account: PrivateKeyAccount,
+  account: LocalAccount,
   urls = rpcUrlsFromEnv(network)
 ): WalletClient {
   return createWalletClient({ account, chain: arcChain(network, urls), transport: arcTransport(urls) });

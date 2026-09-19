@@ -41,7 +41,7 @@ async function main() {
   const sql = neon(databaseUrl);
 
   const ctx = await bootstrap({ service: SERVICE, sql, env });
-  const sender = createSender({ ctx, service: SERVICE, keyEnvVar: "REFILL_FUNDER_PRIVATE_KEY", env });
+  const sender = await createSender({ ctx, service: SERVICE, keyEnvVar: "REFILL_FUNDER_PRIVATE_KEY", env });
   const targets = parseTargets(env.REFILL_TARGETS);
   if (targets.length === 0) throw new Error("REFILL_TARGETS is empty");
   if (targets.some((t) => t.address.toLowerCase() === sender.address.toLowerCase())) {

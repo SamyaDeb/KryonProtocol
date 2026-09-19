@@ -59,7 +59,7 @@ async function main() {
   const sql = neon(databaseUrl);
 
   const ctx = await bootstrap({ service: SERVICE, sql, env });
-  const sender = createSender({
+  const sender = await createSender({
     ctx,
     service: SERVICE,
     keyEnvVar: "ORACLE_PUBLISHER_PRIVATE_KEY",
