@@ -3,8 +3,30 @@ import { db, withRetry } from "@/lib/db";
 import { getWsUrl } from "@/lib/network";
 import { listActiveMarkets } from "@/lib/queries/markets";
 import { networkFromRequest } from "@/lib/network-server";
+import { checkWebConfig, type ConfigReport } from "@/lib/config-check";
+
+// The configuration cannot change under a running process, so check it once.
+// Details go to the server log only: a public probe says how many problems
+// there are, never which variables are missing.
+let configReport: ConfigReport | null = null;
+function webConfig(): ConfigReport {
+  if (!configReport) {
+    configReport = checkWebConfig();
+    if (configReport.problems.length > 0) {
+      console.error(`ready: web configuration invalid:\n${configReport.problems.map((p) => `  - ${p}`).join("\n")}`);
+    }
+  }
+  return configReport;
+}
 
 export async function GET(req: NextRequest) {
+  const config = webConfig();
+  if (config.problems.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: "config_invalid", problems: config.problems.length, timestamp: new Date().toISOString() },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const network = networkFromRequest(req);
   try {
     const sql = db(network);

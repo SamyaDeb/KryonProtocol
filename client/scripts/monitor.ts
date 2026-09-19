@@ -67,6 +67,7 @@ import {
 } from "@/lib/monitor/roles";
 import { MonitorStore } from "@/lib/monitor/store";
 import { neon } from "@/lib/sql";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "monitor";
 const ONCE = process.argv.includes("--once");
@@ -74,6 +75,8 @@ const PRINT_BASELINE = process.argv.includes("--print-role-baseline");
 const PRINT_CHECKS = process.argv.includes("--print-checks");
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("monitor");
   const env = process.env;
 
   // Needs no network, database or key: it is the documentation of the rules.

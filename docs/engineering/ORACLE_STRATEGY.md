@@ -169,6 +169,10 @@ Market removal is **not** in the keeper workstream's ownership and is tracked as
 
 Market ids are explicit in config, so removing two markets renumbers nothing.
 
+**Status (2026-09-19):** all three environment TOMLs now list the same six markets; arc-local
+was the last. What remains is the API/UI (`client/lib/markets.ts`, `LandingPage.tsx`,
+`TradeChart.tsx`), the legacy deploy scripts and `docs/docs/**`.
+
 ---
 
 ## 5. Testnet and local testing
@@ -183,7 +187,7 @@ in the tree, for the arc-anvil drills. This is unchanged by anything above.
 
 | # | Item | Owner | Blocked on |
 |---|---|---|---|
-| 1 | ADA/XLM removal across config, API, UI and docs (§4.2) | unassigned | ownership decision |
+| 1 | ADA/XLM removal across config, API, UI and docs (§4.2). **Config done**: gone from all three environment TOMLs (arc-local on 2026-09-19). API, UI, deploy scripts and docs remain | owners in §4.2 | — |
 | 2 | Tier 1 adoption | keepers | Chainlink shipping Data Streams on Arc |
 | 3 | Tier 2 `OracleAdapter` change + audit round | contracts | audit freeze clearing, and #2 |
 | 4 | Re-check Pyth / RedStone / Chronicle Arc mainnet status | unassigned | — periodic |

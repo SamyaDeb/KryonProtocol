@@ -31,6 +31,7 @@ import { createLogger, envInt, Metrics, shutdownSignal, systemClock, runLoop, ty
 import { isArcNetworkId } from "@/lib/network";
 import { indexedHead } from "@/lib/queries/analytics";
 import { StatsAggregator } from "@/lib/stats/aggregator";
+import { assertServiceConfig } from "@/lib/config-check";
 
 const SERVICE = "stats";
 
@@ -47,6 +48,8 @@ function databaseUrl(network: string): string {
 }
 
 async function main() {
+  // Every configuration problem at once, before anything connects or signs.
+  assertServiceConfig("stats-aggregator");
   const env = process.env;
   const log = createLogger(SERVICE, (env.LOG_LEVEL as LogLevel | undefined) ?? "info");
 

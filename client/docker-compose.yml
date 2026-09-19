@@ -1,45 +1,158 @@
-version: "3.9"
-
-# Runs all Kryon background services locally in production mode.
-# Secrets are read from .env.local — never commit that file.
+# Every Kryon background service, as production runs them.
+#
+# Configuration, per service (env/README.md):
+#   env/common.env      shared and non-secret: KRYON_NETWORK, DATABASE_URL,
+#                       ARC_RPC_URLS, KRYON_DEPLOYMENT_FILE, KRYON_KMS_REGION, ...
+#   env/<service>.env   that service's own settings and its ONE signing key's
+#                       custody (KRYON_SIGNER_<ROLE>=kms:<keyId> | keystore).
+#                       No two services share a key file: TxSender owns its
+#                       key's nonce.
+# Real env files are gitignored; env/*.env.example lists the variable names.
+# Each service checks its whole configuration at boot (lib/config-check.ts)
+# and exits with every problem listed if anything is missing.
+#
+# Health: the matcher, ws-server and monitor serve HTTP health endpoints; the
+# rest write /tmp/kryon.heartbeat after every successful tick, and are marked
+# unhealthy (and restarted by the orchestrator) when it goes stale.
 #
 # Usage:
-#   docker compose up --build
-#   docker compose down
+#   docker compose config        # validate
+#   docker compose up -d --build
+#   docker compose ps            # health per service
 
-x-common: &common
+x-service: &service
   build:
     context: .
     dockerfile: Dockerfile.services
-  env_file: .env.local
   restart: unless-stopped
+  stop_grace_period: 30s
+  read_only: true
+  tmpfs:
+    - /tmp
+  volumes:
+    # The deployment record (KRYON_DEPLOYMENT_FILE) and, for keystore custody,
+    # the keystore files. Read-only.
+    - ./deployments:/app/deployments:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
+
+# Fresh if the heartbeat file was written within HB_MAX_AGE_MS.
+x-heartbeat: &heartbeat
+  test:
+    - CMD
+    - node
+    - -e
+    - "const s=require('fs').statSync(process.env.KRYON_HEARTBEAT_FILE);process.exit(Date.now()-s.mtimeMs<Number(process.env.HB_MAX_AGE_MS)?0:1)"
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
 
 services:
+  # Two publishers on distinct keys, so the oracle quorum is real. In
+  # production they run on separate hosts.
   oracle-keeper:
-    <<: *common
-    environment:
-      SERVICE: oracle-keeper
+    <<: *service
+    env_file: [env/common.env, env/oracle-keeper.env]
+    environment: { SERVICE: oracle-keeper, HB_MAX_AGE_MS: "30000" }
+    healthcheck: *heartbeat
+
+  oracle-keeper-2:
+    <<: *service
+    env_file: [env/common.env, env/oracle-keeper-2.env]
+    environment: { SERVICE: oracle-keeper, HB_MAX_AGE_MS: "30000" }
+    healthcheck: *heartbeat
 
   matcher:
-    <<: *common
-    environment:
-      SERVICE: matcher-service
+    <<: *service
+    env_file: [env/common.env, env/matcher.env]
+    environment: { SERVICE: matcher-service, MATCHER_HEALTH_PORT: "9101" }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9101/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   state-indexer:
-    <<: *common
-    environment:
-      SERVICE: state-indexer
-
-  ws-server:
-    <<: *common
-    environment:
-      SERVICE: ws-server
-      PORT: "8080"
-    ports:
-      - "8080:8080"
+    <<: *service
+    env_file: [env/common.env, env/state-indexer.env]
+    environment: { SERVICE: state-indexer, HB_MAX_AGE_MS: "120000" }
+    healthcheck: *heartbeat
 
   reconciler:
-    <<: *common
+    <<: *service
+    env_file: [env/common.env, env/reconciler.env]
+    environment: { SERVICE: settlement-reconciler, HB_MAX_AGE_MS: "120000" }
+    healthcheck: *heartbeat
+
+  funding-keeper:
+    <<: *service
+    env_file: [env/common.env, env/funding-keeper.env]
+    environment: { SERVICE: funding-keeper, HB_MAX_AGE_MS: "180000" }
+    healthcheck: *heartbeat
+
+  liquidation-keeper:
+    <<: *service
+    env_file: [env/common.env, env/liquidation-keeper.env]
+    environment: { SERVICE: liquidation-keeper, HB_MAX_AGE_MS: "60000" }
+    healthcheck: *heartbeat
+
+  keeper-refill:
+    <<: *service
+    env_file: [env/common.env, env/keeper-refill.env]
+    environment: { SERVICE: keeper-refill, SERVICE_ARGS: "--execute --loop", HB_MAX_AGE_MS: "300000" }
+    healthcheck: *heartbeat
+
+  ws-server:
+    <<: *service
+    env_file: [env/common.env, env/ws-server.env]
+    environment: { SERVICE: ws-server, WS_PORT: "8080" }
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  stats-aggregator:
+    <<: *service
+    env_file: [env/common.env, env/stats-aggregator.env]
+    environment: { SERVICE: stats-aggregator, HB_MAX_AGE_MS: "300000" }
+    healthcheck: *heartbeat
+
+  # Signs orders only; sends no transactions. Idle until governance sets
+  # Insurance unwind limits and grants BACKSTOP_SIGNER_ROLE.
+  backstop-unwinder:
+    <<: *service
+    env_file: [env/common.env, env/backstop-unwinder.env]
+    environment: { SERVICE: backstop-unwinder, HB_MAX_AGE_MS: "120000" }
+    healthcheck: *heartbeat
+
+  # Dry run unless FEE_TIER_BOT_ENABLED=true in env/fee-tier-bot.env.
+  fee-tier-bot:
+    <<: *service
+    env_file: [env/common.env, env/fee-tier-bot.env]
+    environment: { SERVICE: fee-tier-bot, HB_MAX_AGE_MS: "1200000" }
+    healthcheck: *heartbeat
+
+  # Read-only, no key. Watches every service above.
+  monitor:
+    <<: *service
+    env_file: [env/common.env, env/monitor.env]
     environment:
-      SERVICE: settlement-reconciler
-      SETTLEMENT_JOB_MAX_AGE_MINUTES: "15"
+      SERVICE: monitor
+      MONITOR_WS_URL: ws://ws-server:8080
+      MONITOR_HTTP_HOST: 127.0.0.1
+      MONITOR_HTTP_PORT: "9464"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9464/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
