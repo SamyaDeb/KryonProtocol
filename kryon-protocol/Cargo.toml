@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.84.0"
 
 [workspace.dependencies]
-soroban-sdk = "23.0.0"
+soroban-sdk = "27.0.6"
 protocol-core = { path = "crates/protocol-core" }
 risk-engine = { path = "crates/risk-engine" }
 
