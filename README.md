@@ -1,5 +1,10 @@
 # Kryon Protocol
 
+[![ci](https://github.com/SamyaDeb/KryonProtocol/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SamyaDeb/KryonProtocol/actions/workflows/ci.yml)
+[![codeql](https://github.com/SamyaDeb/KryonProtocol/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/SamyaDeb/KryonProtocol/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/SamyaDeb/KryonProtocol/badge)](https://scorecard.dev/viewer/?uri=github.com/SamyaDeb/KryonProtocol)
+[![latest release](https://img.shields.io/github/v/release/SamyaDeb/KryonProtocol?display_name=tag&sort=semver)](https://github.com/SamyaDeb/KryonProtocol/releases)
+
 Kryon is a perpetual-futures exchange on **Arc**, Circle's EVM layer 1. Orders
 are matched off-chain by price and time; custody, margin, funding,
 liquidation, fees and settlement are enforced by Solidity contracts, with USDC

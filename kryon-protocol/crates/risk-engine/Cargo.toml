@@ -2,6 +2,10 @@
 name = "risk-engine"
 description = "Pure account-risk, margin, funding, and liquidation engine."
 version.workspace = true
+# Internal to this workspace; never published to crates.io (kryon-ref already
+# declares this). It also lets cargo-deny accept the path dependencies between
+# these crates as deliberate rather than wildcard requirements.
+publish = false
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
