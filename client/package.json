@@ -26,6 +26,7 @@
     "test": "node scripts/run-unit-tests.mjs",
     "dev:funding": "tsx --env-file=.env.local scripts/funding-keeper.ts",
     "drill:liquidation": "tsx scripts/liquidation-drill.ts",
+    "drill:backstop": "tsx scripts/backstop-drill.ts",
     "governance:handover": "tsx --env-file=.env.local scripts/governance-handover.ts",
     "risk:params": "tsx --env-file=.env.local scripts/set-risk-params.ts",
     "contracts:upgrade": "tsx scripts/upgrade-contracts.ts",
