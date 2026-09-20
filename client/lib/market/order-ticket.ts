@@ -26,6 +26,12 @@ export interface TicketMarket {
   maintenanceMarginBps: number;
   /** 1e18 USD: the gateway rejects smaller fills. */
   minFillNotional: bigint;
+  /**
+   * How far from the index a fill may settle. `Engine.applyFill` reverts
+   * `PriceOutsideBand` beyond it, so it is the hard ceiling on what any order
+   * can ever execute at — including a market order's slippage.
+   */
+  maxExecutionDeviationBps: number;
 }
 
 export interface TicketHealth {
@@ -78,6 +84,11 @@ export interface TicketResult {
   execPrice: bigint | null;
   crosses: boolean;
   notional: bigint;
+  /**
+   * True when the market order's slippage asked for more room than the
+   * execution band allows and was cut back to the band's edge.
+   */
+  slippageClamped: boolean;
   /** Signed fee estimate, 1e18: taker when crossing, maker (maybe a rebate) when resting. */
   fee: bigint;
   /** Initial margin the order's own notional needs. */
@@ -113,6 +124,7 @@ export function evaluateTicket(x: TicketInput): TicketResult {
 
   // ── Price ──
   let limitPrice: bigint | null = null;
+  let slippageClamped = false;
   if (x.kind === "limit") {
     limitPrice = x.limitPrice !== null && x.limitPrice > 0n ? x.limitPrice : null;
     if (limitPrice === null) errors.push("no_price");
@@ -122,6 +134,20 @@ export function evaluateTicket(x: TicketInput): TicketResult {
     else {
       const slip = BigInt(Math.max(0, Math.round(x.slippageBps)));
       limitPrice = buy ? (reference * (BPS + slip)) / BPS : (reference * (BPS - slip)) / BPS;
+      // Nothing settles outside the execution band, so slippage past its edge
+      // buys no fill — it only signs a price the chain would refuse. Worse, an
+      // order that rests there becomes a maker whose limit IS the execution
+      // price (lib/market/matching-engine.ts), so it cannot be matched until
+      // the index travels all the way to it, and then it trades at that bad
+      // price. Cut it back to the furthest price a fill can actually reach.
+      const band = BigInt(Math.max(0, Math.round(x.market.maxExecutionDeviationBps)));
+      if (x.indexPrice > 0n) {
+        const edge = buy ? (x.indexPrice * (BPS + band)) / BPS : (x.indexPrice * (BPS - band)) / BPS;
+        if (buy ? limitPrice > edge : limitPrice < edge) {
+          limitPrice = edge;
+          slippageClamped = true;
+        }
+      }
       if (limitPrice <= 0n) limitPrice = 1n;
     }
   }
@@ -180,6 +206,7 @@ export function evaluateTicket(x: TicketInput): TicketResult {
     limitPrice,
     execPrice,
     crosses,
+    slippageClamped,
     notional: orderNotional,
     fee,
     orderMargin,

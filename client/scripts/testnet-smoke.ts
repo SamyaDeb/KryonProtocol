@@ -96,6 +96,11 @@ async function main() {
   check(!!m && m.active, `market ${MARKET} (${m?.symbol}) is active`, `index ${usd(BigInt(m.index_price), 18)}`);
   const minFill = BigInt(m.min_fill_notional ?? "0");
   const indexPrice = BigInt(m.index_price);
+  const BPS = 10_000n;
+  // What the UI would ask for on a one-click close, and what the market allows.
+  const REQUESTED_CLOSE_SLIPPAGE_BPS = 500n;
+  const bandBps = BigInt(m.max_execution_deviation_bps ?? 75);
+  const bandLimited = REQUESTED_CLOSE_SLIPPAGE_BPS > bandBps;
 
   step("1. deposit real USDC");
   const before: Record<string, bigint> = {};
@@ -206,10 +211,11 @@ async function main() {
       marketId: MARKET,
       isLong,
       size: orderSize < 0n ? -orderSize : orderSize,
-      // Inside the market's execution band: a maker priced outside it can
-      // never be filled, because Engine.applyFill reverts on the deviation and
-      // the matcher refuses to build that batch (lib/matcher/band.ts).
-      limitPrice: isLong ? (price * 10_050n) / 10_000n : (price * 9_950n) / 10_000n,
+      // A close asks for generous slippage, as the UI's one-click close does,
+      // and the band is what it actually gets: past that edge Engine.applyFill
+      // reverts, and an order resting there is a maker whose price can never
+      // be matched. lib/market/order-ticket.ts does this for the UI.
+      limitPrice: isLong ? (price * (BPS + bandBps)) / BPS : (price * (BPS - bandBps)) / BPS,
       reduceOnly,
       nonce: BigInt(Date.now()) + BigInt(Math.floor(Math.random() * 1000)),
       expiry: orderExpiry,
@@ -302,7 +308,10 @@ async function main() {
   step("5. close the position (reduce-only, both sides)");
   const closeExpiry = BigInt(Math.floor(Date.now() / 1000) + 900);
   const openSize = (await getPosition(bob.addr)).size;
-  note(`closing ${formatUnits(openSize, 18)} on both sides`);
+  note(
+    `closing ${formatUnits(openSize, 18)} on both sides, asking ${REQUESTED_CLOSE_SLIPPAGE_BPS}bps` +
+      (bandLimited ? ` and held to the market's ${bandBps}bps band` : "")
+  );
   await submitRaw(alice, true, openSize, closeExpiry, true);
   await submitRaw(bob, false, openSize, closeExpiry, true);
   const flat = await waitFor(

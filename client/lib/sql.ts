@@ -25,7 +25,18 @@
  */
 
 import { neon as neonHttp, neonConfig as neonHttpConfig } from "@neondatabase/serverless";
-import { Pool, type PoolConfig } from "pg";
+import { Pool, types as pgTypes, type PoolConfig } from "pg";
+
+// `timestamp without time zone` (OID 1114) carries no offset, and node-postgres
+// parses it with the READING PROCESS's timezone. Every such column here holds
+// UTC (see utcParams below and the session pinned on connect), so say so:
+// otherwise the same row means one instant to a service that pins itself to
+// UTC and another to the web app that does not, and every age, staleness and
+// ordering comparison between them is off by the host's offset.
+export function parseUtcTimestamp(value: string): Date {
+  return new Date(`${value.replace(" ", "T")}Z`);
+}
+pgTypes.setTypeParser(pgTypes.builtins.TIMESTAMP, parseUtcTimestamp);
 
 /** Marker for raw SQL that must be spliced literally rather than parameterised. */
 class RawSql {
@@ -65,6 +76,28 @@ function isNeonUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A Date parameter, as UTC.
+ *
+ * node-postgres formats a Date with the WRITING PROCESS's timezone offset, so
+ * the same instant lands in a `timestamp` column as a different wall time on a
+ * host in Asia/Kolkata than on one in UTC — and the services, which pin
+ * themselves to UTC, then read it back skewed. Worse, two writers with
+ * different zones disagree about the order of the same events, and
+ * `Order.createdAt` is what price-time priority is decided on. Sending an ISO
+ * string in UTC makes the value mean the same thing no matter who writes it.
+ */
+export function utcParams(params: unknown[]): unknown[] {
+  let copy: unknown[] | null = null;
+  for (let i = 0; i < params.length; i++) {
+    if (params[i] instanceof Date) {
+      copy ??= [...params];
+      copy[i] = (params[i] as Date).toISOString();
+    }
+  }
+  return copy ?? params;
 }
 
 // One pool per connection string per process. The services are long-lived, so
@@ -157,7 +190,7 @@ export function neon(url: string): SqlClient {
 
   const client = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const { text, params } = buildQuery(strings, values);
-    const res = await getPool(url).query(text, params as never[]);
+    const res = await getPool(url).query(text, utcParams(params) as never[]);
     return res.rows as Row[];
   }) as SqlClient;
 
@@ -165,7 +198,7 @@ export function neon(url: string): SqlClient {
   // Generic to match the interface: the caller declares the row shape, exactly
   // as it does for the tagged-template form.
   client.query = async <T = Row[]>(text: string, params: unknown[] = []) => {
-    const res = await getPool(url).query(text, params as never[]);
+    const res = await getPool(url).query(text, utcParams(params) as never[]);
     return res.rows as T;
   };
   client.unsafe = (text: string) => new RawSql(text);

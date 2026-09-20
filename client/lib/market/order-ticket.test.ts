@@ -11,7 +11,7 @@ const E18 = 10n ** 18n;
 const usd = (n: number | bigint) => BigInt(n) * E18;
 
 const base = (over: Partial<TicketInput> = {}): TicketInput => ({
-  market: { active: true, initialMarginBps: 200, maintenanceMarginBps: 100, minFillNotional: usd(40) },
+  market: { active: true, initialMarginBps: 200, maintenanceMarginBps: 100, minFillNotional: usd(40), maxExecutionDeviationBps: 75 },
   side: "buy",
   kind: "limit",
   size: E18 / 10n, // 0.1 BTC
@@ -41,17 +41,49 @@ test("a resting limit: maker fee, no errors, IM on its notional", () => {
 });
 
 test("a market buy: slippage-bounded limit over the best ask, fills at the ask, taker fee", () => {
+  // 100bps of slippage off a 60,100 ask is 60,701, past the 75bps band around
+  // the 60,000 index, so the signed price is the band's edge instead.
   const r = evaluateTicket(base({ kind: "market", limitPrice: null }));
   assert.deepEqual(r.errors, []);
-  assert.equal(r.limitPrice, (usd(60_100) * 10_100n) / 10_000n);
+  assert.equal(r.limitPrice, (usd(60_000) * 10_075n) / 10_000n);
+  assert.equal(r.slippageClamped, true);
   assert.equal(r.crosses, true);
   assert.equal(r.execPrice, usd(60_100));
   assert.equal(r.fee, (usd(6_010) * 350n) / 1_000_000n);
 });
 
+test("slippage inside the band is left alone", () => {
+  const r = evaluateTicket(base({ kind: "market", limitPrice: null, slippageBps: 25 }));
+  assert.equal(r.limitPrice, (usd(60_100) * 10_025n) / 10_000n, "off the ask, as asked");
+  assert.equal(r.slippageClamped, false);
+});
+
+test("a market order never signs a price the chain would refuse", () => {
+  // The band is what Engine.applyFill enforces; past its edge a fill is not a
+  // trade but a guaranteed rejection, and an order resting there is a maker
+  // whose price can never be matched.
+  for (const side of ["buy", "sell"] as const) {
+    for (const slippageBps of [100, 500, 5_000]) {
+      const r = evaluateTicket(base({ kind: "market", limitPrice: null, side, slippageBps, bestBid: null, bestAsk: null }));
+      const edge = side === "buy" ? (usd(60_000) * 10_075n) / 10_000n : (usd(60_000) * 9_925n) / 10_000n;
+      assert.equal(r.limitPrice, edge, `${side} at ${slippageBps}bps`);
+      assert.equal(r.slippageClamped, true);
+    }
+  }
+});
+
+test("a limit order outside the band is still the user's to place", () => {
+  // Unlike a market order, a resting limit is a standing offer: the band is
+  // measured at fill time, so it becomes fillable when the index reaches it.
+  const r = evaluateTicket(base({ side: "buy", limitPrice: usd(50_000) }));
+  assert.equal(r.limitPrice, usd(50_000), "left exactly as typed");
+  assert.equal(r.slippageClamped, false);
+});
+
 test("a market sell with an empty book prices off the index", () => {
   const r = evaluateTicket(base({ kind: "market", side: "sell", bestBid: null, bestAsk: null }));
-  assert.equal(r.limitPrice, (usd(60_000) * 9_900n) / 10_000n);
+  // ...and the band still caps it: 100bps asked, 75bps is all a fill can use.
+  assert.equal(r.limitPrice, (usd(60_000) * 9_925n) / 10_000n);
   assert.equal(r.crosses, false, "nothing to cross: it rests");
   const none = evaluateTicket(base({ kind: "market", bestAsk: null, indexPrice: 0n }));
   assert.ok(none.errors.includes("no_reference_price"));
@@ -69,7 +101,7 @@ test("minimum fill notional", () => {
 });
 
 test("inactive market: blocked, except a reduce-only close", () => {
-  const paused = { active: false, initialMarginBps: 200, maintenanceMarginBps: 100, minFillNotional: usd(40) };
+  const paused = { active: false, initialMarginBps: 200, maintenanceMarginBps: 100, minFillNotional: usd(40), maxExecutionDeviationBps: 75 };
   assert.ok(evaluateTicket(base({ market: paused })).errors.includes("market_inactive"));
   const close = evaluateTicket(
     base({ market: paused, side: "sell", reduceOnly: true, position: { size: E18 / 10n, openNotional: usd(6_000) } })
