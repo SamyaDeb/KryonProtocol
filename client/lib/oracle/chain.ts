@@ -6,7 +6,7 @@
 
 import type { Address, Hex, PublicClient } from "viem";
 
-import { oracleAdapterAbi } from "@/lib/chain/contracts";
+import { oracleAdapterAbi, riskParamsAbi } from "@/lib/chain/contracts";
 import { readReferencePrice } from "@/lib/chain/refprice";
 
 import type { FeedState, Observation } from "./guards";
@@ -21,9 +21,49 @@ export function viemOracleChain(o: {
   /** Chainlink USDC/USD on this network, if any. */
   usdcReference?: Address | null;
   usdcReferenceMaxAgeSecs?: number;
+  /**
+   * RiskParams, so the publisher can tell which feeds back a market anyone
+   * can actually trade. Omitted, every feed is treated as traded and the
+   * cadence is uniform, as it was before.
+   */
+  riskParams?: Address | null;
+  /** How long the market listing may be reused (ms). Governance changes it
+   *  through a 48-hour timelock, so this can be generous. */
+  marketsTtlMs?: number;
 }): OracleChain {
   const { client, oracle } = o;
   const c = { address: oracle, abi: oracleAdapterAbi } as const;
+  const marketsTtlMs = o.marketsTtlMs ?? 60_000;
+  let markets: { at: number; feedIds: ReadonlySet<Hex> } | null = null;
+
+  /**
+   * The oracle ids of markets that are listed AND active: the feeds a trade
+   * can be priced against right now. Cached, because a tick runs every second
+   * and this only changes when governance says so.
+   */
+  async function tradedFeedIds(nowMs: number): Promise<ReadonlySet<Hex> | null> {
+    const risk = o.riskParams;
+    if (!risk) return null;
+    if (markets && nowMs - markets.at < marketsTtlMs) return markets.feedIds;
+    const r = { address: risk, abi: riskParamsAbi } as const;
+    const ids = (await client.multicall({
+      allowFailure: false,
+      contracts: [{ ...r, functionName: "marketIds" }],
+    })) as unknown as [readonly number[]];
+    const marketIds = ids[0] ?? [];
+    const params = marketIds.length
+      ? ((await client.multicall({
+          allowFailure: false,
+          contracts: marketIds.map((id) => ({ ...r, functionName: "market", args: [id] })) as never,
+        })) as unknown as Array<{ oracleId: Hex; active: boolean; listed: boolean }>)
+      : [];
+    const set = new Set<Hex>();
+    params.forEach((p) => {
+      if (p.active && p.listed) set.add(p.oracleId.toLowerCase() as Hex);
+    });
+    markets = { at: nowMs, feedIds: set };
+    return set;
+  }
 
   return {
     async readState(): Promise<OracleState> {
@@ -103,6 +143,7 @@ export function viemOracleChain(o: {
         publishers: [...pubs],
         feeds,
         chainNow: Number(block.timestamp),
+        tradedFeedIds: await tradedFeedIds(Date.now()),
       };
     },
 

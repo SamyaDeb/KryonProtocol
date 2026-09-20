@@ -51,6 +51,14 @@ export interface OracleState {
   feeds: FeedState[];
   /** Latest block timestamp: the only clock the contract's rules use. */
   chainNow: number;
+  /**
+   * Feeds backing a market that can actually be traded right now, or null
+   * when the publisher has no way to tell (no RiskParams wired). Everything
+   * else is published on the idle cadence: still fresh enough to quote and to
+   * list a market from, but not paid for at trading speed. Absent means the
+   * same as null: treat every feed as traded.
+   */
+  tradedFeedIds?: ReadonlySet<Hex> | null;
 }
 
 export interface OracleChain {
@@ -77,6 +85,11 @@ export interface PublisherOptions {
   actions: KeeperActions;
   aggregate: AggregateOptions;
   policy: PolicyOptions;
+  /**
+   * The cadence for feeds no one can trade against (see
+   * `OracleState.tradedFeedIds`). Omitted, every feed uses `policy`.
+   */
+  idlePolicy?: PolicyOptions;
   /** Quotes older than this (wall clock) are ignored. */
   maxQuoteAgeMs: number;
   usdcDepegHaltBps: bigint;
@@ -255,11 +268,17 @@ export class OraclePublisher {
         continue;
       }
       const agg: AggregateResult = aggregate(feed.symbol, live, this.o.aggregate);
+      // A market that is paused or unlisted cannot take an order, so its feed
+      // buys nothing at trading cadence — and on a venue that lists more
+      // markets than it opens, those feeds are most of the gas bill.
+      const traded = !state.tradedFeedIds || state.tradedFeedIds.has(feed.id.toLowerCase() as Hex);
+      const policy = traded ? this.o.policy : (this.o.idlePolicy ?? this.o.policy);
+      if (!traded) metrics.inc("oracle_idle_feed_ticks_total");
       const d = decide(
         feed,
         agg as Parameters<typeof decide>[1],
         { self, publishers: state.publishers, publishTime, chainNow: state.chainNow },
-        this.o.policy
+        policy
       );
       decisions.set(feed.symbol, d);
       if (d.action === "publish") toPublish.push({ feed, price: d.price, confidence: d.confidence, decision: d });

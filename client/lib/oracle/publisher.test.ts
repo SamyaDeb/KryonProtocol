@@ -17,7 +17,7 @@ import type { TxOutcome, TxRequest } from "@/lib/chain/tx-sender";
 import type { SqlClient } from "@/lib/sql";
 import { KeeperActions, Metrics, createLogger } from "@/lib/keepers/runtime";
 
-import type { FeedState } from "./guards";
+import type { FeedState, PolicyOptions } from "./guards";
 import { OraclePublisher, classifyRevert, outcomesFromReceipt, symbolOf, type OracleState } from "./publisher";
 import type { PriceSource } from "./sources";
 
@@ -120,7 +120,7 @@ let actions: { sql: SqlClient; queries: { text: string; params: unknown[] }[] };
 let prices: Record<string, number>;
 let usdc: number;
 
-function publisher() {
+function publisher(over: { idlePolicy?: PolicyOptions } = {}) {
   const log = createLogger("t", "debug", {}, (line) => {
     const { level, msg, ...fields } = JSON.parse(line);
     logs.push({ level, msg, fields });
@@ -146,6 +146,7 @@ function publisher() {
     actions: new KeeperActions(actions.sql, "arc-local"),
     aggregate: { minSources: 2, maxSourceDeviationBps: 50n },
     policy: { deviationBps: 5n, heartbeatSecs: 5, inclusionMarginSecs: 3, maxRefDivergenceBps: 0 },
+    ...over,
     maxQuoteAgeMs: 5_000,
     usdcDepegHaltBps: 100n,
     depegFailClosed: true,
@@ -321,5 +322,67 @@ describe("helpers", () => {
     const l = eventLog("PriceUpdated", { id: oracleId("BTC"), price: 1n, confidence: 0n, publishTime: 1n, writeTime: 1n, sourceCount: 1 });
     const foreign = { ...l, address: "0x00000000000000000000000000000000000000dd" } as Log;
     assert.equal(outcomesFromReceipt(receipt([foreign]), ORACLE).size, 0);
+  });
+});
+
+describe("the cadence a feed is worth", () => {
+  const recent = (f: FeedState): FeedState => ({
+    ...f,
+    // Due under the trading heartbeat (5s), not under the idle one (60s), and
+    // not moved far enough for either deviation threshold.
+    observations: new Map([
+      [SELF.toLowerCase(), { price: 100n * E18, confidence: 0n, publishTime: CHAIN_NOW - 6 }],
+      [PEER.toLowerCase(), { price: 100n * E18, confidence: 0n, publishTime: CHAIN_NOW - 4 }],
+    ]),
+  });
+  const IDLE: PolicyOptions = { deviationBps: 50n, heartbeatSecs: 60, inclusionMarginSecs: 3, maxRefDivergenceBps: 0 };
+
+  test("a feed whose market is closed is not paid for at trading speed", async () => {
+    state = {
+      paused: false,
+      publishers: [SELF, PEER],
+      feeds: [recent(feedState("BTC")), recent(feedState("ETH"))],
+      chainNow: CHAIN_NOW,
+      // ETH is listed on the oracle but its market is shut: nobody can trade
+      // against that price, so it does not earn a push every heartbeat.
+      tradedFeedIds: new Set([oracleId("BTC") as Hex]),
+    };
+    const r = await publisher({ idlePolicy: IDLE }).tick();
+    assert.equal(r.status, "published");
+    const sent = pusher.submitted[0].data!.toLowerCase();
+    assert.ok(sent.includes(oracleId("BTC").slice(2).toLowerCase()), "BTC is published");
+    assert.ok(!sent.includes(oracleId("ETH").slice(2).toLowerCase()), "ETH is not");
+  });
+
+  test("an idle feed still publishes once its own heartbeat is due", async () => {
+    const stale = (f: FeedState): FeedState => ({
+      ...f,
+      observations: new Map([
+        [SELF.toLowerCase(), { price: 100n * E18, confidence: 0n, publishTime: CHAIN_NOW - 61 }],
+        [PEER.toLowerCase(), { price: 100n * E18, confidence: 0n, publishTime: CHAIN_NOW - 4 }],
+      ]),
+    });
+    state = {
+      paused: false,
+      publishers: [SELF, PEER],
+      feeds: [stale(feedState("ETH"))],
+      chainNow: CHAIN_NOW,
+      tradedFeedIds: new Set<Hex>(),
+    };
+    const r = await publisher({ idlePolicy: IDLE }).tick();
+    assert.equal(r.status, "published", "a closed market's price still has to be quotable");
+  });
+
+  test("without a market listing, every feed keeps the trading cadence", async () => {
+    state = {
+      paused: false,
+      publishers: [SELF, PEER],
+      feeds: [recent(feedState("BTC")), recent(feedState("ETH"))],
+      chainNow: CHAIN_NOW,
+      tradedFeedIds: null,
+    };
+    await publisher({ idlePolicy: IDLE }).tick();
+    const sent = pusher.submitted[0].data!.toLowerCase();
+    assert.ok(sent.includes(oracleId("ETH").slice(2).toLowerCase()), "ETH is published as before");
   });
 });
