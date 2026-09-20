@@ -16,6 +16,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
 import {
+  decodeFunctionData,
   encodeAbiParameters,
   encodeErrorResult,
   encodeEventTopics,
@@ -107,6 +108,9 @@ class FakeChain {
   minedNonce = 0;
   gasPerFill = 380_000n;
   outcomes = new Map<string, FillOutcome>();
+  /** What a fill id with no entry above gets. A retry derives a NEW fill id,
+   *  so a test about repeated rejections has to say so here. */
+  defaultOutcome: FillOutcome = { kind: "settled" };
   revertWith: string | null = null;
   /** Fill counts of every batch it was asked to settle, in order. */
   submittedBatchSizes: number[] = [];
@@ -211,7 +215,7 @@ class FakeChain {
       } as unknown as TransactionReceipt;
     }
     const logs = fills.map((fillId, i) => {
-      const outcome = this.outcomes.get(fillId.toLowerCase()) ?? { kind: "settled" };
+      const outcome = this.outcomes.get(fillId.toLowerCase()) ?? this.defaultOutcome;
       if (outcome.kind === "settled") this.settledFillIds.push(fillId);
       return outcome.kind === "settled" ? settledLog(fillId, i) : rejectedLog(fillId, outcome.error, i);
     });
@@ -227,15 +231,14 @@ class FakeChain {
 
   /** The fill ids inside a `settleFillsSigned` calldata blob. */
   private fillIdsIn(data: Hex): Hex[] {
-    // Each fill's first word is its id; rather than decode the whole struct
-    // array, look up the ids this run has issued.
-    const body = data.slice(10).toLowerCase();
-    const found: Hex[] = [];
-    for (const id of issuedFillIds) {
-      const index = body.indexOf(id.slice(2).toLowerCase());
-      if (index >= 0) found.push([index, id] as never);
-    }
-    return (found as unknown as [number, Hex][]).sort((a, b) => a[0] - b[0]).map(([, id]) => id);
+    // Decode the batch the way the gateway would. Scanning for ids this run
+    // had issued up front looked equivalent, but a retry derives a NEW fill id
+    // (the sequence breaks the tie against the earlier row), so the batch came
+    // back empty and the retry was neither settled nor rejected but silently
+    // unaccounted — which hid the retry storm this suite now tests for.
+    const { args } = decodeFunctionData({ abi: orderGatewayAbi, data });
+    const fills = (args?.[0] ?? []) as readonly { fillId: Hex }[];
+    return fills.map((f) => f.fillId);
   }
 }
 
@@ -604,6 +607,59 @@ describe("matcher against Postgres", { skip: !url, concurrency: 1 }, () => {
       const alice = book.find((o) => o.orderHash === askHash)!;
       assert.equal(alice.filledSize, 0n);
       assert.equal(matcher.metrics.fillsRejected, 1);
+    });
+
+    test("a refused pair is not re-offered on the next tick, and gas is not burned again", async () => {
+      // The storm this prevents: the reason is retryable, so the size goes
+      // back on the book and the same pair matches again immediately. On the
+      // live testnet venue that cost 52 rejected batches in minutes.
+      await seedCross();
+      const chain = new FakeChain();
+      chain.defaultOutcome = { kind: "rejected", error: "InsufficientCollateral" };
+      const clock = new FakeClock();
+      const { matcher } = newMatcher(chain, clock);
+
+      await matcher.tick();
+      assert.equal(chain.submittedBatchSizes.length, 1, "offered once");
+
+      for (let i = 0; i < 5; i++) await matcher.tick();
+      assert.equal(chain.submittedBatchSizes.length, 1, "and not again while it waits");
+      assert.equal(matcher.metrics.ordersCoolingDown, 2, "both sides of the fill are held");
+
+      // The wait is a wait, not a ban: past it the matcher tries once more.
+      clock.t += 2_500;
+      await matcher.tick();
+      assert.equal(chain.submittedBatchSizes.length, 2, "one retry, not a stream");
+    });
+
+    test("an order that keeps being refused is parked", async () => {
+      await seedCross();
+      const chain = new FakeChain();
+      chain.defaultOutcome = { kind: "rejected", error: "InsufficientCollateral" };
+      const clock = new FakeClock();
+      const { matcher } = newMatcher(chain, clock, { cooldown: { baseMs: 1_000, maxMs: 4_000, parkAfter: 3 } });
+
+      for (let i = 0; i < 3; i++) {
+        await matcher.tick();
+        clock.t += 5_000; // past whatever it is waiting
+      }
+      assert.equal(chain.submittedBatchSizes.length, 3, "three attempts, spaced out");
+      assert.equal(matcher.metrics.ordersParked, 2, "both sides parked after the third");
+    });
+
+    test("a fill that settles clears the strikes its orders were carrying", async () => {
+      await seedCross();
+      const chain = new FakeChain();
+      chain.defaultOutcome = { kind: "rejected", error: "InsufficientCollateral" };
+      const clock = new FakeClock();
+      const { matcher } = newMatcher(chain, clock);
+
+      await matcher.tick();
+      chain.defaultOutcome = { kind: "settled" }; // the account was funded
+      clock.t += 2_500;
+      await matcher.tick();
+      assert.equal(matcher.metrics.fillsSettled, 1);
+      assert.equal(matcher.metrics.ordersCoolingDown, 0, "nothing held once it trades");
     });
 
     test("a bad signature retires the order it can blame, and only that one", async () => {
