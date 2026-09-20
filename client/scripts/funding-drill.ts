@@ -133,8 +133,16 @@ async function main() {
     r.step("2. equal timestamps: skipped, not sent");
     const n0 = await nonce();
     const eq = await keeper.tick();
-    r.check("plan says same-timestamp", eq.plans.find((p) => p.marketId === BTC)?.action === "skip" &&
-      (eq.plans.find((p) => p.marketId === BTC) as { reason: string }).reason === "same-timestamp");
+    // ETH, not BTC: the tick above wrote ETH's lastUpdate in the newest block,
+    // so its lastUpdate IS the chain's clock and elapsed is exactly zero. BTC's
+    // clock was started by the trade several blocks earlier, and anvil stamps
+    // blocks with wall-clock seconds, so whether a second has ticked over since
+    // decides between "same-timestamp" and "not-due" — a coin flip, not the
+    // behaviour under test.
+    const ethPlan = eq.plans.find((p) => p.marketId === ETH);
+    r.check("plan says same-timestamp", ethPlan?.action === "skip" && ethPlan.reason === "same-timestamp",
+      JSON.stringify(ethPlan));
+    r.check("BTC is skipped too, having just traded", eq.plans.find((p) => p.marketId === BTC)?.action === "skip");
     r.check("no transaction sent", (await nonce()) === n0);
 
     // ── due ──
