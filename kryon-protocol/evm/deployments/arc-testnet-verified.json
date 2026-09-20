@@ -1,0 +1,45 @@
+{
+  "chainId": 5042002,
+  "engine": {
+    "codeHash": "0xb12aa68ca8650733a27030a24f68d6557782b7ecb00f3bb5424e094ee8dae7cb",
+    "implementation": "0x2Cfed48e995532554b22D33911EAB46EeD7D5c80",
+    "proxy": "0xD991e8a8a860B911e98E59fc480f179164D9b386"
+  },
+  "feeRouter": {
+    "codeHash": "0xade61a82251952bf0e3ede1f6fc86ea3b6bd19290f31f61393163261b2cb616a",
+    "implementation": "0x321931E7aDb2029c2c0ef3135cA9bd1Af47D7C07",
+    "proxy": "0x350F241A4cF9A37F5c11615f33e7d3C111835938"
+  },
+  "gateway": {
+    "codeHash": "0x74b99c9521101404fcee0efcdb8e286e0b1ed451b3398b5f30d5ff25036dcaf5",
+    "implementation": "0x3aCcA89A47F1989eDD768663588c02297cdbAC43",
+    "proxy": "0x38D92b1561894f109D708B64Fc71542eB80bEfa4"
+  },
+  "insurance": {
+    "codeHash": "0xd860b4cfe74b07e68b192aea6cc445da9114fcfead51fb6663add3bba0a1af2f",
+    "implementation": "0x27A360D0FEb3056f22d5Ca8B2349df71C947c8CF",
+    "proxy": "0xd6b52D1fEEf6B5623263c8E0a447B84eD4ed3F17"
+  },
+  "liquidation": {
+    "codeHash": "0x54cb6474f1aacb7b0668bdc89c7e604e7e5a3f0b8f94b7596ee32d1b8cc47b16",
+    "implementation": "0x46aeC687a44c4A89B542Bf4Bb7982d5EeA817FAf",
+    "proxy": "0x9f1914b1ba5C29f7d809BA52A87824392532f67A"
+  },
+  "oracle": {
+    "codeHash": "0x9aabc09c626d33cb525c34c4c50b319c723f5b28eb2a291abffd1974f5e3cfcc",
+    "implementation": "0xAbCe4745928f6C2eeCb23c4b8E87f8C8B348eCD0",
+    "proxy": "0xa463e1E6c106D62bA54C1A4993F56adec725586d"
+  },
+  "risk": {
+    "codeHash": "0x815267f821e5cc613778db6189b099d4745582ce56d8faeb12a6dc220ea7d97d",
+    "implementation": "0xC1b470C1726b4BD5a2C623F6bAC76aC30C8118Da",
+    "proxy": "0x6486c5D7A5F5225D61d105e10Cc62cce0D59Da62"
+  },
+  "timelock": "0x45fC3D305Ff170ef6127FaeD56f1CF992760aA20",
+  "vault": {
+    "codeHash": "0x80f7b0e8b1fa2b575788fef5d8c3236a2eee5b872ace805f5527036d1b76b443",
+    "implementation": "0x325CA44236C7B523B48D311D717A24D6BBa6294D",
+    "proxy": "0x54D2dB35159d76381c8e6f336fdc454CFdFebEfE"
+  },
+  "verifiedAtBlock": 63071499
+}
