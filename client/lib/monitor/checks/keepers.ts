@@ -221,7 +221,18 @@ export function evaluateFunding(
     const indexedAt = indexed.get(m.marketId) ?? null;
     const indexedAgeSecs = indexedAt === null ? null : chainNow - Math.floor(indexedAt.getTime() / 1000);
     if (m.fundingLastUpdate === 0) {
-      out.push(r.fail(`${subject}: funding has never been initialised on chain`, { ageSecs: null, indexedAgeSecs }, { subject }));
+      // The clock starts at the first trade. With no open interest there is
+      // nothing to charge and nothing to lose, which is the normal state of a
+      // freshly listed market — paging for it would page every new venue at
+      // the moment it opens. With open interest, funding is genuinely not
+      // accruing and someone is being short-changed.
+      const oi = m.longOi + m.shortOi;
+      const values = { ageSecs: null, indexedAgeSecs };
+      out.push(
+        oi === 0n
+          ? r.skip(`${subject}: never traded, so funding has not started (no open interest)`, values, { subject })
+          : r.fail(`${subject}: funding has never been initialised on chain, but the market holds open interest`, values, { subject })
+      );
       continue;
     }
     const age = chainNow - m.fundingLastUpdate;
