@@ -4,10 +4,8 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * `@/config` used to answer this question, and it answered it for the previous,
- * non-EVM deployment: Soroban RPC URLs, network passphrases, 7-decimal amounts.
- * That module now lives at `@/lib/stellar/legacy-config` and only the legacy
- * chain code reads it. Everything on the Arc path resolves networks here.
+ * Everything that needs to know which Arc network a page or process is on
+ * resolves it here, and nowhere else.
  *
  * The network ids are the ones the DATABASE accepts. Every Arc table carries
  * `CHECK ("network" IN ('arc-mainnet', 'arc-testnet', 'arc-local'))`, so a

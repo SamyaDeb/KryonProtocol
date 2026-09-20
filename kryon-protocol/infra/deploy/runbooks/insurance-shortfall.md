@@ -30,8 +30,9 @@ is zero.
 3. If ADL is running, watch the shortfall shrink tick by tick. Each haircut is
    bounded by the shortfall the keeper saw, so several steps are normal.
 4. If the shortfall is not shrinking and no keeper error explains it, the
-   fund needs capital: `scripts/mainnet-seed-insurance.ts` (a treasury action,
-   through governance).
+   fund needs capital: the treasury Safe approves USDC to the Insurance proxy
+   and calls `Insurance.donate(amount)` (operating capital, no claim back).
+   Donations need no timelock; anyone can make one.
 
 ## `unfundedShortfall()` cannot be priced
 

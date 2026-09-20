@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   // new URL("") throw ERR_INVALID_URL and kill the whole build.
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   title: "Kryon | Perpetuals DEX",
-  description: "Decentralised perpetual futures on Stellar/Soroban — BTC, ETH, XLM, SOL, XRP, ADA, BNB and TRX perpetuals",
+  description: "Perpetual futures on Arc: an order book matched off-chain, with custody, margin and settlement on chain in USDC.",
   applicationName: "Kryon",
   icons: {
     icon: [
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Kryon | Perpetuals DEX",
-    description: "Decentralised perpetual futures on Stellar/Soroban",
+    description: "Perpetual futures on Arc, settled on chain in USDC.",
     siteName: "Kryon",
     images: [{ url: "/icon-512.png", width: 512, height: 512 }],
     type: "website",

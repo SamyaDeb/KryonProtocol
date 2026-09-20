@@ -40,7 +40,7 @@ protocol.**
    otherwise. A role granted or a proxy upgraded without the timelock means a
    key with admin rights is not where we think it is.
    ```bash
-   cd client && npx tsx scripts/verify-decentralization.ts   # current holders, live
+   cd client && npx tsx scripts/monitor.ts --print-role-baseline   # current holders, live
    ```
 3. For an implementation change, get the bytecode and diff it against the build
    that should be deployed:

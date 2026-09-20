@@ -88,8 +88,8 @@ async function main() {
     for (const a of [alice, bob]) await lc.setBalance(a.address, 20_000n * E18);
     await depositUsdc(lc, alice, 2_000_000_000n);
     await depositUsdc(lc, bob, 5_000_000_000n);
-    // A guarded launch seeds the insurance fund before it opens (see
-    // scripts/mainnet-seed-insurance.ts); without it, coverage is 0% of open
+    // A guarded launch seeds the insurance fund before it opens (a treasury
+    // `Insurance.donate`, runbooks/insurance-shortfall.md); without it, coverage is 0% of open
     // interest and the fund cannot absorb a liquidation.
     await seedInsurance(lc, 5_000_000_000n); // $5,000, a third of the open interest below
     await trading.pushIndex({ BTC: INDEX, ETH: 3_000n * E18 });
