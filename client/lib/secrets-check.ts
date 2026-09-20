@@ -76,7 +76,9 @@ export function assertRequiredSecrets(required: string[]): void {
     }
     if (looksLikePlaceholder(value)) {
       suspicious.push(`${key} (looks like a placeholder)`);
-    } else if (/SECRET|_KEY$/.test(key) && looksLikeTestKey(value)) {
+      // Spelled out rather than /SECRET|_KEY$/, whose precedence reads as
+      // "SECRET anywhere, or _KEY at the end" only if you look twice.
+    } else if ((key.includes("SECRET") || key.endsWith("_KEY")) && looksLikeTestKey(value)) {
       suspicious.push(`${key} (a public anvil development key: never use it off arc-local)`);
     }
   }
