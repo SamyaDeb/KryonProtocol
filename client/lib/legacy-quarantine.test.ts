@@ -42,31 +42,14 @@ const LEGACY_BY_LOCATION = [/^lib\/stellar\//, /^scripts\//];
 /**
  * Files outside those directories that still read the old chain's config.
  *
- * Each is on a known path out:
- *  - the trading UI (`features/trade/**`, `app/*Page`, the market pages and
- *    cells) renders old-chain amounts and Stellar explorer links, and is
- *    rewritten with the wallet/trading work, not here;
- *  - `lib/market/matcher|signing-message` submit and sign orders the old way,
- *    and go when signed trading lands;
- *  - `app/portfolio/page.tsx`, `OpenOrdersTable` and `OrderHistoryTable`
- *    surfaced when the 1e7 helpers moved under `lib/stellar/`: they reached
- *    the old scale through `lib/format`, which the scan could not see.
+ * Each is on a known path out: the landing and portfolio pages, and the
+ * portfolio's collateral hook, are rewritten with the other pages (Phase 4
+ * PR 6). The trading screen itself is off the list.
  */
 const QUARANTINED = new Set([
   "app/LandingPage.tsx",
   "app/portfolio/page.tsx",
   "features/collateral/useCollateral.ts",
-  "features/trade/components/AccountBar.tsx",
-  "features/trade/components/BottomPanel.tsx",
-  "features/trade/components/DepositWithdrawDialog.tsx",
-  "features/trade/components/OpenOrdersTable.tsx",
-  "features/trade/components/OrderEntry.tsx",
-  "features/trade/components/OrderHistoryTable.tsx",
-  "features/trade/components/PositionsTable.tsx",
-  "features/trade/components/SettlementModal.tsx",
-  "features/trade/components/TradeTerminalGrid.tsx",
-  "lib/market/matcher.ts",
-  "lib/market/signing-message.ts",
 ]);
 
 const SOURCE_ROOTS = ["app", "lib", "features", "components", "stores", "scripts"];
