@@ -21,6 +21,10 @@ export interface MatcherMetrics {
   fillsRejected: number;
   fillsUnaccounted: number;
   ordersRetired: number;
+  /** Orders held out of the book by rejection backoff right now. */
+  ordersCoolingDown: number;
+  /** Orders parked after repeated retryable rejections. */
+  ordersParked: number;
   matcherBugs: number;
   batches: number;
   batchReverts: number;
@@ -42,6 +46,8 @@ export function newMetrics(): MatcherMetrics {
     matches: 0,
     bandDrops: 0,
     backstopDrops: 0,
+    ordersCoolingDown: 0,
+    ordersParked: 0,
     fillsSubmitted: 0,
     fillsSettled: 0,
     fillsRejected: 0,

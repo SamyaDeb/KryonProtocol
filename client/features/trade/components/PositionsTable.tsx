@@ -17,6 +17,11 @@ import { liquidationPrice, marginAt, unrealizedPnl } from "@/lib/math";
 import { useMarketStore } from "@/stores/market";
 
 /** Slippage for the one-click close: a reduce-only market order. */
+/**
+ * Slippage for the one-click close. The market's execution band caps it
+ * (lib/market/order-ticket.ts): asking for more would only sign a price no
+ * fill can settle at, and leave the close resting instead of closing.
+ */
 const CLOSE_SLIPPAGE_BPS = 100;
 
 /**

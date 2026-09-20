@@ -16,6 +16,10 @@
  *   ORACLE_START_OFFSET_MS            initial delay, to stagger publishers (default 0; use ~500 on the second)
  *   ORACLE_PUSH_DEVIATION_BPS         publish on a move of at least this (default 5)
  *   ORACLE_HEARTBEAT_SECS             ...or when our observation is this old (default 5; on-chain maxAge is 15)
+ *   ORACLE_IDLE_CADENCE               price feeds whose market is closed more cheaply (default true)
+ *   ORACLE_IDLE_DEVIATION_BPS         their move threshold (default 50)
+ *   ORACLE_IDLE_HEARTBEAT_SECS        their heartbeat (default 60)
+ *   ORACLE_MARKETS_TTL_MS             how long the market listing is cached (default 60000)
  *   ORACLE_MIN_SOURCES                live venues required per feed (default 2, never lower)
  *   ORACLE_MAX_SOURCE_DEVIATION_BPS   drop a venue this far from the median (default 50)
  *   ORACLE_SOURCES                    venues to use (default binance,coinbase,kraken)
@@ -98,6 +102,11 @@ async function main() {
       oracle: ctx.contracts.oracleAdapter,
       self: sender.address,
       usdcReference: usdcRef,
+      // Lets the publisher tell a tradeable market's feed from a listed-but-
+      // closed one. ORACLE_IDLE_CADENCE=false opts out and prices everything
+      // at trading speed, as before.
+      riskParams: envBool(env, "ORACLE_IDLE_CADENCE", true) ? ctx.contracts.riskParams : null,
+      marketsTtlMs: envInt(env, "ORACLE_MARKETS_TTL_MS", 60_000),
     }),
     sender,
     oracle: ctx.contracts.oracleAdapter,
@@ -109,6 +118,16 @@ async function main() {
     policy: {
       deviationBps: BigInt(envInt(env, "ORACLE_PUSH_DEVIATION_BPS", 5)),
       heartbeatSecs: envInt(env, "ORACLE_HEARTBEAT_SECS", 5),
+      inclusionMarginSecs: envInt(env, "ORACLE_INCLUSION_MARGIN_SECS", 3),
+      maxRefDivergenceBps: envInt(env, "ORACLE_MAX_REF_DIVERGENCE_BPS", 0),
+    },
+    // A feed no one can trade against still has to be fresh enough to quote a
+    // price and to list the market from, which is a far cheaper duty: on a
+    // venue that lists more markets than it opens, these feeds were most of
+    // the gas bill.
+    idlePolicy: {
+      deviationBps: BigInt(envInt(env, "ORACLE_IDLE_DEVIATION_BPS", 50)),
+      heartbeatSecs: envInt(env, "ORACLE_IDLE_HEARTBEAT_SECS", 60),
       inclusionMarginSecs: envInt(env, "ORACLE_INCLUSION_MARGIN_SECS", 3),
       maxRefDivergenceBps: envInt(env, "ORACLE_MAX_REF_DIVERGENCE_BPS", 0),
     },

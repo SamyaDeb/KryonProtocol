@@ -23,6 +23,10 @@
  *   MATCHER_INTERVAL_MS      tick interval (default 1000)
  *   MATCHER_MIN_BATCH_FILLS  gas-resize floor (default 1)
  *   MATCHER_ORPHAN_GRACE_MS  age before recovery judges an unlinked fill (default 60000)
+ *   MATCHER_REJECT_BACKOFF_MS      wait after a retryable rejection, doubling (default 2000)
+ *   MATCHER_REJECT_BACKOFF_MAX_MS  ceiling on that wait (default 60000)
+ *   MATCHER_REJECT_PARK_AFTER      strikes before an order is parked (default 5)
+ *   MATCHER_REJECT_FORGET_MS       how long a strike record survives (default 300000)
  *   MATCHER_HEALTH_PORT      health/metrics endpoint; unset disables it
  *   ARC_RPC_URLS             paid providers, comma separated (public RPC last)
  *
@@ -139,6 +143,15 @@ async function main() {
     pollMs: Number(process.env.MATCHER_INTERVAL_MS ?? "1000"),
     minBatchFills: Number(process.env.MATCHER_MIN_BATCH_FILLS ?? "1"),
     orphanGraceMs: Number(process.env.MATCHER_ORPHAN_GRACE_MS ?? "60000"),
+    // An order the chain refuses waits before being offered again, longer
+    // each time. Without this the same fill is re-offered every tick and the
+    // operator pays gas for every rejection.
+    cooldown: {
+      baseMs: Number(process.env.MATCHER_REJECT_BACKOFF_MS ?? "2000"),
+      maxMs: Number(process.env.MATCHER_REJECT_BACKOFF_MAX_MS ?? "60000"),
+      parkAfter: Number(process.env.MATCHER_REJECT_PARK_AFTER ?? "5"),
+      forgetAfterMs: Number(process.env.MATCHER_REJECT_FORGET_MS ?? "300000"),
+    },
     log,
     metrics,
   });

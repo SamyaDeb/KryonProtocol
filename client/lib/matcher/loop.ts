@@ -38,6 +38,7 @@ import {
 import { applyBatchResult, resultFromReceipt, revertReasonFor } from "./apply";
 import { buildFills, chainGasEstimator, halveAfterGasRevert, sizeBatches, type PlannedFill } from "./batch";
 import { loadBook, loadMinValidNonces, loadSignedOrders, MarketNotConfiguredError } from "./book";
+import { DEFAULT_COOLDOWN, RejectionCooldown, type CooldownOptions } from "./cooldown";
 import type { Db } from "./db";
 import { erc1271CheckerFor, type Erc1271Checker } from "@/lib/validation";
 import { newMetrics, recordBatchGas, type MatcherMetrics } from "./metrics";
@@ -87,6 +88,11 @@ export interface MatcherOptions {
    * network's gas-capped `eth_call` checker; tests inject their own.
    */
   erc1271?: Erc1271Checker;
+  /**
+   * How long an order waits after the chain refuses a fill it was in, and
+   * when to stop retrying it altogether. Defaults to DEFAULT_COOLDOWN.
+   */
+  cooldown?: CooldownOptions;
 }
 
 export class Matcher {
@@ -94,6 +100,7 @@ export class Matcher {
   private readonly o: Required<Omit<MatcherOptions, "metrics">> & { metrics: MatcherMetrics };
   private stopping = false;
   private running: Promise<void> | null = null;
+  private readonly cooldown: RejectionCooldown;
 
   constructor(options: MatcherOptions) {
     this.metrics = options.metrics ?? newMetrics();
@@ -101,12 +108,14 @@ export class Matcher {
       pollMs: 1_000,
       clock: systemMatcherClock,
       minBatchFills: 1,
+      cooldown: DEFAULT_COOLDOWN,
       orphanGraceMs: 60_000,
       erc1271: erc1271CheckerFor(options.network.id),
       ...options,
       metrics: this.metrics,
     };
     if (this.o.marketIds.length === 0) throw new Error("a matcher shard needs at least one market id");
+    this.cooldown = new RejectionCooldown(this.o.cooldown);
   }
 
   /** Insurance's unwind limits and what is left of today's cap. */
@@ -328,6 +337,14 @@ export class Matcher {
     if (!book.market.active) return;
     if (book.orders.length === 0) return;
 
+    // Orders the chain has just refused wait their turn out. Without this the
+    // same pair is re-offered every tick and every rejection costs gas.
+    const nowMs = this.o.clock.nowMs();
+    this.cooldown.sweep(nowMs);
+    const orders = book.orders.filter((o) => !this.cooldown.blocked(o.orderHash, nowMs));
+    this.metrics.ordersCoolingDown = this.cooldown.blockedCount(nowMs);
+    if (orders.length === 0) return;
+
     let index;
     try {
       index = await readIndexPrice(this.o.chain, this.o.contracts.oracleAdapter, book.market);
@@ -348,7 +365,7 @@ export class Matcher {
     const { matches } = matchOrders({
       marketId,
       nowSec,
-      orders: book.orders,
+      orders,
       positions: book.positions,
       minValidNonce: book.minValidNonce,
       minFillNotional: book.market.minFillNotional,
@@ -529,6 +546,17 @@ export class Matcher {
     });
     if (applied.rejected.length > 0) {
       this.o.log.warn("batch_rejections", { job: job.id, rejected: applied.rejected });
+      this.recordRejectionBackoff(fills, applied.rejected);
+    }
+    // A fill that settled proves both its orders are fine; drop any strikes
+    // they were carrying so an old rejection cannot escalate a new one.
+    if (applied.settled.length > 0) {
+      const settled = new Set(applied.settled.map((id) => id.toLowerCase()));
+      for (const f of fills) {
+        if (!settled.has(f.fillId.toLowerCase())) continue;
+        this.cooldown.clear(f.makerOrderHash);
+        this.cooldown.clear(f.takerOrderHash);
+      }
     }
     if (applied.unaccounted.length > 0) {
       this.o.log.error("batch_unaccounted", { job: job.id, fills: applied.unaccounted });
@@ -540,6 +568,38 @@ export class Matcher {
       this.o.log.warn("signature_rejection_unblamed", { job: job.id, fills: applied.unblamed });
     }
     return receipt;
+  }
+
+  /**
+   * Hold back the orders behind a retryable rejection, for longer each time.
+   *
+   * Only `retryable` earns a strike: a poison rejection has already retired
+   * its order, and a matcher bug is ours to fix, not the order's to wait out.
+   */
+  private recordRejectionBackoff(
+    fills: readonly PlannedFill[],
+    rejected: readonly { fillId: Hex; reason: string; kind: string }[]
+  ): void {
+    const nowMs = this.o.clock.nowMs();
+    const byFillId = new Map(fills.map((f) => [f.fillId.toLowerCase(), f]));
+    for (const r of rejected) {
+      if (r.kind !== "retryable") continue;
+      const fill = byFillId.get(r.fillId.toLowerCase());
+      if (!fill) continue;
+      for (const orderHash of [fill.makerOrderHash, fill.takerOrderHash]) {
+        const state = this.cooldown.strike(orderHash, r.reason, nowMs);
+        if (state.parked && state.strikes === this.o.cooldown.parkAfter) {
+          this.metrics.ordersParked += 1;
+          this.o.log.warn("order_parked", {
+            orderHash,
+            reason: r.reason,
+            strikes: state.strikes,
+            waitMs: state.until - nowMs,
+          });
+        }
+      }
+    }
+    this.metrics.ordersCoolingDown = this.cooldown.blockedCount(nowMs);
   }
 }
 

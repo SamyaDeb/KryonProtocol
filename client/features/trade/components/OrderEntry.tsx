@@ -21,9 +21,12 @@ const EXPIRIES = [
   { label: "7 days", seconds: 604_800n },
 ] as const;
 
-/** Default maximum slippage for market orders, in bps. */
+/**
+ * Default maximum slippage for market orders, in bps. The real ceiling is the
+ * market's execution band: `Engine.applyFill` reverts past it, so slippage
+ * beyond it cannot buy a fill, and the ticket cuts it back either way.
+ */
 const DEFAULT_SLIPPAGE_BPS = 100;
-const MAX_SLIPPAGE_BPS = 500;
 
 const CheckIcon = () => (
   <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
@@ -108,7 +111,8 @@ export function OrderEntry({
           ? (typed * E18) / sizePriceBasis
           : null
         : typed;
-  const slippageBps = Math.min(MAX_SLIPPAGE_BPS, Math.max(0, Math.round((Number(slippageText) || 0) * 100)));
+  const maxSlippageBps = market.maxExecutionDeviationBps;
+  const slippageBps = Math.min(maxSlippageBps, Math.max(0, Math.round((Number(slippageText) || 0) * 100)));
 
   const ticket = useMemo(
     () =>
@@ -250,7 +254,10 @@ export function OrderEntry({
               />
             </label>
           ) : (
-            <label className="flex h-[36px] items-center justify-end gap-1 rounded-[8px] bg-[#212128] px-3 text-[11.5px] text-[#8f98aa]" title="Maximum distance past the best price a market order may fill">
+            <label
+              className="flex h-[36px] items-center justify-end gap-1 rounded-[8px] bg-[#212128] px-3 text-[11.5px] text-[#8f98aa]"
+              title={`Maximum distance past the best price a market order may fill. This market settles nothing more than ${maxSlippageBps / 100}% from the index, so that is the most it can use.`}
+            >
               Slippage
               <input
                 aria-label="Maximum slippage percent"
@@ -352,6 +359,13 @@ export function OrderEntry({
           <p role="alert" className="text-[12px] leading-5 text-[#ff9b9b]">
             {TICKET_ERROR_TEXT[blocking[0]]}
             {blocking[0] === "below_min_notional" && ` Minimum ${formatUsd(market.minFillNotional)}.`}
+          </p>
+        )}
+
+        {blocking.length === 0 && ticket.slippageClamped && (
+          <p className="text-[12px] leading-5 text-[#8f98aa]">
+            Capped at {maxSlippageBps / 100}%: this market settles no fill further than that from the index price, so
+            a wider limit would only rest unfilled.
           </p>
         )}
 

@@ -34,7 +34,8 @@
     "testnet:keys": "tsx scripts/testnet-keys.ts",
     "test:e2e:ui": "tsx scripts/ui-e2e.ts",
     "gate:venue": "tsx scripts/venue-gate.ts",
-    "ops": "tsx scripts/ops.ts"
+    "ops": "tsx scripts/ops.ts",
+    "smoke:testnet": "tsx scripts/testnet-smoke.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1136.0",
