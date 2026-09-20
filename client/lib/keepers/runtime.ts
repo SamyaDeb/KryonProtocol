@@ -377,6 +377,8 @@ export interface BootstrapOptions {
   sql: SqlClient;
   env?: Env;
   logLevel?: LogLevel;
+  /** Where log lines go. Default stdout; a tool printing data there passes stderr. */
+  logSink?: (line: string) => void;
 }
 
 /**
@@ -389,9 +391,12 @@ export async function bootstrap(o: BootstrapOptions): Promise<KeeperContext> {
   const network = arcNetwork(serverNetworkId(env));
   const contracts = serverContracts(network, env);
   const client = createArcPublicClient(network);
-  const log = createLogger(o.service, o.logLevel ?? (env.LOG_LEVEL as LogLevel) ?? "info", {
-    network: network.id,
-  });
+  const log = createLogger(
+    o.service,
+    o.logLevel ?? (env.LOG_LEVEL as LogLevel) ?? "info",
+    { network: network.id },
+    o.logSink
+  );
   // node-postgres writes a Date into a `timestamp` column as host-local wall
   // time. Pin UTC so TxJob.createdAt and the GasSpend day agree on every host.
   if (process.env.TZ !== "UTC") {

@@ -88,7 +88,15 @@ async function main() {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
   const sql = neon(databaseUrl);
-  const ctx = await bootstrap({ service: SERVICE, sql, env });
+  // The print modes write DATA to stdout, so their logs must not: a startup
+  // line ahead of the JSON is what `--print-role-baseline > roles.json` would
+  // otherwise save, and the file it produces is not parseable.
+  const ctx = await bootstrap({
+    service: SERVICE,
+    sql,
+    env,
+    ...(PRINT_BASELINE ? { logSink: (line: string) => process.stderr.write(`${line}\n`) } : {}),
+  });
   const cfg = loadMonitorConfig(env, rpcUrlsFromEnv(ctx.network, env));
   const chain = viemMonitorChain(ctx.client, ctx.contracts);
 

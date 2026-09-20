@@ -101,6 +101,17 @@ function getPool(url: string): Pool {
   else if (!/localhost|127\.0\.0\.1/.test(url)) cfg.ssl = { rejectUnauthorized: false };
 
   pool = new Pool(cfg);
+  // The services pin their own clock to UTC (lib/keepers/runtime.ts) so that a
+  // Date written into a `timestamp` column means the same thing on every host.
+  // The session on the other end must agree: a SQL `now()` is written in the
+  // SESSION's zone, and read back as UTC, so on a host that is not already UTC
+  // every stored timestamp comes back skewed by the offset — silently, and in
+  // the direction that makes ages negative and staleness checks pass.
+  pool.on("connect", (client) => {
+    client.query("SET TIME ZONE 'UTC'").catch((err: Error) => {
+      console.error(`pg: could not pin the session to UTC: ${err.message}`);
+    });
+  });
   // A pool that emits 'error' with no listener crashes the process — these are
   // idle-client errors (server restart, network blip); the pool reconnects.
   pool.on("error", (err) => {
