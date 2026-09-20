@@ -80,6 +80,54 @@ venue? A venue fails quietly here — an app on yesterday's addresses, a
 database indexed from another deployment, or markets the index calls inactive
 while the chain has them live, which rejects every order.
 
+## Operating the venue
+
+Every admin function belongs to `KryonTimelock`, so nothing is changed by
+calling a contract directly. A change is scheduled, waits the 48-hour minimum
+(testnet included), and is then executed:
+
+```bash
+cd client
+npm run ops -- status                     # caps, markets, fees as the chain has them
+npm run ops -- queue                      # scheduled operations, decoded, with their ready time
+
+npm run ops -- market pause 2             # preview: target, effect in words, calldata, id, eta
+npm run ops -- market pause 2 --send      # schedule it
+npm run ops -- market apply btc --send    # that market's parameters from the environment TOML
+npm run ops -- caps 250000 10000 --send   # USDC, whole units
+npm run ops -- role grant insurance BACKSTOP_SIGNER_ROLE 0x… --send
+
+npm run ops -- execute <operationId> --send   # once `queue` says it is ready
+npm run ops -- cancel  <operationId> --send
+```
+
+Nothing is sent without `--send`. Scheduling writes a receipt to
+`~/.kryon/ops/<network>/<id>.json`, so `execute` reproduces the exact
+arguments two days later even if the indexer is behind. `market apply` takes
+its numbers from `environments/<network>.toml` rather than from the command
+line, so what governance schedules is what was reviewed and committed — the
+same file `99_VerifyDeployment` checks the chain against.
+
+Signing uses the governance key (`KRYON_SIGNER_GOVERNANCE`), which needs
+`PROPOSER_ROLE` to schedule and `EXECUTOR_ROLE` to execute.
+
+## Monitor configuration a deployment must supply
+
+The monitor compares the venue against what someone decided it should be, and
+those expectations are deployment configuration, not defaults. Until they are
+set the affected checks skip (and `gate:venue --strict` fails on them):
+
+| Variable | What it pins |
+|---|---|
+| `MONITOR_EXPECTED_DEPOSIT_CAP_USDC`, `MONITOR_EXPECTED_ACCOUNT_CAP_USDC` | the deposit caps governance agreed on |
+| `MONITOR_ROLE_BASELINE_FILE` | the role holders written once by `--print-role-baseline` |
+| `REFILL_TARGETS`, `MONITOR_GAS_TARGETS` | which service wallets are topped up, and to what balance |
+| `MONITOR_REFILL_FUNDER_ADDRESS` | the wallet that does the topping up |
+
+A market that has never traded has no funding clock and no open interest to
+charge; the funding-freshness check reports that as a skip. With open interest
+present it is a page — funding is being lost.
+
 ## Runbooks
 
 `runbooks/` holds incident, rollback, oracle, matcher and stuck-settlement

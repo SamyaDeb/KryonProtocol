@@ -466,8 +466,24 @@ test("funding freshness is judged on chain state, in chain seconds, per market",
   const rs = evaluateFunding(markets, new Map(), chainNow, 3_600);
   assert.equal(only(rs, "funding.freshness:BTC").status, "pass");
   assert.match(only(rs, "funding.freshness:ETH").detail, /funding is being lost/);
-  assert.match(only(rs, "funding.freshness:SOL").detail, /never been initialised/);
+  assert.equal(only(rs, "funding.freshness:SOL").status, "fail");
+  assert.match(only(rs, "funding.freshness:SOL").detail, /never been initialised.*holds open interest/);
   assert.equal(rs.length, 3, "an inactive market is not watched");
+});
+
+test("a freshly listed market that has never traded is skipped, not paged", () => {
+  // Every new venue starts here: funding has no clock because nothing has been
+  // charged, and there is no exposure to charge. Paging for that would page
+  // on-call at the moment the market opens.
+  const chainNow = 1_000_000;
+  const rs = evaluateFunding(
+    [market({ symbol: "SOL", fundingLastUpdate: 0, longOi: 0n, shortOi: 0n })],
+    new Map(),
+    chainNow,
+    3_600
+  );
+  assert.equal(only(rs, "funding.freshness:SOL").status, "skip");
+  assert.match(only(rs, "funding.freshness:SOL").detail, /never traded/);
 });
 
 test("a market whose funding clock started without an indexed event still passes", () => {
