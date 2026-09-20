@@ -32,7 +32,9 @@
     "drill:funding": "tsx scripts/funding-drill.ts",
     "test:e2e:keepers": "tsx scripts/keepers-e2e.ts",
     "testnet:keys": "tsx scripts/testnet-keys.ts",
-    "test:e2e:ui": "tsx scripts/ui-e2e.ts"
+    "test:e2e:ui": "tsx scripts/ui-e2e.ts",
+    "gate:venue": "tsx scripts/venue-gate.ts",
+    "ops": "tsx scripts/ops.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1136.0",

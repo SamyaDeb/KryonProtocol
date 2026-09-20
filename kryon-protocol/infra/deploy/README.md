@@ -56,6 +56,30 @@ Run from `kryon-protocol/evm/`, in order, or all at once with `DeployAll`:
 Mainnet broadcasts additionally require `KRYON_ALLOW_MAINNET=true`. Storage layout
 checks for upgrades: `script/storage-layout.sh`.
 
+## Before opening a venue
+
+Three questions, in order:
+
+```bash
+# 1. The contracts match the environment config (read-only, any time)
+cd kryon-protocol/evm
+KRYON_NETWORK=arc-testnet arc-forge script script/99_VerifyDeployment.s.sol --rpc-url $ARC_RPC
+
+# 2. The venue agrees with itself, and every monitor check passes
+cd ../../client
+npm run gate:venue            # exits non-zero if a check fails
+npm run gate:venue -- --strict # a check that could not run also fails
+
+# 3. Write the role baseline the monitor compares against, once 1 and 2 pass
+npx tsx scripts/monitor.ts --print-role-baseline > /path/to/roles.json
+```
+
+`gate:venue` answers what neither of the others does: do the deployment
+record, the chain, the app's API and the indexed database describe the SAME
+venue? A venue fails quietly here — an app on yesterday's addresses, a
+database indexed from another deployment, or markets the index calls inactive
+while the chain has them live, which rejects every order.
+
 ## Runbooks
 
 `runbooks/` holds incident, rollback, oracle, matcher and stuck-settlement
